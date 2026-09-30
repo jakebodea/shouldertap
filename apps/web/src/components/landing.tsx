@@ -16,6 +16,7 @@ import {
   useState,
 } from "react";
 
+import { InkIcon, InkMark, InkText } from "@/components/ink";
 import { Mark, Wordmark } from "@/components/mark";
 import { useThemeColor } from "@/lib/frame";
 
@@ -49,10 +50,8 @@ export function Landing() {
   const [index, setIndex] = useState(0);
   // The color the wipe starts from, and the one the frame's own text is set in.
   const [from, setFrom] = useState<PersonColor>(SCENES[0]?.color ?? "moss");
-  const [ink, setInk] = useState<PersonColor>(from);
   const rootRef = useRef<HTMLDivElement>(null);
   const wipeRef = useRef<Animation | null>(null);
-  const inkTimer = useRef<number | undefined>(undefined);
   const [answered, setAnswered] = useState<{
     who: string;
     label: string;
@@ -80,6 +79,15 @@ export function Landing() {
     };
   }, []);
 
+  // A hidden tab draws no frames, so the sweep would stall while scenes kept
+  // advancing underneath it; hold the cycle until the page is seen again.
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    const sync = () => setHidden(document.visibilityState === "hidden");
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, []);
+
   const scene = SCENES[index] ?? SCENES[0];
   useThemeColor(swatches[scene.color].base);
 
@@ -92,7 +100,6 @@ export function Landing() {
       const root = rootRef.current;
       if (!root || prefersReducedMotion()) {
         setFrom(nextColor);
-        setInk(nextColor);
         return;
       }
       setFrom(scene.color);
@@ -107,19 +114,17 @@ export function Landing() {
       );
       wipe.onfinish = () => setFrom(nextColor);
       wipeRef.current = wipe;
-      window.clearTimeout(inkTimer.current);
-      inkTimer.current = window.setTimeout(() => setInk(nextColor), 280);
     },
     [index, scene.color, scene.who]
   );
 
   useEffect(() => {
-    if (paused || prefersReducedMotion()) {
+    if (paused || hidden || prefersReducedMotion()) {
       return;
     }
     const timer = setTimeout(() => advance(), SCENE_MS);
     return () => clearTimeout(timer);
-  }, [advance, paused]);
+  }, [advance, paused, hidden]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -145,25 +150,28 @@ export function Landing() {
           "--wipe-from": swatches[from].base,
           "--wipe-to": swatches[scene.color].base,
           "--frame": swatches[scene.color].base,
-          "--frame-ink": swatches[ink].ink,
+          "--frame-ink": swatches[scene.color].ink,
+          "--ink-from": swatches[from].ink,
+          "--ink-to": swatches[scene.color].ink,
         } as CSSProperties
       }
     >
-      <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-center gap-6 px-5 font-semibold text-[0.9375rem] transition-colors duration-300 md:h-24 md:px-[72px] md:text-lg">
+      <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-center gap-6 px-5 font-semibold text-[0.9375rem] md:h-24 md:px-[72px] md:text-lg">
         <a
           aria-label="Shouldertap home"
-          className="mr-auto text-xl md:text-[1.625rem]"
+          className="mr-auto inline-flex items-center gap-[0.32em] font-extrabold text-xl tracking-[-0.035em] md:text-[1.625rem]"
           href="/"
         >
-          <Wordmark />
+          <InkMark className="size-[1.05em]" />
+          <InkText>Shouldertap</InkText>
         </a>
         <a
           className="hidden opacity-85 hover:opacity-100 sm:inline"
           href="#how"
         >
-          How it works
+          <InkText>How it works</InkText>
         </a>
-        <span className="inline-flex h-10 items-center whitespace-nowrap rounded-full bg-frame-ink px-4 font-bold text-sm transition-colors duration-300 md:h-[2.875rem] md:px-5 md:text-base">
+        <span className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm md:h-[2.875rem] md:px-5 md:text-base">
           <span className="frame-fill-text">
             Coming soon<span className="hidden sm:inline">&nbsp;for Mac</span>
           </span>
@@ -178,8 +186,8 @@ export function Landing() {
         >
           <div className="flex flex-1 flex-col justify-center gap-7 md:gap-8">
             <p className="flex items-center gap-3 font-semibold text-lg text-tone md:text-[1.375rem]">
-              <span className="frame-fill grid size-8 place-items-center rounded-full font-bold text-frame-ink text-sm transition-colors duration-300 md:size-[2.125rem] md:text-[0.9375rem]">
-                {scene.who[0]}
+              <span className="frame-fill grid size-8 place-items-center rounded-full font-bold text-sm md:size-[2.125rem] md:text-[0.9375rem]">
+                <InkText>{scene.who[0]}</InkText>
               </span>
               <b className="font-bold text-ink">{scene.who}</b>
               <span className="tabular-nums">just now</span>
@@ -199,14 +207,29 @@ export function Landing() {
                   onClick={() => advance(reply.label)}
                   type="button"
                 >
-                  <HugeiconsIcon
-                    className="size-5 md:size-[1.625rem]"
-                    icon={reply.icon}
-                  />
-                  {reply.label}
-                  <span className="hidden text-[0.9375rem] tabular-nums opacity-50 md:inline">
-                    {reply.key}
-                  </span>
+                  {i === 0 ? (
+                    <>
+                      <InkIcon
+                        className="size-5 md:size-[1.625rem]"
+                        icon={reply.icon}
+                      />
+                      <InkText>{reply.label}</InkText>
+                      <InkText className="hidden text-[0.9375rem] tabular-nums opacity-50 md:inline">
+                        {reply.key}
+                      </InkText>
+                    </>
+                  ) : (
+                    <>
+                      <HugeiconsIcon
+                        className="size-5 md:size-[1.625rem]"
+                        icon={reply.icon}
+                      />
+                      {reply.label}
+                      <span className="hidden text-[0.9375rem] tabular-nums opacity-50 md:inline">
+                        {reply.key}
+                      </span>
+                    </>
+                  )}
                 </button>
               ))}
             </div>
@@ -389,9 +412,9 @@ function MiniPhone({ scene }: { scene: Scene }) {
       className="frame-fill grid w-64 grid-rows-[2.25rem_1fr] rounded-[2.25rem] px-1.5 pb-1.5 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
     >
       <div className="flex items-center justify-between px-6 pt-1 font-semibold text-xs">
-        <span className="tabular-nums">7:41</span>
+        <InkText className="tabular-nums">7:41</InkText>
         <span className="h-5 w-20 rounded-full bg-black" />
-        <span>5G</span>
+        <InkText>5G</InkText>
       </div>
       <div className="flex flex-col gap-4 rounded-[1.875rem] bg-paper px-4 pt-5 pb-5 text-ink">
         <div className="flex items-start justify-between">
@@ -407,8 +430,8 @@ function MiniPhone({ scene }: { scene: Scene }) {
           {scene.message}
         </div>
         <div className="pill pill-fill frame-fill pill-sm w-full">
-          <HugeiconsIcon className="size-4" icon={SentIcon} />
-          Send tap
+          <InkIcon className="size-4" icon={SentIcon} />
+          <InkText>Send tap</InkText>
         </div>
       </div>
     </div>
@@ -422,8 +445,8 @@ function MiniOverlay({ scene }: { scene: Scene }) {
       className="frame-fill relative aspect-[16/10] w-full max-w-[30rem] rounded-2xl px-3 pt-9 pb-3 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
     >
       <div className="absolute top-2.5 left-5 flex items-baseline gap-2 font-bold text-sm">
-        {scene.who}
-        <span className="font-medium text-xs opacity-75">just now</span>
+        <InkText>{scene.who}</InkText>
+        <InkText className="font-medium text-xs opacity-75">just now</InkText>
       </div>
       <div className="flex h-full flex-col justify-between rounded-xl bg-paper px-6 pt-8 pb-5 text-ink">
         <b className="font-extrabold text-[2.25rem] leading-[0.95] tracking-[-0.04em]">
@@ -431,8 +454,8 @@ function MiniOverlay({ scene }: { scene: Scene }) {
         </b>
         <div className="flex gap-1.5">
           <span className="pill pill-fill frame-fill h-7 gap-1.5 px-3 text-xs">
-            <HugeiconsIcon className="size-3.5" icon={Tick02Icon} />
-            On it
+            <InkIcon className="size-3.5" icon={Tick02Icon} />
+            <InkText>On it</InkText>
           </span>
           <span className="pill h-7 gap-1.5 px-3 text-xs">
             <HugeiconsIcon className="size-3.5" icon={Clock01Icon} />

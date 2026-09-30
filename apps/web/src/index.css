@@ -250,6 +250,33 @@
   background-clip: text;
 }
 
+/* Ink on a person's color follows the same sweep, in that color's ink. */
+.ink-fill,
+.ink-text {
+  background-color: var(--ink-to);
+  background-image: radial-gradient(
+    circle at 0 0,
+    var(--ink-to) var(--wipe),
+    var(--ink-from) var(--wipe)
+  );
+  background-attachment: fixed;
+}
+
+.ink-text {
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.mask-glyph {
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
