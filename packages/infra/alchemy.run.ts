@@ -1,8 +1,9 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
-import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import "varlock/auto-load";
+
+import type { Inbox } from "../../apps/server/src/inbox";
 
 export const server = Cloudflare.Worker("server", {
   main: "../../apps/server/src/index.ts",
@@ -10,7 +11,8 @@ export const server = Cloudflare.Worker("server", {
     flags: ["nodejs_compat"],
   },
   env: {
-    CORS_ORIGIN: Config.String("CORS_ORIGIN"),
+    // One SQLite-backed object per recipient: devices, senders and taps.
+    INBOX: Cloudflare.DurableObject<Inbox>("Inbox"),
   },
   dev: {
     port: 3000,

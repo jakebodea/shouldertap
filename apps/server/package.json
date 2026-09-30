@@ -11,7 +11,9 @@
   "dependencies": {
     "hono": "^4.13.7",
     "varlock": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@shouldertap/domain": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",

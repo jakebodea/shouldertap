@@ -28,7 +28,6 @@
   },
   "globalEnv": [
     "CI",
-    "CORS_ORIGIN",
     "NODE_ENV",
     "VERCEL",
     "VERCEL_ENV",

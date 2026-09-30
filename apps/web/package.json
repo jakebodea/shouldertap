@@ -21,7 +21,9 @@
     "react-dom": "catalog:",
     "sonner": "catalog:",
     "varlock": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@shouldertap/domain": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@shouldertap/config": "workspace:*",
