@@ -2,6 +2,7 @@ import {
   BubbleChatIcon,
   Clock01Icon,
   ComputerIcon,
+  Download04Icon,
   SentIcon,
   Tick02Icon,
   UserAdd01Icon,
@@ -172,11 +173,14 @@ export function Landing() {
         >
           <InkText>How it works</InkText>
         </a>
-        <span className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm md:h-[2.875rem] md:px-5 md:text-base">
+        <a
+          className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
+          href="/download"
+        >
           <span className="frame-fill-text">
-            Coming soon<span className="hidden sm:inline">&nbsp;for Mac</span>
+            Download<span className="hidden sm:inline">&nbsp;for Mac</span>
           </span>
-        </span>
+        </a>
       </header>
 
       <main className="absolute inset-x-2.5 top-16 bottom-2.5 z-10 overflow-y-auto overscroll-contain rounded-[1.5rem] bg-paper text-ink md:inset-x-10 md:top-24 md:bottom-10 md:rounded-[1.75rem]">
@@ -565,9 +569,10 @@ function Close() {
         Dinner's ready. Really.
       </p>
       <div className="flex flex-wrap items-center gap-4">
-        <span className="pill pill-ink cursor-default">
-          Coming soon for Mac
-        </span>
+        <a className="pill pill-ink" href="/download">
+          <HugeiconsIcon className="size-5" icon={Download04Icon} />
+          Download for Mac
+        </a>
         <span className="text-[0.9375rem] text-tone">
           Mac app plus any iPhone with Safari.
         </span>

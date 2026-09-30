@@ -7,9 +7,11 @@ import {
   TooManyRequests,
   Unauthorized,
 } from "@shouldertap/domain";
+import { Stage } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Etag from "effect/unstable/http/Etag";
 import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
@@ -18,6 +20,7 @@ import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
+import { domains, isProduction } from "../../../domains.ts";
 import { Inbox, InboxLive } from "./Inbox";
 
 const newInboxId = Effect.sync(() => crypto.randomUUID().replaceAll("-", ""));
@@ -31,12 +34,19 @@ const INBOX_CREATION_LIMIT = 10;
  */
 export default class Server extends Cloudflare.Worker<Server>()(
   "server",
-  {
-    main: import.meta.url,
-    compatibility: { date: "2026-08-31" },
-    observability: { enabled: true },
-    dev: { port: 3000 },
-  },
+  Effect.gen(function* () {
+    // Stage exists at deploy time only; the deployed Worker re-evaluates these
+    // props without it, where the domain no longer matters.
+    const stage = yield* Effect.serviceOption(Stage);
+    const production = Option.exists(stage, isProduction);
+    return {
+      main: import.meta.url,
+      compatibility: { date: "2026-08-31" },
+      observability: { enabled: true },
+      domain: production ? domains.api : undefined,
+      dev: { port: 3000 },
+    };
+  }),
   Effect.gen(function* () {
     const inboxes = yield* Inbox;
     const inboxCreation = yield* Cloudflare.RateLimit("INBOX_CREATION", {
