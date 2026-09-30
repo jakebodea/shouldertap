@@ -8,7 +8,8 @@ import {
 } from "@shadcn/react/message-scroller";
 import { Button } from "@shouldertap/ui/components/button";
 import { cn } from "@shouldertap/ui/lib/utils";
-import { ArrowDownIcon } from "lucide-react";
+import { ArrowDown02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type * as React from "react";
 
 function MessageScrollerProvider(
@@ -109,7 +110,7 @@ function MessageScrollerButton({
     >
       {children ?? (
         <>
-          <ArrowDownIcon />
+          <HugeiconsIcon icon={ArrowDown02Icon} />
           <span className="sr-only">
             {direction === "end" ? "Scroll to end" : "Scroll to start"}
           </span>

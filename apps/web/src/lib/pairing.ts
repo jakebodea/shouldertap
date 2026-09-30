@@ -1,4 +1,8 @@
+import type { PersonColor } from "@shouldertap/domain";
+
 export interface Pairing {
+  /** Missing on pairings made before colors; the snapshot fills it in. */
+  readonly color?: PersonColor;
   readonly credentialId: string;
   readonly recipientName: string;
   readonly senderName: string;

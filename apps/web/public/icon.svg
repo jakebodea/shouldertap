@@ -1,7 +1,5 @@
-<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <title>Shouldertap</title>
-  <rect fill="#e8613c" height="64" rx="14" width="64" />
-  <circle cx="32" cy="27" fill="#fff" r="11" />
-  <path d="M14 54c3-10 10-15 18-15s15 5 18 15" fill="#fff" />
-  <circle cx="47" cy="17" fill="#ffd166" r="5" />
+  <rect fill="#2340c8" height="64" rx="14" width="64"/>
+  <svg x="13" y="13" width="38" height="38" viewBox="-2.5 -8.65 44.65 44.65" fill="none" stroke="#f2f3fb" stroke-linecap="round" stroke-linejoin="round"><path d="M4 0C23.59 0 30 6.41 30 27.5V28C30 31.07 29.07 32 26 32H4C0.93 32 0 31.07 0 28V4C0 0.93 0.93 0 4 0Z" stroke-width="5"/><path d="M26.8 -3.08L29.19 -9.65" stroke-width="3.75"/><path d="M30.63 -0.63L35.58 -5.58" stroke-width="3.75"/><path d="M33.08 3.2L39.65 0.81" stroke-width="3.75"/></svg>
 </svg>

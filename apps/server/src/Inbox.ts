@@ -8,11 +8,13 @@ import {
   type CredentialGrant,
   type CredentialKind,
   Expired,
+  fallbackColor,
   formatToken,
   InvalidRequest,
   type Invite,
   NotFound,
   type ParsedToken,
+  type PersonColor,
   parseToken,
   type RedeemInviteRequest,
   type SendTapRequest,
@@ -38,6 +40,10 @@ const DEVICE_INVITE_TTL_MS = 15 * 60 * 1000;
 const TICKET_TTL_MS = 60 * 1000;
 const HISTORY_LIMIT = 25;
 const LAST_SEEN_WRITE_INTERVAL_MS = 60 * 1000;
+
+/** Only senders carry a frame color; Macs never do. */
+const colorFor = (kind: CredentialKind, color: PersonColor | undefined) =>
+  kind === "sender" ? (color ?? null) : null;
 
 type Rpc<A, E = never> = Effect.Effect<A, E, RuntimeContext>;
 
@@ -175,20 +181,27 @@ export const InboxLive = Inbox.make(
 
       const selectTaps = () =>
         db
-          .select({ tap: taps, senderName: credentials.name })
+          .select({
+            tap: taps,
+            senderName: credentials.name,
+            senderColor: credentials.color,
+          })
           .from(taps)
           .innerJoin(credentials, eq(credentials.id, taps.senderId));
 
       const toTap = ({
         tap,
         senderName,
+        senderColor,
       }: {
         tap: typeof taps.$inferSelect;
         senderName: string;
+        senderColor: typeof credentials.$inferSelect.color;
       }): Tap => ({
         id: tap.id,
         senderId: tap.senderId,
         senderName,
+        senderColor: senderColor ?? fallbackColor(tap.senderId),
         body: tap.body,
         createdAt: tap.createdAt,
         state: tap.state,
@@ -226,6 +239,10 @@ export const InboxLive = Inbox.make(
                 id: row.id,
                 kind: row.kind,
                 name: row.name,
+                color:
+                  row.kind === "sender"
+                    ? (row.color ?? fallbackColor(row.id))
+                    : null,
                 createdAt: row.createdAt,
                 lastSeenAt: row.lastSeenAt,
               })
@@ -380,6 +397,7 @@ export const InboxLive = Inbox.make(
               kind: "sender" as const,
               credentialId: actor.id,
               senderName: actor.name,
+              senderColor: actor.color ?? fallbackColor(actor.id),
               recipientName,
               sequence,
               taps: rows.map(toTap),
@@ -462,9 +480,11 @@ export const InboxLive = Inbox.make(
                 .update(invites)
                 .set({ redeemedAt: at })
                 .where(eq(invites.id, invite.id));
-              yield* tx
-                .insert(credentials)
-                .values({ ...credential.row, kind: invite.kind });
+              yield* tx.insert(credentials).values({
+                ...credential.row,
+                kind: invite.kind,
+                color: colorFor(invite.kind, request.color),
+              });
               const [row] = yield* tx
                 .select()
                 .from(inbox)

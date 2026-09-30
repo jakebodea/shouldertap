@@ -1,9 +1,19 @@
+import { Tick02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { ApiError } from "@shouldertap/client";
-import { MAX_NAME_LENGTH } from "@shouldertap/domain";
+import {
+  MAX_NAME_LENGTH,
+  type PersonColor,
+  personColors,
+  swatches,
+} from "@shouldertap/domain";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 
+import { Frame } from "@/components/frame";
+import { Mark } from "@/components/mark";
 import { api } from "@/lib/api";
+import { frameStyle } from "@/lib/frame";
 import { loadPairing, savePairing } from "@/lib/pairing";
 
 export const Route = createFileRoute("/join")({
@@ -19,6 +29,7 @@ function JoinComponent() {
   const navigate = useNavigate();
   const [code] = useState(readCode);
   const [name, setName] = useState("");
+  const [color, setColor] = useState<PersonColor>("cobalt");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const existing = loadPairing();
@@ -28,7 +39,7 @@ function JoinComponent() {
     setPending(true);
     setError(null);
     try {
-      const grant = await api.redeemInvite({ code, name: name.trim() });
+      const grant = await api.redeemInvite({ code, name: name.trim(), color });
       if (grant.kind !== "sender") {
         setError(
           "That code is for pairing another Mac. Enter it in the Shouldertap Mac app."
@@ -40,6 +51,7 @@ function JoinComponent() {
         credentialId: grant.credentialId,
         senderName: name.trim(),
         recipientName: grant.recipientName,
+        color,
       });
       history.replaceState(null, "", "/join");
       navigate({ to: "/" });
@@ -54,60 +66,136 @@ function JoinComponent() {
     }
   };
 
-  return (
-    <main className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-6 px-6 py-12">
-      <img alt="" className="size-14" height={56} src="/icon.svg" width={56} />
-      {code ? (
-        <>
-          <div className="flex flex-col gap-2">
-            <h1 className="font-semibold text-3xl tracking-tight">
-              You're invited
-            </h1>
-            <p className="text-lg text-muted-foreground leading-relaxed">
-              Pair this device to send Shouldertaps. They'll see your name on
-              their screen.
-            </p>
-          </div>
-          {existing ? (
-            <p className="rounded-2xl border bg-card p-4 text-sm">
-              This device already sends taps to {existing.recipientName}.
-              Pairing again replaces that.
-            </p>
-          ) : null}
-          <form className="flex flex-col gap-3" onSubmit={onSubmit}>
-            <label className="font-medium text-sm" htmlFor="sender-name">
-              Your name
-            </label>
-            <input
-              autoComplete="given-name"
-              className="h-12 rounded-2xl border bg-card px-4 text-base outline-none focus:ring-2 focus:ring-tap/40"
-              id="sender-name"
-              maxLength={MAX_NAME_LENGTH}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Sam"
-              value={name}
-            />
-            {error ? <p className="text-destructive text-sm">{error}</p> : null}
-            <button
-              className="h-12 rounded-2xl bg-tap font-semibold text-base text-tap-foreground transition active:scale-[0.98] disabled:opacity-40"
-              disabled={pending || !name.trim()}
-              type="submit"
-            >
-              {pending ? "Pairing…" : "Pair this device"}
-            </button>
-          </form>
-        </>
-      ) : (
+  if (!code) {
+    return (
+      <Frame color="graphite">
+        <Mark className="size-9" />
         <div className="flex flex-col gap-2">
-          <h1 className="font-semibold text-3xl tracking-tight">
+          <h1 className="font-extrabold text-[2.125rem] leading-none tracking-[-0.035em]">
             Missing invite
           </h1>
-          <p className="text-lg text-muted-foreground">
+          <p className="text-[1.0625rem] text-tone leading-snug">
             Open the full invite link you were sent. It ends with a long code
             after “#”.
           </p>
         </div>
-      )}
-    </main>
+      </Frame>
+    );
+  }
+
+  return (
+    <Frame color={color}>
+      <Mark className="size-9" />
+      <div className="flex flex-col gap-2">
+        <h1 className="text-balance font-extrabold text-[2.125rem] leading-none tracking-[-0.035em]">
+          You're invited
+        </h1>
+        <p className="text-[1.0625rem] text-tone leading-snug">
+          Pair this phone to send taps. They cover the other person's Mac
+          screens until they answer.
+        </p>
+      </div>
+
+      {existing ? (
+        <p className="rounded-2xl bg-faint px-4 py-3 text-[0.9375rem] leading-snug">
+          This phone already sends taps to {existing.recipientName}. Pairing
+          again replaces that.
+        </p>
+      ) : null}
+
+      <form className="flex flex-1 flex-col gap-6" onSubmit={onSubmit}>
+        <div>
+          <label className="mb-2 block font-bold text-sm" htmlFor="sender-name">
+            Your name
+          </label>
+          <input
+            autoComplete="given-name"
+            className="field"
+            id="sender-name"
+            maxLength={MAX_NAME_LENGTH}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="e.g. Sam"
+            value={name}
+          />
+        </div>
+
+        <fieldset>
+          <legend className="mb-2 block font-bold text-sm">Your color</legend>
+          <div className="grid max-w-[24rem] grid-cols-8 gap-2">
+            {personColors.map((option) => (
+              <label
+                className="relative grid aspect-square w-full cursor-pointer place-items-center rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.1)] has-[:checked]:shadow-[0_0_0_2px_var(--paper),0_0_0_4px_var(--ink)] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ink has-[:focus-visible]:outline-offset-4"
+                key={option}
+                style={{
+                  background: swatches[option].base,
+                  color: swatches[option].ink,
+                }}
+              >
+                <input
+                  aria-label={swatches[option].label}
+                  checked={color === option}
+                  className="peer sr-only"
+                  name="color"
+                  onChange={() => setColor(option)}
+                  type="radio"
+                  value={option}
+                />
+                <HugeiconsIcon
+                  className="size-5 opacity-0 transition-opacity peer-checked:opacity-100"
+                  icon={Tick02Icon}
+                  strokeWidth={2}
+                />
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <figure className="flex flex-col gap-2">
+          <TapPreview color={color} name={name.trim() || "You"} />
+          <figcaption className="text-[0.8125rem] text-tone">
+            How your taps look on their Mac
+          </figcaption>
+        </figure>
+
+        <div className="mt-auto flex flex-col gap-3">
+          {error ? (
+            <p className="text-[0.9375rem] text-destructive">{error}</p>
+          ) : null}
+          <button
+            className="pill pill-frame w-full"
+            disabled={pending || !name.trim()}
+            type="submit"
+          >
+            {pending ? "Pairing…" : "Pair this phone"}
+          </button>
+        </div>
+      </form>
+    </Frame>
+  );
+}
+
+/** A miniature of the Mac overlay, framed in the chosen color. */
+function TapPreview({ color, name }: { color: PersonColor; name: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative rounded-2xl bg-frame px-2 pt-[1.6rem] pb-2 text-frame-ink transition-colors duration-500"
+      style={frameStyle(color)}
+    >
+      <div className="absolute top-[0.4rem] left-3.5 flex gap-1.5 text-[0.6875rem]">
+        <span className="max-w-40 truncate font-bold">{name}</span>
+        <span className="opacity-75">just now</span>
+      </div>
+      <div className="rounded-[0.625rem] bg-paper px-4 pt-[1.125rem] pb-3.5 text-ink">
+        <p className="mb-3 font-extrabold text-2xl leading-none tracking-[-0.035em]">
+          Can you come here?
+        </p>
+        <div className="flex gap-1.5">
+          <i className="h-4 w-10 rounded-full bg-frame" />
+          <i className="h-4 w-10 rounded-full shadow-[inset_0_0_0_1px_var(--line)]" />
+          <i className="h-4 w-10 rounded-full shadow-[inset_0_0_0_1px_var(--line)]" />
+        </div>
+      </div>
+    </div>
   );
 }

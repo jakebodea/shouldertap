@@ -1,22 +1,234 @@
+@import "@fontsource-variable/bricolage-grotesque/standard.css";
 @import "@shouldertap/ui/globals.css";
 
+/*
+ * Frame: a person's color frames a calm paper page. Neutrals are the paper
+ * world; --frame / --frame-ink are set per surface from the sender's swatch.
+ */
 :root {
-  --tap: oklch(0.66 0.18 38);
-  --tap-foreground: oklch(0.99 0 0);
-  --background: oklch(0.97 0.008 75);
-  --card: oklch(0.995 0.003 75);
+  --paper: #f6f5f1;
+  --faint: #ebe9e3;
+  --line: #dedcd5;
+  --tone: #6f6e69;
+  --ink: #161616;
+  --live: #2f9e5b;
+  --frame: #2340c8;
+  --frame-ink: #f2f3fb;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--faint);
+  --secondary-foreground: var(--ink);
+  --muted: var(--faint);
+  --muted-foreground: var(--tone);
+  --accent: var(--faint);
+  --accent-foreground: var(--ink);
+  --destructive: #c8321f;
+  --border: var(--line);
+  --input: var(--faint);
+  --ring: var(--ink);
+  --radius: 1rem;
 }
 
 .dark {
-  --background: oklch(0.18 0.01 60);
-  --card: oklch(0.23 0.012 60);
+  --paper: #18181a;
+  --faint: #232326;
+  --line: #34343a;
+  --tone: #9a9994;
+  --ink: #f1f0ec;
+  --destructive: #ff6b57;
+}
+
+/* Surfaces that are always paper, whatever the system theme. */
+.paper-light {
+  --paper: #f6f5f1;
+  --faint: #ebe9e3;
+  --line: #dedcd5;
+  --tone: #6f6e69;
+  --ink: #161616;
+  --destructive: #c8321f;
+  color-scheme: light;
 }
 
 @theme inline {
-  --color-tap: var(--tap);
-  --color-tap-foreground: var(--tap-foreground);
+  --font-sans:
+    "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-paper: var(--paper);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-tone: var(--tone);
+  --color-ink: var(--ink);
+  --color-live: var(--live);
+  --color-frame: var(--frame);
+  --color-frame-ink: var(--frame-ink);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-body {
-  -webkit-tap-highlight-color: transparent;
+@layer base {
+  html {
+    font-optical-sizing: auto;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    -webkit-tap-highlight-color: transparent;
+    font-weight: 500;
+    caret-color: var(--frame);
+  }
+  ::selection {
+    color: var(--frame-ink);
+    background: var(--frame);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  /* Every action is a pill. */
+  .pill {
+    display: inline-flex;
+    gap: 0.6rem;
+    align-items: center;
+    justify-content: center;
+    height: 3.25rem;
+    padding-inline: 1.375rem;
+    font-size: 1.0625rem;
+    font-weight: 700;
+    color: var(--ink);
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 1.5px var(--line);
+    transition:
+      box-shadow 140ms,
+      transform 140ms,
+      opacity 140ms,
+      background-color 140ms;
+  }
+  .pill:hover {
+    box-shadow: inset 0 0 0 1.5px var(--ink);
+  }
+  .pill:active {
+    transform: scale(0.98);
+  }
+  .pill:disabled {
+    cursor: default;
+    opacity: 0.4;
+    transform: none;
+  }
+  .pill-frame {
+    color: var(--frame-ink);
+    background: var(--frame);
+    box-shadow: none;
+  }
+  .pill-frame:hover {
+    background: color-mix(in oklab, var(--frame) 88%, var(--ink));
+    box-shadow: none;
+  }
+  .pill-ink {
+    color: var(--paper);
+    background: var(--ink);
+    box-shadow: none;
+  }
+  .pill-ink:hover {
+    background: color-mix(in oklab, var(--ink) 85%, var(--paper));
+    box-shadow: none;
+  }
+  .pill-sm {
+    height: 2.5rem;
+    padding-inline: 1rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+
+  .field {
+    width: 100%;
+    padding: 0.9375rem 1.125rem;
+    font-size: 1.0625rem;
+    font-weight: 500;
+    color: var(--ink);
+    outline: none;
+    background: var(--faint);
+    border-radius: 1.125rem;
+    transition: box-shadow 140ms;
+  }
+  .field::placeholder {
+    color: color-mix(in oklab, var(--tone) 80%, var(--paper));
+  }
+  .field:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--ink);
+  }
+
+  .knock-mark {
+    transform-box: view-box;
+  }
+  .knocking .knock-mark {
+    animation: knock 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .knocking .knock-mark:nth-of-type(3) {
+    animation-delay: 60ms;
+  }
+  .knocking .knock-mark:nth-of-type(4) {
+    animation-delay: 120ms;
+  }
+}
+
+@keyframes knock {
+  0%,
+  44% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  14%,
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  58%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-soft {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+    filter: blur(8px);
+  }
+}
+
+@keyframes frame-wipe {
+  from {
+    clip-path: circle(0 at 0 0);
+  }
+  to {
+    clip-path: circle(150% at 0 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

@@ -7,6 +7,7 @@ const tap = (id: string, sequence: number, createdAt = sequence): Tap => ({
   id,
   senderId: "s",
   senderName: "Sam",
+  senderColor: "moss",
   body: id,
   createdAt,
   state: "pending",

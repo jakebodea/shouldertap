@@ -1,15 +1,30 @@
+import {
+  BubbleChatIcon,
+  Clock01Icon,
+  SentIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { LiveStatus } from "@shouldertap/client";
 import {
   describeResponse,
+  fallbackColor,
   MAX_TAP_LENGTH,
-  quickTaps,
   type Tap,
+  type TapResponse,
 } from "@shouldertap/domain";
 import { createFileRoute } from "@tanstack/react-router";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { clearPairing, loadPairing, type Pairing } from "@/lib/pairing";
+import { Frame } from "@/components/frame";
+import { Landing } from "@/components/landing";
+import {
+  clearPairing,
+  loadPairing,
+  type Pairing,
+  savePairing,
+} from "@/lib/pairing";
 import { duration, relativeTime } from "@/lib/time";
 import { type OutgoingTap, useSender } from "@/lib/use-sender";
 
@@ -26,26 +41,7 @@ function HomeComponent() {
   return pairing ? (
     <Composer onUnpair={unpair} pairing={pairing} />
   ) : (
-    <Welcome />
-  );
-}
-
-function Welcome() {
-  return (
-    <main className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-6 px-6 py-12">
-      <img alt="" className="size-14" height={56} src="/icon.svg" width={56} />
-      <h1 className="font-semibold text-3xl tracking-tight">Shouldertap</h1>
-      <p className="text-lg text-muted-foreground leading-relaxed">
-        Get someone's attention when they're deep in focus. Your message takes
-        over their Mac screens until they answer, and you see their reply here
-        right away.
-      </p>
-      <div className="rounded-2xl border bg-card p-5 text-sm leading-relaxed">
-        To start, ask the person you want to reach to open{" "}
-        <strong>Shouldertap</strong> in their Mac's menu bar and share an invite
-        link with you.
-      </div>
-    </main>
+    <Landing />
   );
 }
 
@@ -60,17 +56,24 @@ function Composer({
     toast.error(`${pairing.recipientName} removed this pairing`);
     onUnpair();
   }, [onUnpair, pairing.recipientName]);
-  const { taps, outbox, status, loaded, send, discard } = useSender(
-    pairing,
-    handleRevoked
-  );
+  const { taps, outbox, status, loaded, senderColor, send, discard } =
+    useSender(pairing, handleRevoked);
   const [draft, setDraft] = useState("");
   const [, setTick] = useState(0);
+  const color =
+    pairing.color ?? senderColor ?? fallbackColor(pairing.credentialId);
 
   useEffect(() => {
     const timer = setInterval(() => setTick((n) => n + 1), 15_000);
     return () => clearInterval(timer);
   }, []);
+
+  // Pairings made before colors existed learn theirs from the first snapshot.
+  useEffect(() => {
+    if (!pairing.color && senderColor) {
+      savePairing({ ...pairing, color: senderColor });
+    }
+  }, [pairing, senderColor]);
 
   const submit = (body: string) => {
     const trimmed = body.trim();
@@ -90,7 +93,7 @@ function Composer({
     if (
       // biome-ignore lint/suspicious/noAlert: a native confirm is right for this rare action
       window.confirm(
-        `Stop sending taps to ${pairing.recipientName} from this device?`
+        `Stop sending taps to ${pairing.recipientName} from this phone?`
       )
     ) {
       onUnpair();
@@ -98,35 +101,20 @@ function Composer({
   };
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-md flex-col gap-6 px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-      <header className="flex items-center justify-between">
-        <div>
-          <p className="text-muted-foreground text-sm">Shouldertap</p>
-          <h1 className="font-semibold text-2xl tracking-tight">
-            Tap {pairing.recipientName}
-          </h1>
-        </div>
-        <StatusPill status={status} />
+    <Frame color={color}>
+      <header className="flex items-start justify-between gap-4">
+        <h1 className="text-balance font-extrabold text-[2.125rem] leading-none tracking-[-0.035em]">
+          Tap {pairing.recipientName}
+        </h1>
+        <StatusLabel status={status} />
       </header>
 
       <form className="flex flex-col gap-3" onSubmit={onSubmit}>
-        <div className="flex flex-wrap gap-2">
-          {quickTaps.map((text) => (
-            <button
-              className="rounded-full border bg-card px-3.5 py-2 text-sm transition active:scale-95"
-              key={text}
-              onClick={() => submit(text)}
-              type="button"
-            >
-              {text}
-            </button>
-          ))}
-        </div>
         <label className="sr-only" htmlFor="tap-body">
           Message
         </label>
         <textarea
-          className="min-h-28 w-full resize-none rounded-2xl border bg-card p-4 text-base outline-none focus:ring-2 focus:ring-tap/40"
+          className="field min-h-28 resize-none leading-snug"
           id="tap-body"
           maxLength={MAX_TAP_LENGTH}
           onChange={(event) => setDraft(event.target.value)}
@@ -139,73 +127,112 @@ function Composer({
           value={draft}
         />
         <button
-          className="h-12 rounded-2xl bg-tap font-semibold text-base text-tap-foreground shadow-sm transition active:scale-[0.98] disabled:opacity-40"
+          className="pill pill-frame w-full"
           disabled={!draft.trim()}
           type="submit"
         >
+          <HugeiconsIcon className="size-5" icon={SentIcon} />
           Send tap
         </button>
       </form>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="font-medium text-muted-foreground text-sm">Recent</h2>
-        {outbox.map((item) => (
-          <OutboxCard
-            item={item}
-            key={item.requestId}
-            onDiscard={discard}
-            onRetry={send}
-          />
-        ))}
-        {taps.map((tap) => (
-          <TapCard
-            key={tap.id}
-            recipientName={pairing.recipientName}
-            tap={tap}
-          />
-        ))}
+      <section aria-labelledby="recent" className="flex flex-col">
+        <h2 className="mb-1 font-bold text-sm text-tone" id="recent">
+          Recent
+        </h2>
+        <ul className="flex flex-col divide-y divide-line">
+          {outbox.map((item) => (
+            <li className="py-4 first:pt-2" key={item.requestId}>
+              <OutboxItem item={item} onDiscard={discard} onRetry={send} />
+            </li>
+          ))}
+          {taps.map((tap) => (
+            <li className="py-4 first:pt-2" key={tap.id}>
+              <TapItem recipientName={pairing.recipientName} tap={tap} />
+            </li>
+          ))}
+        </ul>
         {loaded && taps.length === 0 && outbox.length === 0 ? (
-          <p className="rounded-2xl border border-dashed p-5 text-center text-muted-foreground text-sm">
-            Nothing sent yet. Your taps and {pairing.recipientName}'s replies
+          <p className="pt-2 text-[0.9375rem] text-tone leading-snug">
+            Nothing sent yet. Your taps and {pairing.recipientName}'s answers
             show up here.
           </p>
         ) : null}
       </section>
 
-      <footer className="mt-auto pt-4 text-center text-muted-foreground text-xs">
+      <footer className="mt-auto pt-2 text-center text-[0.8125rem] text-tone">
         Paired as {pairing.senderName} ·{" "}
         <button
-          className="underline underline-offset-2"
+          className="text-ink underline underline-offset-[3px]"
           onClick={unpair}
           type="button"
         >
-          Unpair this device
+          Unpair this phone
         </button>
       </footer>
-    </main>
+    </Frame>
   );
 }
 
-function StatusPill({ status }: { status: LiveStatus }) {
+function StatusLabel({ status }: { status: LiveStatus }) {
   const label = {
     live: "Live",
-    connecting: "Connecting…",
-    offline: "Reconnecting…",
-  }[status];
-  const dot = {
-    live: "bg-emerald-500",
-    connecting: "bg-amber-400",
-    offline: "bg-zinc-400",
+    connecting: "Connecting",
+    offline: "Reconnecting",
   }[status];
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs">
-      <span className={`size-2 rounded-full ${dot}`} />
+    <span
+      aria-live="polite"
+      className="inline-flex shrink-0 items-center gap-[7px] pt-2 font-semibold text-[0.8125rem] text-tone"
+    >
+      <span
+        className={`size-2 rounded-full ${status === "live" ? "bg-live" : "animate-[pulse-soft_1.6s_ease-in-out_infinite] bg-tone"}`}
+      />
       {label}
     </span>
   );
 }
 
-function OutboxCard({
+const STEPS = ["Sent", "On screen", "Answered"] as const;
+
+const segmentClass = (step: number, reached: number) => {
+  if (step < reached) {
+    return "bg-frame";
+  }
+  if (step === reached) {
+    return "animate-[pulse-soft_1.6s_ease-in-out_infinite] bg-frame";
+  }
+  return "bg-faint";
+};
+
+/** Three segments in the sender's color: where the tap is right now. */
+function Track({ reached, note }: { reached: number; note: string }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div aria-hidden="true" className="grid grid-cols-3 gap-1">
+        {STEPS.map((step, i) => (
+          <i
+            className={`h-[5px] rounded-full ${segmentClass(i, reached)}`}
+            key={step}
+          />
+        ))}
+      </div>
+      <div
+        aria-hidden="true"
+        className="grid grid-cols-3 gap-1 font-semibold text-tone text-xs"
+      >
+        {STEPS.map((step, i) => (
+          <span className={i === reached - 1 ? "text-ink" : ""} key={step}>
+            {step}
+          </span>
+        ))}
+      </div>
+      <span className="sr-only">{note}</span>
+    </div>
+  );
+}
+
+function OutboxItem({
   item,
   onRetry,
   onDiscard,
@@ -215,13 +242,24 @@ function OutboxCard({
   onDiscard: (requestId: string) => void;
 }) {
   return (
-    <article className="rounded-2xl border bg-card p-4">
-      <p className="text-base leading-snug">{item.body}</p>
+    <article className="flex flex-col gap-3">
+      <p className="font-bold text-[1.3125rem] leading-tight tracking-[-0.02em]">
+        {item.body}
+      </p>
       {item.failed ? (
-        <div className="mt-3 flex items-center gap-3 text-sm">
-          <span className="text-destructive">Couldn't send</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-auto font-semibold text-[0.9375rem] text-destructive">
+            Couldn't send
+          </span>
           <button
-            className="font-medium underline underline-offset-2"
+            className="pill pill-sm"
+            onClick={() => onDiscard(item.requestId)}
+            type="button"
+          >
+            Discard
+          </button>
+          <button
+            className="pill pill-sm pill-frame"
             onClick={() => {
               onDiscard(item.requestId);
               onRetry(item.body);
@@ -230,56 +268,86 @@ function OutboxCard({
           >
             Try again
           </button>
-          <button
-            className="text-muted-foreground underline underline-offset-2"
-            onClick={() => onDiscard(item.requestId)}
-            type="button"
-          >
-            Discard
-          </button>
         </div>
       ) : (
-        <p className="mt-2 text-muted-foreground text-sm">Sending…</p>
+        <Track note="Sending" reached={0} />
       )}
     </article>
   );
 }
 
-function TapCard({ tap, recipientName }: { tap: Tap; recipientName: string }) {
-  const acknowledged =
+const RESPONSE_ICON = {
+  on_it: Tick02Icon,
+  in_10: Clock01Icon,
+  text: BubbleChatIcon,
+} as const;
+
+function TapItem({ tap, recipientName }: { tap: Tap; recipientName: string }) {
+  const answered =
     tap.state === "acknowledged" && tap.response && tap.acknowledgedAt;
   return (
-    <article
-      className={`rounded-2xl border p-4 transition ${acknowledged ? "bg-card" : "border-tap/40 bg-tap/5"}`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-base leading-snug">{tap.body}</p>
-        <time className="shrink-0 text-muted-foreground text-xs">
+    <article className="flex flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="font-bold text-[1.3125rem] leading-tight tracking-[-0.02em]">
+          {tap.body}
+        </p>
+        <time
+          className="shrink-0 text-[0.8125rem] text-tone tabular-nums"
+          dateTime={new Date(tap.createdAt).toISOString()}
+        >
           {relativeTime(tap.createdAt)}
         </time>
       </div>
-      {acknowledged ? (
-        <div className="mt-3 rounded-xl bg-muted px-3 py-2.5">
-          <p className="font-medium text-base">
-            {describeResponse(tap.response)}
-          </p>
-          <p className="mt-0.5 text-muted-foreground text-xs">
-            {recipientName} replied{" "}
-            {duration(tap.createdAt, tap.acknowledgedAt)} later
-            {tap.acknowledgedBy ? ` on ${tap.acknowledgedBy}` : ""}
-          </p>
-        </div>
+      {answered ? (
+        <Answer
+          acknowledgedAt={tap.acknowledgedAt as number}
+          by={tap.acknowledgedBy}
+          createdAt={tap.createdAt}
+          response={tap.response as TapResponse}
+        />
       ) : (
-        <p className="mt-2 flex items-center gap-2 text-sm">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-tap opacity-60" />
-            <span className="relative inline-flex size-2 rounded-full bg-tap" />
-          </span>
-          {tap.displayedAt
-            ? `On ${recipientName}'s screen now`
-            : `Delivered · waiting for ${recipientName}'s Mac`}
-        </p>
+        <Track
+          note={
+            tap.displayedAt
+              ? `On ${recipientName}'s screen now`
+              : `Waiting for ${recipientName}'s Mac`
+          }
+          reached={tap.displayedAt ? 2 : 1}
+        />
       )}
     </article>
+  );
+}
+
+function Answer({
+  response,
+  createdAt,
+  acknowledgedAt,
+  by,
+}: {
+  response: TapResponse;
+  createdAt: number;
+  acknowledgedAt: number;
+  by: string | null;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-2xl bg-faint px-3.5 py-3">
+      <HugeiconsIcon
+        className="size-5 shrink-0"
+        icon={RESPONSE_ICON[response.kind]}
+      />
+      <b className="min-w-0 break-words font-bold text-[1.0625rem] leading-snug">
+        {describeResponse(response)}
+      </b>
+      <span className="ml-auto shrink-0 text-right text-[0.8125rem] text-tone tabular-nums leading-tight">
+        {duration(createdAt, acknowledgedAt)} later
+        {by ? (
+          <>
+            <br />
+            on {by}
+          </>
+        ) : null}
+      </span>
+    </div>
   );
 }
