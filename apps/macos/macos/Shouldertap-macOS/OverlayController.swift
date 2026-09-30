@@ -29,6 +29,7 @@ final class OverlayController {
 
   private var windows: [(window: OverlayWindow, rootView: NSView, screen: NSScreen)] = []
   private var payload: [String: Any]?
+  private var keyMonitor: Any?
 
   private init() {
     NotificationCenter.default.addObserver(
@@ -52,12 +53,57 @@ final class OverlayController {
           entry.rootView, properties(screenIndex: index, screen: entry.screen))
       }
     }
+    installKeyMonitor()
     focus()
   }
 
   func hide() {
     payload = nil
-    tearDown()
+    removeKeyMonitor()
+    // Leave with a 420ms fade (DESIGN.md, "Motion"); the next tap, if any,
+    // builds fresh windows, so fading ones never block it.
+    let leaving = windows.map(\.window)
+    windows.removeAll()
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0.42
+      context.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0, 0.2, 1)
+      for window in leaving { window.animator().alphaValue = 0 }
+    } completionHandler: {
+      for window in leaving {
+        window.orderOut(nil)
+        window.contentView = nil
+      }
+    }
+  }
+
+  // MARK: Keyboard
+
+  /// 1, 2, 3 answer and Escape leaves reply mode. A local monitor catches them
+  /// whether or not a React view holds focus; JS decides what they mean, on
+  /// the display whose window has the keyboard.
+  private func installKeyMonitor() {
+    guard keyMonitor == nil else { return }
+    keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+      guard let self, let hit = self.overlayKey(event) else { return event }
+      ShouldertapNative.emit("overlayKey", body: ["key": hit.key, "screenIndex": hit.screenIndex])
+      return nil
+    }
+  }
+
+  private func removeKeyMonitor() {
+    if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+    keyMonitor = nil
+  }
+
+  private func overlayKey(_ event: NSEvent) -> (key: String, screenIndex: Int)? {
+    guard let index = windows.firstIndex(where: { $0.window === event.window }),
+      event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+    else { return nil }
+    if event.keyCode == 53 { return ("Escape", index) }
+    let typing = event.window?.firstResponder is NSTextView
+    guard !typing, let key = event.charactersIgnoringModifiers, ["1", "2", "3"].contains(key)
+    else { return nil }
+    return (key, index)
   }
 
   private func displaysChanged() {
@@ -76,15 +122,10 @@ final class OverlayController {
     tearDown()
     for (index, screen) in NSScreen.screens.enumerated() {
       let window = OverlayWindow(screen: screen)
+      // The React view paints the whole display (the sender's frame) and fades
+      // itself in, so the window stays clear until it does.
       let container = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
       container.autoresizingMask = [.width, .height]
-
-      let blur = NSVisualEffectView(frame: container.bounds)
-      blur.autoresizingMask = [.width, .height]
-      blur.material = .fullScreenUI
-      blur.blendingMode = .behindWindow
-      blur.state = .active
-      container.addSubview(blur)
 
       let rootView = AppDelegate.shared.makeRootView(
         moduleName: "Overlay", properties: properties(screenIndex: index, screen: screen))
@@ -131,6 +172,7 @@ final class OverlayController {
       "tap": payload ?? [:],
       "screenIndex": screenIndex,
       "isFocused": NSMouseInRect(mouse, screen.frame, false),
+      "reduceMotion": NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
     ]
   }
 }

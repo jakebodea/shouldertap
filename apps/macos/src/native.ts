@@ -25,6 +25,6 @@ export const native =
 const emitter = new NativeEventEmitter(NativeModules.ShouldertapNative);
 
 export const onNativeEvent = (
-  name: "wake" | "popover",
+  name: "wake" | "popover" | "overlayKey",
   listener: (body: unknown) => void
 ) => emitter.addListener(name, listener);
