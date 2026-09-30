@@ -4,5 +4,26 @@
     "ultracite/biome/core",
     "ultracite/biome/react",
     "ultracite/biome/tanstack"
-  ]
+  ],
+  "files": {
+    // Generated: shadcn primitives, varlock env types, router tree, native projects.
+    "includes": [
+      "!packages/ui/src/components",
+      "!**/src/env.ts",
+      "!apps/server/cloudflare-env.d.ts",
+      "!**/routeTree.gen.ts",
+      "!apps/macos/macos",
+      "!apps/macos/ios"
+    ]
+  },
+  "linter": {
+    "rules": {
+      "performance": {
+        // Package entry points re-export their modules; Alchemy docs use namespace imports.
+        "noBarrelFile": "off",
+        "noNamespaceImport": "off",
+        "noJsxPropsBind": "off"
+      }
+    }
+  }
 }

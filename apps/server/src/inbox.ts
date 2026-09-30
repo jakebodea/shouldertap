@@ -1,3 +1,4 @@
+import { DurableObject } from "cloudflare:workers";
 import {
   AcknowledgeRequest,
   ApiFailure,
@@ -13,19 +14,21 @@ import {
   type ParsedToken,
   parseToken,
   RedeemInviteRequest,
-  type ServerEvent,
   SendTapRequest,
+  type ServerEvent,
   type Snapshot,
   type Tap,
   type TapResponse,
 } from "@shouldertap/domain";
-import { DurableObject } from "cloudflare:workers";
 import { Effect, Schema } from "effect";
 
 /** Plain data so failures survive the Worker ↔ Durable Object RPC boundary. */
 export type Result<A> =
   | { readonly ok: true; readonly value: A }
-  | { readonly ok: false; readonly error: { readonly code: ErrorCode; readonly message: string } };
+  | {
+      readonly ok: false;
+      readonly error: { readonly code: ErrorCode; readonly message: string };
+    };
 
 const SENDER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEVICE_INVITE_TTL_MS = 15 * 60 * 1000;
@@ -46,14 +49,18 @@ interface SocketAttachment {
 
 type Row = Record<string, SqlStorageValue>;
 
-const fail = (code: ErrorCode, message: string) => Effect.fail(new ApiFailure({ code, message }));
+const fail = (code: ErrorCode, message: string) =>
+  Effect.fail(new ApiFailure({ code, message }));
 
 const decode = <S extends Schema.Top & { readonly DecodingServices: never }>(
   schema: S,
-  input: unknown,
+  input: unknown
 ) =>
   Schema.decodeUnknownEffect(schema)(input).pipe(
-    Effect.mapError((error) => new ApiFailure({ code: "invalid_request", message: error.message })),
+    Effect.mapError(
+      (error) =>
+        new ApiFailure({ code: "invalid_request", message: error.message })
+    )
   );
 
 const run = <A>(program: Effect.Effect<A, ApiFailure>): Promise<Result<A>> =>
@@ -64,9 +71,9 @@ const run = <A>(program: Effect.Effect<A, ApiFailure>): Promise<Result<A>> =>
         Effect.succeed<Result<A>>({
           ok: false,
           error: { code: error.code, message: error.message },
-        }),
-      ),
-    ),
+        })
+      )
+    )
   );
 
 const randomId = (bytes = 12): string => {
@@ -79,12 +86,17 @@ const randomId = (bytes = 12): string => {
 
 const hashSecret = (secret: string) =>
   Effect.promise(async () => {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
-    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(secret)
+    );
+    return [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
   });
 
 const MIGRATIONS = [
-  `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
   `CREATE TABLE IF NOT EXISTS credentials (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -123,7 +135,7 @@ const MIGRATIONS = [
     sequence INTEGER NOT NULL,
     UNIQUE (sender_id, request_id)
   )`,
-  `CREATE INDEX IF NOT EXISTS taps_by_sequence ON taps (sequence)`,
+  "CREATE INDEX IF NOT EXISTS taps_by_sequence ON taps (sequence)",
 ];
 
 /**
@@ -140,12 +152,18 @@ export class Inbox extends DurableObject<Env> {
     for (const statement of MIGRATIONS) {
       this.sql.exec(statement);
     }
-    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+    ctx.setWebSocketAutoResponse(
+      // biome-ignore lint/correctness/noUndeclaredVariables: Workers runtime global
+      new WebSocketRequestResponsePair("ping", "pong")
+    );
   }
 
   // Commands
 
-  initialize(inboxId: string, input: unknown): Promise<Result<CredentialGrant>> {
+  initialize(
+    inboxId: string,
+    input: unknown
+  ): Promise<Result<CredentialGrant>> {
     return run(
       Effect.gen({ self: this }, function* () {
         const request = yield* decode(CreateInboxRequest, input);
@@ -159,7 +177,12 @@ export class Inbox extends DurableObject<Env> {
           this.setMeta("inbox_id", inboxId);
           this.setMeta("recipient_name", request.recipientName);
           this.setMeta("sequence", "0");
-          this.insertCredential(credentialId, "device", request.deviceName, secretHash);
+          this.insertCredential(
+            credentialId,
+            "device",
+            request.deviceName,
+            secretHash
+          );
         });
         return {
           kind: "device" as const,
@@ -167,7 +190,7 @@ export class Inbox extends DurableObject<Env> {
           token: formatToken({ inboxId, id: credentialId, secret }),
           recipientName: request.recipientName,
         };
-      }),
+      })
     );
   }
 
@@ -192,10 +215,13 @@ export class Inbox extends DurableObject<Env> {
           credentialId: actor.id,
           recipientName,
           sequence,
-          taps: this.selectTaps("WHERE t.state = 'pending' OR t.id IN (SELECT id FROM taps ORDER BY created_at DESC LIMIT ?)", HISTORY_LIMIT),
+          taps: this.selectTaps(
+            "WHERE t.state = 'pending' OR t.id IN (SELECT id FROM taps ORDER BY created_at DESC LIMIT ?)",
+            HISTORY_LIMIT
+          ),
           credentials: this.listCredentials(),
         };
-      }),
+      })
     );
   }
 
@@ -204,7 +230,10 @@ export class Inbox extends DurableObject<Env> {
       Effect.gen({ self: this }, function* () {
         const actor = yield* this.authenticate(token);
         if (actor.kind !== "device") {
-          return yield* fail("unauthorized", "Only a paired Mac can create invites");
+          return yield* fail(
+            "unauthorized",
+            "Only a paired Mac can create invites"
+          );
         }
         const request = yield* decode(CreateInviteRequest, input);
         const id = randomId();
@@ -212,7 +241,10 @@ export class Inbox extends DurableObject<Env> {
         const secretHash = yield* hashSecret(secret);
         const now = Date.now();
         const expiresAt =
-          now + (request.kind === "sender" ? SENDER_INVITE_TTL_MS : DEVICE_INVITE_TTL_MS);
+          now +
+          (request.kind === "sender"
+            ? SENDER_INVITE_TTL_MS
+            : DEVICE_INVITE_TTL_MS);
         this.sql.exec(
           "INSERT INTO invites (id, kind, secret_hash, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
           id,
@@ -220,18 +252,21 @@ export class Inbox extends DurableObject<Env> {
           secretHash,
           actor.id,
           now,
-          expiresAt,
+          expiresAt
         );
         return {
           kind: request.kind,
           code: formatToken({ inboxId: token.inboxId, id, secret }),
           expiresAt,
         };
-      }),
+      })
     );
   }
 
-  redeemInvite(code: ParsedToken, input: unknown): Promise<Result<CredentialGrant>> {
+  redeemInvite(
+    code: ParsedToken,
+    input: unknown
+  ): Promise<Result<CredentialGrant>> {
     return run(
       Effect.gen({ self: this }, function* () {
         const request = yield* decode(RedeemInviteRequest, input);
@@ -253,17 +288,34 @@ export class Inbox extends DurableObject<Env> {
         }
         const kind = invite.kind as CredentialKind;
         this.ctx.storage.transactionSync(() => {
-          this.sql.exec("UPDATE invites SET redeemed_at = ? WHERE id = ?", now, code.id);
-          this.insertCredential(credentialId, kind, request.name, credentialHash);
+          this.sql.exec(
+            "UPDATE invites SET redeemed_at = ? WHERE id = ?",
+            now,
+            code.id
+          );
+          this.insertCredential(
+            credentialId,
+            kind,
+            request.name,
+            credentialHash
+          );
         });
-        this.broadcastToDevices({ v: 1, type: "credentials", sequence: this.sequence() });
+        this.broadcastToDevices({
+          v: 1,
+          type: "credentials",
+          sequence: this.sequence(),
+        });
         return {
           kind,
           credentialId,
-          token: formatToken({ inboxId: code.inboxId, id: credentialId, secret }),
+          token: formatToken({
+            inboxId: code.inboxId,
+            id: credentialId,
+            secret,
+          }),
           recipientName: this.meta("recipient_name") ?? "",
         };
-      }),
+      })
     );
   }
 
@@ -272,17 +324,23 @@ export class Inbox extends DurableObject<Env> {
       Effect.gen({ self: this }, function* () {
         const actor = yield* this.authenticate(token);
         if (actor.kind !== "sender") {
-          return yield* fail("unauthorized", "Only a paired sender can send taps");
+          return yield* fail(
+            "unauthorized",
+            "Only a paired sender can send taps"
+          );
         }
         const request = yield* decode(SendTapRequest, input);
         const existing = this.one(
           "SELECT id, body FROM taps WHERE sender_id = ? AND request_id = ?",
           actor.id,
-          request.requestId,
+          request.requestId
         );
         if (existing) {
           if (existing.body !== request.body) {
-            return yield* fail("conflict", "Request id was reused with a different message");
+            return yield* fail(
+              "conflict",
+              "Request id was reused with a different message"
+            );
           }
           return this.getTap(existing.id as string);
         }
@@ -296,13 +354,13 @@ export class Inbox extends DurableObject<Env> {
             actor.id,
             request.body,
             Date.now(),
-            sequence,
+            sequence
           );
         });
         const tap = this.getTap(id);
         this.broadcastTap(tap);
         return tap;
-      }),
+      })
     );
   }
 
@@ -311,7 +369,10 @@ export class Inbox extends DurableObject<Env> {
       Effect.gen({ self: this }, function* () {
         const actor = yield* this.authenticate(token);
         if (actor.kind !== "device") {
-          return yield* fail("unauthorized", "Only a paired Mac can report display");
+          return yield* fail(
+            "unauthorized",
+            "Only a paired Mac can report display"
+          );
         }
         const tap = yield* this.findTap(tapId);
         if (tap.displayedAt !== null) {
@@ -322,17 +383,21 @@ export class Inbox extends DurableObject<Env> {
             "UPDATE taps SET displayed_at = ?, sequence = ? WHERE id = ?",
             Date.now(),
             this.nextSequence(),
-            tapId,
+            tapId
           );
         });
         const updated = this.getTap(tapId);
         this.broadcastTap(updated);
         return updated;
-      }),
+      })
     );
   }
 
-  acknowledge(token: ParsedToken, tapId: string, input: unknown): Promise<Result<Tap>> {
+  acknowledge(
+    token: ParsedToken,
+    tapId: string,
+    input: unknown
+  ): Promise<Result<Tap>> {
     return run(
       Effect.gen({ self: this }, function* () {
         const actor = yield* this.authenticate(token);
@@ -340,7 +405,10 @@ export class Inbox extends DurableObject<Env> {
           return yield* fail("unauthorized", "Only a paired Mac can respond");
         }
         const request = yield* decode(AcknowledgeRequest, input);
-        if (request.response.kind === "text" && !request.response.text?.trim()) {
+        if (
+          request.response.kind === "text" &&
+          !request.response.text?.trim()
+        ) {
           return yield* fail("invalid_request", "A text reply needs some text");
         }
         const tap = yield* this.findTap(tapId);
@@ -358,39 +426,53 @@ export class Inbox extends DurableObject<Env> {
             now,
             JSON.stringify(request.response),
             this.nextSequence(),
-            tapId,
+            tapId
           );
         });
         const updated = this.getTap(tapId);
         this.broadcastTap(updated);
         return updated;
-      }),
+      })
     );
   }
 
-  revoke(token: ParsedToken, credentialId: string): Promise<Result<{ revoked: true }>> {
+  revoke(
+    token: ParsedToken,
+    credentialId: string
+  ): Promise<Result<{ revoked: true }>> {
     return run(
       Effect.gen({ self: this }, function* () {
         const actor = yield* this.authenticate(token);
         if (actor.kind !== "device") {
-          return yield* fail("unauthorized", "Only a paired Mac can remove pairings");
+          return yield* fail(
+            "unauthorized",
+            "Only a paired Mac can remove pairings"
+          );
         }
         const target = this.one(
           "SELECT id, kind FROM credentials WHERE id = ? AND revoked_at IS NULL",
-          credentialId,
+          credentialId
         );
         if (!target) {
           return yield* fail("not_found", "No such pairing");
         }
-        this.sql.exec("UPDATE credentials SET revoked_at = ? WHERE id = ?", Date.now(), credentialId);
+        this.sql.exec(
+          "UPDATE credentials SET revoked_at = ? WHERE id = ?",
+          Date.now(),
+          credentialId
+        );
         const tag = `${target.kind as string}:${credentialId}`;
         for (const socket of this.ctx.getWebSockets(tag)) {
           this.send(socket, { v: 1, type: "revoked" });
           socket.close(4001, "revoked");
         }
-        this.broadcastToDevices({ v: 1, type: "credentials", sequence: this.sequence() });
+        this.broadcastToDevices({
+          v: 1,
+          type: "credentials",
+          sequence: this.sequence(),
+        });
         return { revoked: true as const };
-      }),
+      })
     );
   }
 
@@ -409,10 +491,13 @@ export class Inbox extends DurableObject<Env> {
           id,
           secretHash,
           actor.id,
-          expiresAt,
+          expiresAt
         );
-        return { ticket: formatToken({ inboxId: token.inboxId, id, secret }), expiresAt };
-      }),
+        return {
+          ticket: formatToken({ inboxId: token.inboxId, id, secret }),
+          expiresAt,
+        };
+      })
     );
   }
 
@@ -422,7 +507,9 @@ export class Inbox extends DurableObject<Env> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected WebSocket upgrade", { status: 426 });
     }
-    const ticket = parseToken(new URL(request.url).searchParams.get("ticket") ?? "");
+    const ticket = parseToken(
+      new URL(request.url).searchParams.get("ticket") ?? ""
+    );
     if (!ticket) {
       return new Response("Invalid ticket", { status: 401 });
     }
@@ -430,20 +517,28 @@ export class Inbox extends DurableObject<Env> {
     const row = this.one("SELECT * FROM tickets WHERE id = ?", ticket.id);
     // One-time: consume before checking so a guessed id can't be retried.
     this.sql.exec("DELETE FROM tickets WHERE id = ?", ticket.id);
-    if (!row || row.secret_hash !== secretHash || (row.expires_at as number) < Date.now()) {
+    if (
+      !row ||
+      row.secret_hash !== secretHash ||
+      (row.expires_at as number) < Date.now()
+    ) {
       return new Response("Invalid ticket", { status: 401 });
     }
     const credential = this.one(
       "SELECT id, kind FROM credentials WHERE id = ? AND revoked_at IS NULL",
-      row.credential_id as string,
+      row.credential_id as string
     );
     if (!credential) {
       return new Response("Revoked", { status: 401 });
     }
     const kind = credential.kind as CredentialKind;
+    // biome-ignore lint/correctness/noUndeclaredVariables: Workers runtime global
     const pair = new WebSocketPair();
-    const [client, server] = [pair[0], pair[1]];
-    this.ctx.acceptWebSocket(server, [kind, `${kind}:${credential.id as string}`]);
+    const { 0: client, 1: server } = pair;
+    this.ctx.acceptWebSocket(server, [
+      kind,
+      `${kind}:${credential.id as string}`,
+    ]);
     server.serializeAttachment({
       credentialId: credential.id as string,
       kind,
@@ -470,14 +565,21 @@ export class Inbox extends DurableObject<Env> {
       const secretHash = yield* hashSecret(token.secret);
       const row = this.one(
         "SELECT id, kind, name, secret_hash, last_seen_at FROM credentials WHERE id = ? AND revoked_at IS NULL",
-        token.id,
+        token.id
       );
       if (!row || row.secret_hash !== secretHash) {
         return yield* fail("unauthorized", "This pairing is no longer valid");
       }
       const now = Date.now();
-      if (((row.last_seen_at as number | null) ?? 0) < now - LAST_SEEN_WRITE_INTERVAL_MS) {
-        this.sql.exec("UPDATE credentials SET last_seen_at = ? WHERE id = ?", now, token.id);
+      if (
+        ((row.last_seen_at as number | null) ?? 0) <
+        now - LAST_SEEN_WRITE_INTERVAL_MS
+      ) {
+        this.sql.exec(
+          "UPDATE credentials SET last_seen_at = ? WHERE id = ?",
+          now,
+          token.id
+        );
       }
       return {
         id: row.id as string,
@@ -487,21 +589,26 @@ export class Inbox extends DurableObject<Env> {
     });
   }
 
-  private insertCredential(id: string, kind: CredentialKind, name: string, secretHash: string) {
+  private insertCredential(
+    id: string,
+    kind: CredentialKind,
+    name: string,
+    secretHash: string
+  ) {
     this.sql.exec(
       "INSERT INTO credentials (id, kind, name, secret_hash, created_at) VALUES (?, ?, ?, ?, ?)",
       id,
       kind,
       name,
       secretHash,
-      Date.now(),
+      Date.now()
     );
   }
 
   private listCredentials(): Credential[] {
     return this.sql
       .exec(
-        "SELECT id, kind, name, created_at, last_seen_at FROM credentials WHERE revoked_at IS NULL ORDER BY created_at",
+        "SELECT id, kind, name, created_at, last_seen_at FROM credentials WHERE revoked_at IS NULL ORDER BY created_at"
       )
       .toArray()
       .map((row) => ({
@@ -519,7 +626,7 @@ export class Inbox extends DurableObject<Env> {
   }
 
   private getTap(tapId: string): Tap {
-    const tap = this.selectTaps("WHERE t.id = ?", tapId)[0];
+    const [tap] = this.selectTaps("WHERE t.id = ?", tapId);
     if (!tap) {
       throw new Error(`Tap ${tapId} vanished`);
     }
@@ -531,7 +638,7 @@ export class Inbox extends DurableObject<Env> {
       .exec(
         `SELECT t.*, c.name AS sender_name FROM taps t JOIN credentials c ON c.id = t.sender_id
          ${where} ORDER BY t.created_at DESC LIMIT ${HISTORY_LIMIT * 2}`,
-        ...bindings,
+        ...bindings
       )
       .toArray()
       .map((row) => ({
@@ -544,24 +651,33 @@ export class Inbox extends DurableObject<Env> {
         displayedAt: row.displayed_at as number | null,
         acknowledgedAt: row.acknowledged_at as number | null,
         acknowledgedBy: row.acknowledged_by as string | null,
-        response: row.response ? (JSON.parse(row.response as string) as TapResponse) : null,
+        response: row.response
+          ? (JSON.parse(row.response as string) as TapResponse)
+          : null,
         sequence: row.sequence as number,
       }));
   }
 
   private one(query: string, ...bindings: SqlStorageValue[]): Row | null {
-    return (this.sql.exec(query, ...bindings).toArray()[0] as Row | undefined) ?? null;
+    return (
+      (this.sql.exec(query, ...bindings).toArray()[0] as Row | undefined) ??
+      null
+    );
   }
 
   private meta(key: string): string | null {
-    return (this.one("SELECT value FROM meta WHERE key = ?", key)?.value as string) ?? null;
+    return (
+      (this.one("SELECT value FROM meta WHERE key = ?", key)?.value as
+        | string
+        | undefined) ?? null
+    );
   }
 
   private setMeta(key: string, value: string) {
     this.sql.exec(
       "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
       key,
-      value,
+      value
     );
   }
 
@@ -576,7 +692,12 @@ export class Inbox extends DurableObject<Env> {
   }
 
   private broadcastTap(tap: Tap) {
-    const event: ServerEvent = { v: 1, type: "tap", sequence: tap.sequence, tap };
+    const event: ServerEvent = {
+      v: 1,
+      type: "tap",
+      sequence: tap.sequence,
+      tap,
+    };
     this.broadcastToDevices(event);
     for (const socket of this.ctx.getWebSockets(`sender:${tap.senderId}`)) {
       this.send(socket, event);

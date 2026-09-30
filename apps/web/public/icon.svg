@@ -1,0 +1,7 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <title>Shouldertap</title>
+  <rect fill="#e8613c" height="64" rx="14" width="64" />
+  <circle cx="32" cy="27" fill="#fff" r="11" />
+  <path d="M14 54c3-10 10-15 18-15s15 5 18 15" fill="#fff" />
+  <circle cx="47" cy="17" fill="#ffd166" r="5" />
+</svg>

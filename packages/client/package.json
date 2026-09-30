@@ -1,0 +1,22 @@
+{
+  "name": "@shouldertap/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@shouldertap/domain": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@shouldertap/config": "workspace:*",
+    "@types/bun": "^1.3.9",
+    "typescript": "catalog:"
+  }
+}

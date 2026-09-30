@@ -47,5 +47,5 @@ export default Alchemy.Stack(
       web: webWorker.url,
       server: serverWorker.url,
     };
-  }),
+  })
 );

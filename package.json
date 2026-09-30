@@ -1,6 +1,7 @@
 {
   "name": "shouldertap",
   "private": true,
+  "type": "module",
   "workspaces": {
     "packages": [
       "apps/*",
@@ -23,19 +24,25 @@
       "effect": "4.0.0-rc.115"
     }
   },
-  "type": "module",
   "scripts": {
-    "dev": "turbo run dev",
     "build": "turbo run build",
+    "check": "ultracite check",
     "check-types": "turbo run check-types",
-    "dev:web": "turbo run dev:bare -F web --",
-    "dev:server": "turbo run dev:bare -F hono --",
     "deploy": "turbo run deploy -F @shouldertap/infra --",
     "destroy": "turbo run destroy -F @shouldertap/infra --",
+    "dev": "turbo run dev",
+    "dev:server": "turbo run dev:bare -F hono --",
+    "dev:web": "turbo run dev:bare -F web --",
     "env:generate": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/",
-    "postinstall": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/",
-    "check": "ultracite check",
-    "fix": "ultracite fix"
+    "fix": "ultracite fix",
+    "postinstall": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.0-rc.115",
+    "@effect/sql-d1": "4.0.0-rc.115",
+    "@effect/sql-sqlite-do": "4.0.0-rc.115",
+    "@effect/vitest": "4.0.0-rc.115",
+    "effect": "4.0.0-rc.115"
   },
   "dependencies": {
     "zod": "catalog:"
@@ -50,12 +57,5 @@
     "ultracite": "7.12.2",
     "varlock": "catalog:"
   },
-  "packageManager": "bun@1.3.9",
-  "overrides": {
-    "@effect/platform-node-shared": "4.0.0-rc.115",
-    "@effect/sql-d1": "4.0.0-rc.115",
-    "@effect/sql-sqlite-do": "4.0.0-rc.115",
-    "@effect/vitest": "4.0.0-rc.115",
-    "effect": "4.0.0-rc.115"
-  }
+  "packageManager": "bun@1.3.9"
 }

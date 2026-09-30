@@ -5,25 +5,26 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "serve": "vite preview",
-    "start": "vite",
     "check-types": "vite build && tsc --noEmit",
     "dev:bare": "vite dev",
-    "env:generate": "varlock codegen"
+    "env:generate": "varlock codegen",
+    "serve": "vite preview",
+    "start": "vite"
   },
   "dependencies": {
+    "@shouldertap/client": "workspace:*",
+    "@shouldertap/domain": "workspace:*",
     "@shouldertap/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-router": "^1.170.32",
+    "effect": "catalog:",
     "lucide-react": "catalog:",
     "next-themes": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "sonner": "catalog:",
     "varlock": "catalog:",
-    "zod": "catalog:",
-    "@shouldertap/domain": "workspace:*",
-    "effect": "catalog:"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@shouldertap/config": "workspace:*",

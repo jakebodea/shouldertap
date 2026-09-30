@@ -1,4 +1,9 @@
-import { errorStatus, type ErrorCode, parseBearer, parseToken } from "@shouldertap/domain";
+import {
+  type ErrorCode,
+  errorStatus,
+  parseBearer,
+  parseToken,
+} from "@shouldertap/domain";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -21,7 +26,7 @@ app.use(
     // Bearer credentials only, no cookies: any origin may call the API.
     origin: "*",
     allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-  }),
+  })
 );
 
 const inbox = (inboxId: string) => ENV.INBOX.getByName(inboxId);
@@ -30,7 +35,9 @@ const failure = (c: Context, code: ErrorCode, message: string) =>
   c.json({ error: { code, message } }, errorStatus[code] as 400);
 
 const reply = <A>(c: Context, result: Result<A>, status: 200 | 201 = 200) =>
-  result.ok ? c.json(result.value as object, status) : failure(c, result.error.code, result.error.message);
+  result.ok
+    ? c.json(result.value as object, status)
+    : failure(c, result.error.code, result.error.message);
 
 const body = (c: Context): Promise<unknown> => c.req.json().catch(() => null);
 
@@ -64,13 +71,19 @@ app.get("/v1/connect", (c) => {
 
 app.get("/v1/me", async (c) => {
   const token = authorized(c);
-  return token ? reply(c, await inbox(token.inboxId).snapshot(token)) : failure(c, "unauthorized", "Missing credential");
+  return token
+    ? reply(c, await inbox(token.inboxId).snapshot(token))
+    : failure(c, "unauthorized", "Missing credential");
 });
 
 app.post("/v1/invites", async (c) => {
   const token = authorized(c);
   return token
-    ? reply(c, await inbox(token.inboxId).createInvite(token, await body(c)), 201)
+    ? reply(
+        c,
+        await inbox(token.inboxId).createInvite(token, await body(c)),
+        201
+      )
     : failure(c, "unauthorized", "Missing credential");
 });
 
@@ -84,14 +97,24 @@ app.post("/v1/taps", async (c) => {
 app.post("/v1/taps/:id/displayed", async (c) => {
   const token = authorized(c);
   return token
-    ? reply(c, await inbox(token.inboxId).markDisplayed(token, c.req.param("id")))
+    ? reply(
+        c,
+        await inbox(token.inboxId).markDisplayed(token, c.req.param("id"))
+      )
     : failure(c, "unauthorized", "Missing credential");
 });
 
 app.post("/v1/taps/:id/acknowledge", async (c) => {
   const token = authorized(c);
   return token
-    ? reply(c, await inbox(token.inboxId).acknowledge(token, c.req.param("id"), await body(c)))
+    ? reply(
+        c,
+        await inbox(token.inboxId).acknowledge(
+          token,
+          c.req.param("id"),
+          await body(c)
+        )
+      )
     : failure(c, "unauthorized", "Missing credential");
 });
 

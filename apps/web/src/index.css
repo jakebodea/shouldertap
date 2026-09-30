@@ -1,1 +1,22 @@
 @import "@shouldertap/ui/globals.css";
+
+:root {
+  --tap: oklch(0.66 0.18 38);
+  --tap-foreground: oklch(0.99 0 0);
+  --background: oklch(0.97 0.008 75);
+  --card: oklch(0.995 0.003 75);
+}
+
+.dark {
+  --background: oklch(0.18 0.01 60);
+  --card: oklch(0.23 0.012 60);
+}
+
+@theme inline {
+  --color-tap: var(--tap);
+  --color-tap-foreground: var(--tap-foreground);
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+}

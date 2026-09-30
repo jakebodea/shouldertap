@@ -1,0 +1,9 @@
+{
+  "extends": "@shouldertap/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ESNext", "DOM"],
+    "types": ["bun"]
+  },
+  "include": ["src/**/*.ts"]
+}

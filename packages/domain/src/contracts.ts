@@ -5,7 +5,11 @@ export const MAX_NAME_LENGTH = 40;
 export const MAX_REPLY_LENGTH = 280;
 
 const Name = Schema.String.pipe(
-  Schema.check(Schema.isTrimmed(), Schema.isMinLength(1), Schema.isMaxLength(MAX_NAME_LENGTH)),
+  Schema.check(
+    Schema.isTrimmed(),
+    Schema.isMinLength(1),
+    Schema.isMaxLength(MAX_NAME_LENGTH)
+  )
 );
 
 /** Epoch milliseconds. */
@@ -19,7 +23,9 @@ export type ResponseKind = typeof ResponseKind.Type;
 
 export const TapResponse = Schema.Struct({
   kind: ResponseKind,
-  text: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(MAX_REPLY_LENGTH)))),
+  text: Schema.optionalKey(
+    Schema.String.pipe(Schema.check(Schema.isMaxLength(MAX_REPLY_LENGTH)))
+  ),
 });
 export type TapResponse = typeof TapResponse.Type;
 
@@ -85,9 +91,15 @@ export const RedeemInviteRequest = Schema.Struct({
 export type RedeemInviteRequest = typeof RedeemInviteRequest.Type;
 
 export const SendTapRequest = Schema.Struct({
-  requestId: Schema.String.pipe(Schema.check(Schema.isMinLength(8), Schema.isMaxLength(64))),
+  requestId: Schema.String.pipe(
+    Schema.check(Schema.isMinLength(8), Schema.isMaxLength(64))
+  ),
   body: Schema.String.pipe(
-    Schema.check(Schema.isTrimmed(), Schema.isMinLength(1), Schema.isMaxLength(MAX_TAP_LENGTH)),
+    Schema.check(
+      Schema.isTrimmed(),
+      Schema.isMinLength(1),
+      Schema.isMaxLength(MAX_TAP_LENGTH)
+    )
   ),
 });
 export type SendTapRequest = typeof SendTapRequest.Type;
@@ -150,7 +162,11 @@ export const RevokedEvent = Schema.Struct({
   type: Schema.Literal("revoked"),
 });
 
-export const ServerEvent = Schema.Union([TapEvent, CredentialsChangedEvent, RevokedEvent]);
+export const ServerEvent = Schema.Union([
+  TapEvent,
+  CredentialsChangedEvent,
+  RevokedEvent,
+]);
 export type ServerEvent = typeof ServerEvent.Type;
 
 // Errors on the wire

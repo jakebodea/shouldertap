@@ -1,10 +1,12 @@
 import type { ResponseKind, TapResponse } from "./contracts";
 
-export const responsePresets: ReadonlyArray<{ kind: Exclude<ResponseKind, "text">; label: string }> =
-  [
-    { kind: "on_it", label: "✅ On it" },
-    { kind: "in_10", label: "⏱️ In 10 min" },
-  ];
+export const responsePresets: ReadonlyArray<{
+  kind: Exclude<ResponseKind, "text">;
+  label: string;
+}> = [
+  { kind: "on_it", label: "✅ On it" },
+  { kind: "in_10", label: "⏱️ In 10 min" },
+];
 
 export const describeResponse = (response: TapResponse): string => {
   switch (response.kind) {
@@ -19,7 +21,7 @@ export const describeResponse = (response: TapResponse): string => {
   }
 };
 
-export const quickTaps: ReadonlyArray<string> = [
+export const quickTaps: readonly string[] = [
   "Dinner's ready",
   "Can you come here?",
   "Call me",

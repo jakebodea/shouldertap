@@ -9,11 +9,11 @@
     "env:generate": "varlock codegen"
   },
   "dependencies": {
+    "@shouldertap/domain": "workspace:*",
+    "effect": "catalog:",
     "hono": "^4.13.7",
     "varlock": "catalog:",
-    "zod": "catalog:",
-    "@shouldertap/domain": "workspace:*",
-    "effect": "catalog:"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
