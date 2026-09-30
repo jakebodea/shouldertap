@@ -1,5 +1,6 @@
 import type {
   CredentialKind,
+  PersonColor,
   TapResponse,
   TapState,
 } from "@shouldertap/domain";
@@ -24,6 +25,8 @@ export const credentials = sqliteTable("credentials", {
   id: text("id").primaryKey(),
   kind: text("kind").$type<CredentialKind>().notNull(),
   name: text("name").notNull(),
+  /** Senders pick a frame color when they pair; Macs have none. */
+  color: text("color").$type<PersonColor>(),
   secretHash: text("secret_hash").notNull(),
   createdAt: integer("created_at").notNull(),
   lastSeenAt: integer("last_seen_at"),

@@ -1,5 +1,7 @@
 import * as Schema from "effect/Schema";
 
+import { PersonColor } from "./colors";
+
 export const MAX_TAP_LENGTH = 280;
 export const MAX_NAME_LENGTH = 40;
 export const MAX_REPLY_LENGTH = 280;
@@ -36,6 +38,7 @@ export const Tap = Schema.Struct({
   id: Schema.String,
   senderId: Schema.String,
   senderName: Schema.String,
+  senderColor: PersonColor,
   body: Schema.String,
   createdAt: Timestamp,
   state: TapState,
@@ -51,6 +54,8 @@ export const Credential = Schema.Struct({
   id: Schema.String,
   kind: CredentialKind,
   name: Schema.String,
+  /** Senders only; Macs have no color. */
+  color: Schema.NullOr(PersonColor),
   createdAt: Timestamp,
   lastSeenAt: Schema.NullOr(Timestamp),
 });
@@ -87,6 +92,8 @@ export type Invite = typeof Invite.Type;
 export const RedeemInviteRequest = Schema.Struct({
   code: Schema.String,
   name: Name,
+  /** The sender's frame color. Ignored when pairing a Mac. */
+  color: Schema.optionalKey(PersonColor),
 });
 export type RedeemInviteRequest = typeof RedeemInviteRequest.Type;
 
@@ -133,6 +140,7 @@ export const SenderSnapshot = Schema.Struct({
   kind: Schema.Literal("sender"),
   credentialId: Schema.String,
   senderName: Schema.String,
+  senderColor: PersonColor,
   recipientName: Schema.String,
   sequence: Schema.Number,
   taps: Schema.Array(Tap),

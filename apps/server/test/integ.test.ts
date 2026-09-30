@@ -45,7 +45,7 @@ const pairedInbox = Effect.fn(function* (url: string) {
     payload: { kind: "sender" },
   });
   const sender = yield* anon.pairing.redeemInvite({
-    payload: { code: senderInvite.code, name: "Sam" },
+    payload: { code: senderInvite.code, name: "Sam", color: "moss" },
   });
   const deviceInvite = yield* mac.inbox.createInvite({
     payload: { kind: "device" },
@@ -113,6 +113,12 @@ test(
 
     const snapshot = yield* (yield* client(url, macA.token)).inbox.me();
     expect(snapshot.kind === "device" && snapshot.credentials.length).toBe(3);
+    const colors =
+      snapshot.kind === "device"
+        ? snapshot.credentials.map((c) => [c.kind, c.color])
+        : [];
+    expect(colors).toContainEqual(["sender", "moss"]);
+    expect(colors).toContainEqual(["device", null]);
   }),
   { timeout: 60_000 }
 );
@@ -134,6 +140,7 @@ test(
       payload: { requestId, body: "Laundry!" },
     });
     expect(tap.state).toBe("pending");
+    expect(tap.senderColor).toBe("moss");
 
     const retry = yield* senderApi.inbox.sendTap({
       payload: { requestId, body: "Laundry!" },

@@ -40,6 +40,7 @@ describe("contracts", () => {
       kind: "sender",
       credentialId: "c",
       senderName: "Sam",
+      senderColor: "moss",
       recipientName: "Jake",
       sequence: 3,
       taps: [],

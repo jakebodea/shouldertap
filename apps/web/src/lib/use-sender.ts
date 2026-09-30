@@ -6,7 +6,7 @@ import {
   mergeSnapshot,
   mergeTap,
 } from "@shouldertap/client";
-import type { Tap } from "@shouldertap/domain";
+import type { PersonColor, Tap } from "@shouldertap/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./api";
@@ -50,6 +50,7 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   const [taps, setTaps] = useState<Tap[]>([]);
   const [status, setStatus] = useState<LiveStatus>("connecting");
   const [loaded, setLoaded] = useState(false);
+  const [senderColor, setSenderColor] = useState<PersonColor | null>(null);
   const [outbox, setOutbox] = useState<OutgoingTap[]>(loadOutbox);
   const outboxRef = useRef(outbox);
   const revokedRef = useRef(onRevoked);
@@ -97,6 +98,9 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
     try {
       const snapshot = await client.me();
       setTaps((current) => mergeSnapshot(current, snapshot.taps));
+      if (snapshot.kind === "sender") {
+        setSenderColor(snapshot.senderColor);
+      }
       setLoaded(true);
     } catch (error) {
       if (error instanceof ApiError && error.code === "unauthorized") {
@@ -152,5 +156,5 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
     [updateOutbox]
   );
 
-  return { taps, outbox, status, loaded, send, discard };
+  return { taps, outbox, status, loaded, senderColor, send, discard };
 };

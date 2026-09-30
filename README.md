@@ -2,14 +2,14 @@
 
 A trusted person can send a message that appears across your connected computer displays until you acknowledge it, then receive your response.
 
-[Shouldertap: app idea](https://www.notion.so/3eb7155b453881c7bc4cdc8ef57d87e2) is the source of truth for the concept. [Architecture plan](docs/architecture.md), [Apple client research](docs/research/apple-clients.md), [backend research](docs/research/backend-stack.md).
+[Shouldertap: app idea](https://www.notion.so/3eb7155b453881c7bc4cdc8ef57d87e2) is the source of truth for the concept. [Architecture plan](docs/architecture.md), [design system](docs/design.md), [Apple client research](docs/research/apple-clients.md), [backend research](docs/research/backend-stack.md).
 
 ## What v0 does
 
 1. **Pair**: the Mac app creates your inbox on first launch. "Create invite link" shows a QR code and link for a sender's phone; "Add another Mac" gives a one-time code for your other Macs.
-2. **Send**: the sender opens the link in Safari, enters their name, and sends a tap (quick templates or free text).
+2. **Send**: the sender opens the link in Safari, enters their name, picks a color, and sends a tap. Unpaired visitors to the site see the landing page.
 3. **Pause**: every paired Mac covers every display with the message, above full-screen apps and on every Space.
-4. **Respond**: ✅ On it, ⏱️ In 10 min, or a typed reply. Answering on one Mac dismisses it on all of them.
+4. **Respond**: On it, In 10 min, or a typed reply. The overlay is framed in the sender's color. Answering on one Mac dismisses it on all of them.
 5. **Close the loop**: the sender sees delivered → on screen → the reply, live.
 
 ## Layout

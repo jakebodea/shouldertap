@@ -11,13 +11,15 @@
     "start": "vite"
   },
   "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@hugeicons/core-free-icons": "^4.3.5",
+    "@hugeicons/react": "^1.1.10",
     "@shouldertap/client": "workspace:*",
     "@shouldertap/domain": "workspace:*",
     "@shouldertap/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-router": "^1.170.32",
     "effect": "catalog:",
-    "lucide-react": "catalog:",
     "next-themes": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
