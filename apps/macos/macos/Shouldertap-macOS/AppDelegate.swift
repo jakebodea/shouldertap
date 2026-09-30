@@ -64,6 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
+  /// Launching the app again (Finder, Spotlight, `open`) shows the menu.
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    openPopover()
+    return false
+  }
+
   func makeRootView(moduleName: String, properties: [String: Any]) -> NSView {
     reactNativeFactory.rootViewFactory.view(
       withModuleName: moduleName, initialProperties: properties)
