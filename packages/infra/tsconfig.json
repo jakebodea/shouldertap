@@ -1,4 +1,0 @@
-{
-  "extends": "@shouldertap/config/tsconfig.base.json",
-  "include": ["alchemy.run.ts", "../../apps/server/cloudflare-env.d.ts"]
-}

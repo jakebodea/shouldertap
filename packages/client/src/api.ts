@@ -1,25 +1,49 @@
 import {
   type AcknowledgeRequest,
-  ConnectTicket,
+  Authorization,
   type CreateInboxRequest,
-  CredentialGrant,
   type CredentialKind,
-  ErrorBody,
-  type ErrorCode,
-  Invite,
   type RedeemInviteRequest,
   type SendTapRequest,
-  Snapshot,
-  Tap,
+  ShouldertapApi,
 } from "@shouldertap/domain";
-import * as Schema from "effect/Schema";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
+import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
+import * as HttpApiMiddleware from "effect/unstable/httpapi/HttpApiMiddleware";
+
+/** A typed client for the Shouldertap API, derived from the shared spec. */
+export const makeShouldertapClient = (baseUrl: string, token: string | null) =>
+  HttpApiClient.make(ShouldertapApi, { baseUrl }).pipe(
+    Effect.provide(
+      HttpApiMiddleware.layerClient(Authorization, ({ next, request }) =>
+        next(token ? HttpClientRequest.bearerToken(request, token) : request)
+      )
+    ),
+    Effect.provide(FetchHttpClient.layer)
+  );
+
+export type ShouldertapClient = Effect.Success<
+  ReturnType<typeof makeShouldertapClient>
+>;
+
+export type ApiErrorCode =
+  | "invalid_request"
+  | "unauthorized"
+  | "not_found"
+  | "conflict"
+  | "expired"
+  | "network";
 
 export class ApiError extends Error {
-  readonly code: ErrorCode | "network";
+  readonly code: ApiErrorCode;
   readonly status: number;
 
   constructor(
-    code: ErrorCode | "network",
+    code: ApiErrorCode,
     message: string,
     status: number,
     options?: { cause?: unknown }
@@ -31,136 +55,110 @@ export class ApiError extends Error {
   }
 }
 
-const decodeError = Schema.decodeUnknownOption(ErrorBody);
 const TRAILING_SLASH = /\/$/;
 const HTTP_SCHEME = /^http/;
 
-export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
+const domainErrors: Record<string, { code: ApiErrorCode; status: number }> = {
+  InvalidRequest: { code: "invalid_request", status: 400 },
+  HttpApiSchemaError: { code: "invalid_request", status: 400 },
+  SchemaError: { code: "invalid_request", status: 400 },
+  Unauthorized: { code: "unauthorized", status: 401 },
+  NotFound: { code: "not_found", status: 404 },
+  Conflict: { code: "conflict", status: 409 },
+  Expired: { code: "expired", status: 410 },
+};
 
-export interface ApiClientOptions {
-  readonly baseUrl: string;
-  readonly fetch?: Fetch;
-  readonly token?: string | null;
-}
+const toApiError = (failure: unknown): ApiError => {
+  const tag = (failure as { _tag?: string } | null)?._tag ?? "";
+  const known = domainErrors[tag];
+  const message =
+    (failure as { message?: string } | null)?.message ||
+    (failure instanceof Error ? failure.message : "Request failed");
+  if (known) {
+    return new ApiError(known.code, message, known.status, { cause: failure });
+  }
+  // Transport failures, unexpected statuses and defects: retryable.
+  const status =
+    (failure as { response?: { status?: number } } | null)?.response?.status ??
+    0;
+  return new ApiError("network", message, status, { cause: failure });
+};
 
-/** Plain HTTPS JSON client for the Shouldertap API, decoding every response. */
+/**
+ * Promise facade over the typed client for React/React Native code. Each
+ * method maps typed failures to `ApiError` with a stable `code`.
+ */
 export class ApiClient {
   readonly baseUrl: string;
   readonly token: string | null;
-  private readonly fetchImpl: Fetch;
+  private client: Promise<ShouldertapClient> | null = null;
 
-  constructor(options: ApiClientOptions) {
+  constructor(options: {
+    readonly baseUrl: string;
+    readonly token?: string | null;
+  }) {
     this.baseUrl = options.baseUrl.replace(TRAILING_SLASH, "");
     this.token = options.token ?? null;
-    this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
   }
 
   withToken(token: string | null): ApiClient {
-    return new ApiClient({
-      baseUrl: this.baseUrl,
-      token,
-      fetch: this.fetchImpl,
-    });
+    return new ApiClient({ baseUrl: this.baseUrl, token });
   }
 
   get socketUrl(): string {
     return `${this.baseUrl.replace(HTTP_SCHEME, "ws")}/v1/connect`;
   }
 
-  createInbox(request: CreateInboxRequest) {
-    return this.request(CredentialGrant, "POST", "/v1/inboxes", request);
+  createInbox(payload: CreateInboxRequest) {
+    return this.call((c) => c.pairing.createInbox({ payload }));
   }
 
-  redeemInvite(request: RedeemInviteRequest) {
-    return this.request(CredentialGrant, "POST", "/v1/invites/redeem", request);
+  redeemInvite(payload: RedeemInviteRequest) {
+    return this.call((c) => c.pairing.redeemInvite({ payload }));
   }
 
   me() {
-    return this.request(Snapshot, "GET", "/v1/me");
+    return this.call((c) => c.inbox.me());
   }
 
   createInvite(kind: CredentialKind) {
-    return this.request(Invite, "POST", "/v1/invites", { kind });
+    return this.call((c) => c.inbox.createInvite({ payload: { kind } }));
   }
 
-  sendTap(request: SendTapRequest) {
-    return this.request(Tap, "POST", "/v1/taps", request);
+  sendTap(payload: SendTapRequest) {
+    return this.call((c) => c.inbox.sendTap({ payload }));
   }
 
   markDisplayed(tapId: string) {
-    return this.request(
-      Tap,
-      "POST",
-      `/v1/taps/${encodeURIComponent(tapId)}/displayed`
-    );
+    return this.call((c) => c.inbox.markDisplayed({ params: { id: tapId } }));
   }
 
-  acknowledge(tapId: string, request: AcknowledgeRequest) {
-    return this.request(
-      Tap,
-      "POST",
-      `/v1/taps/${encodeURIComponent(tapId)}/acknowledge`,
-      request
+  acknowledge(tapId: string, payload: AcknowledgeRequest) {
+    return this.call((c) =>
+      c.inbox.acknowledge({ params: { id: tapId }, payload })
     );
   }
 
   revoke(credentialId: string) {
-    return this.request(
-      Schema.Struct({ revoked: Schema.Literal(true) }),
-      "DELETE",
-      `/v1/credentials/${encodeURIComponent(credentialId)}`
-    );
+    return this.call((c) => c.inbox.revoke({ params: { id: credentialId } }));
   }
 
   connectTicket() {
-    return this.request(ConnectTicket, "POST", "/v1/connect-tickets");
+    return this.call((c) => c.inbox.connectTicket());
   }
 
-  private async request<
-    S extends Schema.Top & { readonly DecodingServices: never },
-  >(
-    schema: S,
-    method: string,
-    path: string,
-    body?: unknown
-  ): Promise<S["Type"]> {
-    let response: Response;
-    try {
-      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-        method,
-        headers: {
-          Accept: "application/json",
-          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    } catch (error) {
-      // biome-ignore lint/style/useErrorCause: cause is passed via the options argument
-      throw new ApiError(
-        "network",
-        error instanceof Error ? error.message : "Network error",
-        0,
-        { cause: error }
-      );
+  private async call<A, E>(
+    request: (client: ShouldertapClient) => Effect.Effect<A, E>
+  ): Promise<A> {
+    this.client ??= Effect.runPromise(
+      makeShouldertapClient(this.baseUrl, this.token)
+    );
+    const client = await this.client;
+    const exit = await Effect.runPromiseExit(request(client));
+    if (Exit.isSuccess(exit)) {
+      return exit.value;
     }
-    const json: unknown = await response.json().catch(() => null);
-    if (!response.ok) {
-      const decoded = decodeError(json);
-      if (decoded._tag === "Some") {
-        throw new ApiError(
-          decoded.value.error.code,
-          decoded.value.error.message,
-          response.status
-        );
-      }
-      throw new ApiError(
-        "network",
-        `Request failed (${response.status})`,
-        response.status
-      );
-    }
-    return Schema.decodeUnknownSync(schema)(json);
+    throw toApiError(Cause.squash(exit.cause));
   }
 }
 

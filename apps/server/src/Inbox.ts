@@ -1,0 +1,714 @@
+import {
+  type AcknowledgeRequest,
+  Conflict,
+  type ConnectTicket,
+  type CreateInboxRequest,
+  type CreateInviteRequest,
+  type Credential,
+  type CredentialGrant,
+  type CredentialKind,
+  Expired,
+  formatToken,
+  InvalidRequest,
+  type Invite,
+  NotFound,
+  type ParsedToken,
+  parseToken,
+  type RedeemInviteRequest,
+  type SendTapRequest,
+  type ServerEvent,
+  type Snapshot,
+  type Tap,
+  Unauthorized,
+} from "@shouldertap/domain";
+import type { RuntimeContext } from "alchemy";
+import * as Cloudflare from "alchemy/Cloudflare";
+import * as Drizzle from "alchemy/Drizzle/Cloudflare";
+import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
+import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+
+import migrations from "../drizzle/migrations.js";
+import { credentials, inbox, invites, taps, tickets } from "./schema";
+
+const SENDER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DEVICE_INVITE_TTL_MS = 15 * 60 * 1000;
+const TICKET_TTL_MS = 60 * 1000;
+const HISTORY_LIMIT = 25;
+const LAST_SEEN_WRITE_INTERVAL_MS = 60 * 1000;
+
+type Rpc<A, E = never> = Effect.Effect<A, E, RuntimeContext>;
+
+/** The Inbox's typed RPC surface, called by the Server Worker. */
+export interface InboxRpc {
+  readonly acknowledge: (
+    token: ParsedToken,
+    tapId: string,
+    request: AcknowledgeRequest
+  ) => Rpc<Tap, Unauthorized | NotFound | InvalidRequest>;
+  readonly createInvite: (
+    token: ParsedToken,
+    request: CreateInviteRequest
+  ) => Rpc<Invite, Unauthorized>;
+  readonly createTicket: (
+    token: ParsedToken
+  ) => Rpc<ConnectTicket, Unauthorized>;
+  readonly initialize: (
+    inboxId: string,
+    request: CreateInboxRequest
+  ) => Rpc<CredentialGrant, Conflict>;
+  readonly markDisplayed: (
+    token: ParsedToken,
+    tapId: string
+  ) => Rpc<Tap, Unauthorized | NotFound>;
+  readonly redeemInvite: (
+    code: ParsedToken,
+    request: RedeemInviteRequest
+  ) => Rpc<CredentialGrant, NotFound | Expired>;
+  readonly revoke: (
+    token: ParsedToken,
+    credentialId: string
+  ) => Rpc<{ revoked: true }, Unauthorized | NotFound>;
+  readonly sendTap: (
+    token: ParsedToken,
+    request: SendTapRequest
+  ) => Rpc<Tap, Unauthorized | Conflict>;
+  readonly snapshot: (token: ParsedToken) => Rpc<Snapshot, Unauthorized>;
+}
+
+type InboxShape = InboxRpc &
+  Required<
+    Pick<
+      Cloudflare.DurableObjectShape,
+      "fetch" | "webSocketMessage" | "webSocketClose"
+    >
+  >;
+
+/**
+ * One instance per recipient, addressed by inbox id. The authoritative owner
+ * of that recipient's paired Macs, trusted senders and taps. Commands arrive
+ * as typed RPC from the Server Worker; events leave over hibernatable
+ * WebSockets.
+ */
+export class Inbox extends Cloudflare.DurableObject<Inbox, InboxShape>()(
+  "Inbox",
+  {
+    // Revived as real instances on the Worker side of the RPC boundary.
+    errors: [Unauthorized, NotFound, Conflict, Expired, InvalidRequest],
+  }
+) {}
+
+/** Attached to each accepted socket; survives hibernation. */
+const SocketSession = Schema.Struct({
+  credentialId: Schema.String,
+  kind: Schema.Literals(["device", "sender"]),
+});
+type SocketSession = typeof SocketSession.Type;
+const decodeSession = Schema.decodeUnknownOption(SocketSession);
+
+const now = Effect.sync(() => Date.now());
+
+const randomId = (bytes = 12) =>
+  Effect.sync(() =>
+    btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(bytes))))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replaceAll("=", "")
+  );
+
+const hashSecret = (secret: string) =>
+  Effect.promise(async () => {
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(secret)
+    );
+    return [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  });
+
+/** Storage failures are defects: the Worker answers 500 and clients retry. */
+const orDieOnStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.catchIf(
+      (
+        error
+      ): error is Extract<
+        E,
+        { _tag: "EffectDrizzleQueryError" | "SqlError" }
+      > =>
+        typeof error === "object" &&
+        error !== null &&
+        "_tag" in error &&
+        (error._tag === "EffectDrizzleQueryError" || error._tag === "SqlError"),
+      (error) => Effect.die(error)
+    )
+  ) as Effect.Effect<
+    A,
+    Exclude<E, { _tag: "EffectDrizzleQueryError" | "SqlError" }>,
+    R
+  >;
+
+export const InboxLive = Inbox.make(
+  Effect.gen(function* () {
+    const state = yield* Cloudflare.DurableObjectState;
+
+    return Effect.gen(function* () {
+      const db = yield* Drizzle.DurableObject({ migrations });
+      // Keep-alive pings are answered without waking the object.
+      yield* state.setWebSocketAutoResponse(
+        // biome-ignore lint/correctness/noUndeclaredVariables: Workers runtime global
+        new WebSocketRequestResponsePair("ping", "pong")
+      );
+
+      // Reads
+
+      const tapRows = (
+        where: Parameters<ReturnType<typeof selectTaps>["where"]>[0]
+      ) =>
+        selectTaps()
+          .where(where)
+          .orderBy(desc(taps.createdAt))
+          .limit(HISTORY_LIMIT * 2);
+
+      const selectTaps = () =>
+        db
+          .select({ tap: taps, senderName: credentials.name })
+          .from(taps)
+          .innerJoin(credentials, eq(credentials.id, taps.senderId));
+
+      const toTap = ({
+        tap,
+        senderName,
+      }: {
+        tap: typeof taps.$inferSelect;
+        senderName: string;
+      }): Tap => ({
+        id: tap.id,
+        senderId: tap.senderId,
+        senderName,
+        body: tap.body,
+        createdAt: tap.createdAt,
+        state: tap.state,
+        displayedAt: tap.displayedAt,
+        acknowledgedAt: tap.acknowledgedAt,
+        acknowledgedBy: tap.acknowledgedBy,
+        response: tap.response,
+        sequence: tap.sequence,
+      });
+
+      const getTap = (tapId: string) =>
+        tapRows(eq(taps.id, tapId)).pipe(
+          Effect.flatMap(([row]) =>
+            row
+              ? Effect.succeed(toTap(row))
+              : Effect.fail(new NotFound({ message: "No such tap" }))
+          )
+        );
+
+      const inboxRow = db
+        .select()
+        .from(inbox)
+        .where(eq(inbox.id, 1))
+        .pipe(Effect.map(([row]) => row));
+
+      const listCredentials = db
+        .select()
+        .from(credentials)
+        .where(isNull(credentials.revokedAt))
+        .orderBy(credentials.createdAt)
+        .pipe(
+          Effect.map((rows) =>
+            rows.map(
+              (row): Credential => ({
+                id: row.id,
+                kind: row.kind,
+                name: row.name,
+                createdAt: row.createdAt,
+                lastSeenAt: row.lastSeenAt,
+              })
+            )
+          )
+        );
+
+      const authenticate = Effect.fn("Inbox.authenticate")(function* (
+        token: ParsedToken
+      ) {
+        const secretHash = yield* hashSecret(token.secret);
+        const [row] = yield* db
+          .select()
+          .from(credentials)
+          .where(
+            and(eq(credentials.id, token.id), isNull(credentials.revokedAt))
+          );
+        if (!row || row.secretHash !== secretHash) {
+          return yield* new Unauthorized({
+            message: "This pairing is no longer valid",
+          });
+        }
+        const at = yield* now;
+        if ((row.lastSeenAt ?? 0) < at - LAST_SEEN_WRITE_INTERVAL_MS) {
+          yield* db
+            .update(credentials)
+            .set({ lastSeenAt: at })
+            .where(eq(credentials.id, row.id));
+        }
+        return row;
+      });
+
+      const requireKind = (kind: CredentialKind, message: string) =>
+        Effect.fn(function* (token: ParsedToken) {
+          const actor = yield* authenticate(token);
+          if (actor.kind !== kind) {
+            return yield* new Unauthorized({ message });
+          }
+          return actor;
+        });
+      const requireDevice = requireKind(
+        "device",
+        "Only a paired Mac can do that"
+      );
+      const requireSender = requireKind(
+        "sender",
+        "Only a paired sender can send taps"
+      );
+
+      // Events
+
+      const sessions = Effect.gen(function* () {
+        const sockets = yield* state.getWebSockets();
+        return sockets.flatMap((socket) => {
+          const session = decodeSession(socket.deserializeAttachment());
+          return session._tag === "Some"
+            ? [{ socket, session: session.value }]
+            : [];
+        });
+      });
+
+      const send = (socket: Cloudflare.WebSocket, event: ServerEvent) =>
+        // A dead socket is cleaned up by the runtime; clients resync on reconnect.
+        socket.send(JSON.stringify(event)).pipe(Effect.ignore);
+
+      const broadcast = (
+        event: ServerEvent,
+        to: (session: SocketSession) => boolean
+      ) =>
+        Effect.gen(function* () {
+          for (const { socket, session } of yield* sessions) {
+            if (to(session)) {
+              yield* send(socket, event);
+            }
+          }
+        });
+
+      const broadcastTap = (tap: Tap) =>
+        broadcast(
+          { v: 1, type: "tap", sequence: tap.sequence, tap },
+          (session) =>
+            session.kind === "device" || session.credentialId === tap.senderId
+        );
+
+      const broadcastCredentials = inboxRow.pipe(
+        Effect.flatMap((row) =>
+          broadcast(
+            { v: 1, type: "credentials", sequence: row?.sequence ?? 0 },
+            (session) => session.kind === "device"
+          )
+        )
+      );
+
+      const nextSequence = db
+        .update(inbox)
+        .set({ sequence: sql`${inbox.sequence} + 1` })
+        .where(eq(inbox.id, 1))
+        .returning({ sequence: inbox.sequence })
+        .pipe(Effect.map(([row]) => row?.sequence ?? 0));
+
+      const issueCredential = Effect.fn(function* (
+        kind: CredentialKind,
+        name: string
+      ) {
+        const id = yield* randomId();
+        const secret = yield* randomId(32);
+        const secretHash = yield* hashSecret(secret);
+        const createdAt = yield* now;
+        return { row: { id, kind, name, secretHash, createdAt }, secret };
+      });
+
+      const rpc: InboxRpc = {
+        initialize: Effect.fn("Inbox.initialize")(function* (inboxId, request) {
+          const existing = yield* inboxRow;
+          if (existing) {
+            return yield* new Conflict({ message: "Inbox already exists" });
+          }
+          const credential = yield* issueCredential(
+            "device",
+            request.deviceName
+          );
+          yield* db.transaction((tx) =>
+            Effect.gen(function* () {
+              yield* tx.insert(inbox).values({
+                id: 1,
+                inboxId,
+                recipientName: request.recipientName,
+              });
+              yield* tx.insert(credentials).values(credential.row);
+            })
+          );
+          return {
+            kind: "device" as const,
+            credentialId: credential.row.id,
+            token: formatToken({
+              inboxId,
+              id: credential.row.id,
+              secret: credential.secret,
+            }),
+            recipientName: request.recipientName,
+          };
+        }, orDieOnStorage),
+
+        snapshot: Effect.fn("Inbox.snapshot")(function* (token) {
+          const actor = yield* authenticate(token);
+          const row = yield* inboxRow;
+          const recipientName = row?.recipientName ?? "";
+          const sequence = row?.sequence ?? 0;
+          if (actor.kind === "sender") {
+            const rows = yield* tapRows(eq(taps.senderId, actor.id));
+            return {
+              kind: "sender" as const,
+              credentialId: actor.id,
+              senderName: actor.name,
+              recipientName,
+              sequence,
+              taps: rows.map(toTap),
+            };
+          }
+          const pending = yield* tapRows(eq(taps.state, "pending"));
+          const recent = yield* selectTaps()
+            .orderBy(desc(taps.createdAt))
+            .limit(HISTORY_LIMIT);
+          const byId = new Map(
+            [...recent, ...pending].map((r) => [r.tap.id, toTap(r)])
+          );
+          return {
+            kind: "device" as const,
+            credentialId: actor.id,
+            recipientName,
+            sequence,
+            taps: [...byId.values()].sort((a, b) => b.createdAt - a.createdAt),
+            credentials: yield* listCredentials,
+          };
+        }, orDieOnStorage),
+
+        createInvite: Effect.fn("Inbox.createInvite")(function* (
+          token,
+          request
+        ) {
+          const actor = yield* requireDevice(token);
+          const id = yield* randomId();
+          const secret = yield* randomId(24);
+          const createdAt = yield* now;
+          const expiresAt =
+            createdAt +
+            (request.kind === "sender"
+              ? SENDER_INVITE_TTL_MS
+              : DEVICE_INVITE_TTL_MS);
+          yield* db.insert(invites).values({
+            id,
+            kind: request.kind,
+            secretHash: yield* hashSecret(secret),
+            createdBy: actor.id,
+            createdAt,
+            expiresAt,
+          });
+          return {
+            kind: request.kind,
+            code: formatToken({ inboxId: token.inboxId, id, secret }),
+            expiresAt,
+          };
+        }, orDieOnStorage),
+
+        redeemInvite: Effect.fn("Inbox.redeemInvite")(function* (
+          code,
+          request
+        ) {
+          const secretHash = yield* hashSecret(code.secret);
+          const credential = yield* issueCredential("sender", request.name);
+          const at = yield* now;
+          const grant = yield* db.transaction((tx) =>
+            Effect.gen(function* () {
+              const [invite] = yield* tx
+                .select()
+                .from(invites)
+                .where(eq(invites.id, code.id));
+              if (!invite || invite.secretHash !== secretHash) {
+                return yield* new NotFound({
+                  message: "This invite link isn't valid",
+                });
+              }
+              if (invite.redeemedAt !== null) {
+                return yield* new Expired({
+                  message: "This invite link was already used",
+                });
+              }
+              if (invite.expiresAt < at) {
+                return yield* new Expired({
+                  message: "This invite link has expired",
+                });
+              }
+              yield* tx
+                .update(invites)
+                .set({ redeemedAt: at })
+                .where(eq(invites.id, invite.id));
+              yield* tx
+                .insert(credentials)
+                .values({ ...credential.row, kind: invite.kind });
+              const [row] = yield* tx
+                .select()
+                .from(inbox)
+                .where(eq(inbox.id, 1));
+              return {
+                kind: invite.kind,
+                credentialId: credential.row.id,
+                token: formatToken({
+                  inboxId: code.inboxId,
+                  id: credential.row.id,
+                  secret: credential.secret,
+                }),
+                recipientName: row?.recipientName ?? "",
+              };
+            })
+          );
+          yield* broadcastCredentials;
+          return grant;
+        }, orDieOnStorage),
+
+        sendTap: Effect.fn("Inbox.sendTap")(function* (token, request) {
+          const actor = yield* requireSender(token);
+          const id = yield* randomId();
+          const createdAt = yield* now;
+          const tapId = yield* db.transaction((tx) =>
+            Effect.gen(function* () {
+              const [existing] = yield* tx
+                .select()
+                .from(taps)
+                .where(
+                  and(
+                    eq(taps.senderId, actor.id),
+                    eq(taps.requestId, request.requestId)
+                  )
+                );
+              if (existing) {
+                // Idempotent retry: same request id, same message → same tap.
+                if (existing.body !== request.body) {
+                  return yield* new Conflict({
+                    message: "Request id was reused with a different message",
+                  });
+                }
+                return { id: existing.id, isNew: false };
+              }
+              const [row] = yield* tx
+                .update(inbox)
+                .set({ sequence: sql`${inbox.sequence} + 1` })
+                .where(eq(inbox.id, 1))
+                .returning({ sequence: inbox.sequence });
+              yield* tx.insert(taps).values({
+                id,
+                requestId: request.requestId,
+                senderId: actor.id,
+                body: request.body,
+                createdAt,
+                state: "pending",
+                sequence: row?.sequence ?? 0,
+              });
+              return { id, isNew: true };
+            })
+          );
+          const tap = yield* getTap(tapId.id).pipe(Effect.orDie);
+          if (tapId.isNew) {
+            yield* broadcastTap(tap);
+          }
+          return tap;
+        }, orDieOnStorage),
+
+        markDisplayed: Effect.fn("Inbox.markDisplayed")(function* (
+          token,
+          tapId
+        ) {
+          yield* requireDevice(token);
+          const tap = yield* getTap(tapId);
+          if (tap.displayedAt !== null) {
+            return tap;
+          }
+          const at = yield* now;
+          const sequence = yield* nextSequence;
+          yield* db
+            .update(taps)
+            .set({ displayedAt: at, sequence })
+            .where(eq(taps.id, tapId));
+          const updated = yield* getTap(tapId);
+          yield* broadcastTap(updated);
+          return updated;
+        }, orDieOnStorage),
+
+        acknowledge: Effect.fn("Inbox.acknowledge")(function* (
+          token,
+          tapId,
+          request
+        ) {
+          const actor = yield* requireDevice(token);
+          if (
+            request.response.kind === "text" &&
+            !request.response.text?.trim()
+          ) {
+            return yield* new InvalidRequest({
+              message: "A text reply needs some text",
+            });
+          }
+          const at = yield* now;
+          // First committed acknowledgement wins; retries and other Macs get it back.
+          const changed = yield* db
+            .transaction((tx) =>
+              Effect.gen(function* () {
+                const [row] = yield* tx
+                  .update(inbox)
+                  .set({ sequence: sql`${inbox.sequence} + 1` })
+                  .where(eq(inbox.id, 1))
+                  .returning({ sequence: inbox.sequence });
+                const updated = yield* tx
+                  .update(taps)
+                  .set({
+                    state: "acknowledged",
+                    acknowledgedAt: at,
+                    acknowledgedBy: actor.name,
+                    displayedAt: sql`COALESCE(${taps.displayedAt}, ${at})`,
+                    response: request.response,
+                    sequence: row?.sequence ?? 0,
+                  })
+                  .where(and(eq(taps.id, tapId), eq(taps.state, "pending")))
+                  .returning({ id: taps.id });
+                if (updated.length === 0) {
+                  yield* tx.rollback();
+                }
+                return updated.length > 0;
+              })
+            )
+            .pipe(
+              Effect.catchTag("EffectTransactionRollbackError", () =>
+                Effect.succeed(false)
+              )
+            );
+          const tap = yield* getTap(tapId);
+          if (changed) {
+            yield* broadcastTap(tap);
+          }
+          return tap;
+        }, orDieOnStorage),
+
+        revoke: Effect.fn("Inbox.revoke")(function* (token, credentialId) {
+          yield* requireDevice(token);
+          const [target] = yield* db
+            .update(credentials)
+            .set({ revokedAt: yield* now })
+            .where(
+              and(
+                eq(credentials.id, credentialId),
+                isNull(credentials.revokedAt)
+              )
+            )
+            .returning({ id: credentials.id });
+          if (!target) {
+            return yield* new NotFound({ message: "No such pairing" });
+          }
+          for (const { socket, session } of yield* sessions) {
+            if (session.credentialId === credentialId) {
+              yield* send(socket, { v: 1, type: "revoked" });
+              yield* socket.close(4001, "revoked");
+            }
+          }
+          yield* broadcastCredentials;
+          return { revoked: true as const };
+        }, orDieOnStorage),
+
+        createTicket: Effect.fn("Inbox.createTicket")(function* (token) {
+          const actor = yield* authenticate(token);
+          const id = yield* randomId();
+          const secret = yield* randomId(24);
+          const at = yield* now;
+          const expiresAt = at + TICKET_TTL_MS;
+          yield* db.delete(tickets).where(lt(tickets.expiresAt, at));
+          yield* db.insert(tickets).values({
+            id,
+            secretHash: yield* hashSecret(secret),
+            credentialId: actor.id,
+            expiresAt,
+          });
+          return {
+            ticket: formatToken({ inboxId: token.inboxId, id, secret }),
+            expiresAt,
+          };
+        }, orDieOnStorage),
+      };
+
+      const unauthorized = (message: string) =>
+        HttpServerResponse.text(message, { status: 401 });
+
+      return {
+        ...rpc,
+
+        // `GET /v1/connect?ticket=…`, forwarded by the Worker.
+        fetch: Effect.gen(function* () {
+          const request = yield* HttpServerRequest;
+          const query = request.url.includes("?")
+            ? request.url.slice(request.url.indexOf("?") + 1)
+            : "";
+          const ticket = parseToken(
+            new URLSearchParams(query).get("ticket") ?? ""
+          );
+          if (!ticket) {
+            return unauthorized("Invalid ticket");
+          }
+          const secretHash = yield* hashSecret(ticket.secret);
+          // One-time: consume before checking.
+          const [row] = yield* db
+            .delete(tickets)
+            .where(eq(tickets.id, ticket.id))
+            .returning();
+          if (
+            !row ||
+            row.secretHash !== secretHash ||
+            row.expiresAt < (yield* now)
+          ) {
+            return unauthorized("Invalid ticket");
+          }
+          const [credential] = yield* db
+            .select()
+            .from(credentials)
+            .where(
+              and(
+                eq(credentials.id, row.credentialId),
+                isNull(credentials.revokedAt)
+              )
+            );
+          if (!credential) {
+            return unauthorized("Revoked");
+          }
+          const [response, socket] = yield* Cloudflare.upgrade();
+          socket.serializeAttachment({
+            credentialId: credential.id,
+            kind: credential.kind,
+          } satisfies SocketSession);
+          return response;
+        }).pipe(Effect.orDie),
+
+        // Clients send commands over HTTPS; "ping" is handled by the auto-response.
+        webSocketMessage: () => Effect.void,
+
+        webSocketClose: (socket, code, reason) =>
+          socket.close(code === 1005 ? 1000 : code, reason),
+      };
+    });
+  })
+);

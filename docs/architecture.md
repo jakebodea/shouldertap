@@ -119,7 +119,7 @@ For v0, one Worker, one D1 database, and a recipient Durable Object namespace su
 
 ## v0 status (September 30, 2026)
 
-The first vertical slice is built; see the [README](../README.md) for what it does, how to run it, and known gaps. It departs from this plan in three places: no D1/Better Auth yet (invite-link pairing with bearer credentials owned by the Inbox Durable Object); the Durable Object is a plain `cloudflare:workers` class with Effect Schema and Effect programs inside its methods, rather than Alchemy's beta Effect-native DO API; and the Mac credential is stored in a file until the app is Developer ID signed.
+The first vertical slice is built; see the [README](../README.md) for what it does, how to run it, and known gaps. Alchemy is the source of truth: the backend follows Alchemy's documented patterns at `alchemy@2.0.0-beta.79` / `effect@4.0.0-rc.115` (a `Cloudflare.Worker` class serving an Effect `HttpApi`; a modular `Cloudflare.DurableObject` with typed RPC errors, `Drizzle.DurableObject` storage and `Cloudflare.upgrade()` sockets; one root `alchemy.run.ts`; the Alchemy `Test` harness). Remaining departures from this plan: no D1/Better Auth yet (invite-link pairing with bearer credentials owned by the Inbox), and the Mac credential is stored in a file until the app is Developer ID signed.
 
 ## Outstanding proof (original)
 

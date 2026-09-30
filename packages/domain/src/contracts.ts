@@ -168,32 +168,3 @@ export const ServerEvent = Schema.Union([
   RevokedEvent,
 ]);
 export type ServerEvent = typeof ServerEvent.Type;
-
-// Errors on the wire
-
-export const ErrorCode = Schema.Literals([
-  "invalid_request",
-  "unauthorized",
-  "not_found",
-  "conflict",
-  "expired",
-]);
-export type ErrorCode = typeof ErrorCode.Type;
-
-export const ErrorBody = Schema.Struct({
-  error: Schema.Struct({ code: ErrorCode, message: Schema.String }),
-});
-export type ErrorBody = typeof ErrorBody.Type;
-
-export const errorStatus: Record<ErrorCode, number> = {
-  invalid_request: 400,
-  unauthorized: 401,
-  not_found: 404,
-  conflict: 409,
-  expired: 410,
-};
-
-export class ApiFailure extends Schema.TaggedError<ApiFailure>()("ApiFailure", {
-  code: ErrorCode,
-  message: Schema.String,
-}) {}

@@ -14,13 +14,18 @@ A trusted person can send a message that appears across your connected computer 
 
 ## Layout
 
+Alchemy is the source of truth for infrastructure and backend structure: one Stack at the workspace root composes everything.
+
 ```text
-apps/server     Hono ingress + Inbox Durable Object (SQLite), one per recipient
-apps/web        Safari sender (React, TanStack Router, Vite)
-apps/macos      React Native macOS menu-bar app + Swift overlay/bridge module
-packages/domain Effect Schema contracts, token format, response presets
-packages/client HTTP client + live WebSocket (tickets, reconnect, resync)
-packages/infra  Alchemy v2 stack: server Worker, DO namespace, web Worker
+alchemy.run.ts          Composition root: Server Worker + Safari sender site
+apps/server/src/Server.ts   Cloudflare.Worker: Effect HttpApi + WebSocket forwarding
+apps/server/src/Inbox.ts    Cloudflare.DurableObject: one per recipient, Drizzle over its SQLite
+apps/server/src/schema.ts   Drizzle schema; migrations in apps/server/drizzle (drizzle-kit, durable-sqlite)
+apps/server/test/           Alchemy Test harness: deploys the Stack, drives the protocol
+apps/web                    Safari sender (React, TanStack Router, Vite) via Cloudflare.Website.Vite
+apps/macos                  React Native macOS menu-bar app + Swift overlay/bridge module
+packages/domain             Effect Schema contracts, typed errors, the HttpApi spec
+packages/client             HttpApiClient-based client + live WebSocket (tickets, reconnect, resync)
 ```
 
 `apps/macos` is deliberately outside the Bun workspace (npm, hoisted `node_modules` for CocoaPods and Metro). Its Metro config compiles `packages/domain` and `packages/client` from source.
@@ -32,11 +37,21 @@ bun install
 ```
 
 ```bash
-bun run dev            # alchemy dev: API on :3000, web on :3001
+bun run dev            # alchemy dev: API on :3000, web on :3001, Workers and DOs in local workerd
 ```
 
 ```bash
-bun apps/server/scripts/smoke.ts            # protocol end-to-end check (local)
+cd apps/server && bun run test:local     # integration suite against a local Stack
+```
+
+```bash
+cd apps/server && bun run test           # same suite, deployed to the test_$USER stage and destroyed after
+```
+
+Schema changes: edit `apps/server/src/schema.ts`, then generate and commit a migration. Each Inbox applies pending migrations when it activates.
+
+```bash
+cd apps/server && bun run db:generate
 ```
 
 Mac app (needs Xcode and CocoaPods; `DEVELOPER_DIR` avoids `sudo xcode-select`):
@@ -58,7 +73,11 @@ Debug builds talk to `localhost`; Release builds use the deployed `dev` stage (`
 ## Deploy
 
 ```bash
-cd packages/infra && bunx alchemy deploy --stage dev
+bun run plan -- --stage dev
+```
+
+```bash
+bun run deploy -- --stage dev
 ```
 
 After a deploy that changes URLs, update `deployed` in `apps/macos/src/config.ts` and rebuild the Release app:
@@ -74,5 +93,5 @@ Current `dev` stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea
 - No accounts: trust is invite links plus revocable bearer credentials. Anyone can create a new (empty) inbox; there's no rate limiting yet.
 - The Mac credential lives in an owner-only file in `~/Library/Application Support/Shouldertap`, not the Keychain, because builds are ad-hoc signed (no Developer ID), so the Keychain would prompt after every rebuild.
 - The overlay can't be dismissed without answering. If the Mac is offline, answering still dismisses locally and the reply is retried until the server accepts it.
-- Handled in code but not yet tested by hand: Durable Object hibernation, sleep/wake, display hot-plug, full-screen apps/Spaces, and replying while offline. Tested: overlays on two displays, replying from the overlay, cross-Mac dismissal, and the protocol against the deployed API.
+- Handled in code but not yet tested by hand: Durable Object hibernation, sleep/wake, display hot-plug, full-screen apps/Spaces, and replying while offline. Tested: overlays on two displays, replying from the overlay, cross-Mac dismissal, and the protocol via the Alchemy integration suite.
 - Sender history is capped at 50 recent taps.

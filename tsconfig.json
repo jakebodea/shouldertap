@@ -1,3 +1,9 @@
 {
-  "extends": "@shouldertap/config/tsconfig.base.json"
+  "extends": "@shouldertap/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["@cloudflare/workers-types", "bun"]
+  },
+  "include": ["alchemy.run.ts", "apps/server/drizzle/**/*.d.ts"]
 }

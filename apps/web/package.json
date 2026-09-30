@@ -7,7 +7,6 @@
     "build": "vite build",
     "check-types": "vite build && tsc --noEmit",
     "dev:bare": "vite dev",
-    "env:generate": "varlock codegen",
     "serve": "vite preview",
     "start": "vite"
   },
@@ -22,9 +21,7 @@
     "next-themes": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "sonner": "catalog:",
-    "varlock": "catalog:",
-    "zod": "catalog:"
+    "sonner": "catalog:"
   },
   "devDependencies": {
     "@shouldertap/config": "workspace:*",

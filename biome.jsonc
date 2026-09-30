@@ -6,11 +6,10 @@
     "ultracite/biome/tanstack"
   ],
   "files": {
-    // Generated: shadcn primitives, varlock env types, router tree, native projects.
+    // Generated: shadcn primitives, router tree, drizzle-kit output, native projects.
     "includes": [
       "!packages/ui/src/components",
-      "!**/src/env.ts",
-      "!apps/server/cloudflare-env.d.ts",
+      "!apps/server/drizzle",
       "!**/routeTree.gen.ts",
       "!apps/macos/macos",
       "!apps/macos/ios"
@@ -20,6 +19,24 @@
     // React Native's dev-build flag.
     "globals": ["__DEV__"]
   },
+  "overrides": [
+    {
+      // Alchemy convention: one PascalCase file per Resource (Worker, Durable Object).
+      "includes": ["apps/server/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": {
+              "level": "error",
+              "options": {
+                "filenameCases": ["PascalCase", "camelCase", "kebab-case"]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "linter": {
     "rules": {
       "performance": {

@@ -9,7 +9,8 @@ const local = {
 
 // `dev` stage from `alchemy deploy --stage dev`.
 const deployed = {
-  serverUrl: "https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev",
+  serverUrl:
+    "https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev",
   webUrl: "https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev",
 };
 
