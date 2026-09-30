@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     if let button = statusItem.button {
-      button.image = ShouldertapMark.templateImage(knocks: Self.idleKnocks)
+      button.image = ShouldertapMark.templateImage(knocks: Self.restingKnocks)
       button.action = #selector(togglePopover(_:))
       button.target = self
     }
@@ -97,37 +97,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     popover.isShown ? [popover.contentViewController?.view].compactMap { $0 } : []
   }
 
-  /// Idle, the menu bar shows the bare frame. While a tap waits, the knock
-  /// marks land on its shoulder: they pop in twice when the tap arrives
-  /// (static with Reduce Motion), then stay until it is answered.
+  /// The menu bar always shows the full mark. While a tap waits, the knock
+  /// marks knock twice when it arrives and again every few seconds until it
+  /// is answered (never with Reduce Motion).
   func setPending(_ pending: Bool) {
     guard pending != self.pending else { return }
     self.pending = pending
     knockTimer?.invalidate()
     knockTimer = nil
+    statusItem.button?.image = ShouldertapMark.templateImage(knocks: Self.restingKnocks)
     guard pending, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-      statusItem.button?.image = ShouldertapMark.templateImage(
-        knocks: pending ? Self.pendingKnocks : Self.idleKnocks)
       return
     }
     let start = Date()
     let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
       guard let self else { return timer.invalidate() }
-      let elapsed = Date().timeIntervalSince(start)
-      let done = elapsed >= ShouldertapMark.knockDuration
+      let phase = Date().timeIntervalSince(start)
+        .truncatingRemainder(dividingBy: Self.knockEvery)
+      let knocking = phase < ShouldertapMark.knockDuration
       self.statusItem.button?.image = ShouldertapMark.templateImage(
-        knocks: done ? Self.pendingKnocks : ShouldertapMark.knockStates(elapsed: elapsed))
-      if done {
-        timer.invalidate()
-        self.knockTimer = nil
-      }
+        knocks: knocking ? ShouldertapMark.knockStates(elapsed: phase) : Self.restingKnocks)
     }
     RunLoop.main.add(timer, forMode: .common)
     knockTimer = timer
   }
 
-  private static let idleKnocks = [ShouldertapMark.Knock](repeating: .hidden, count: 3)
-  private static let pendingKnocks = [ShouldertapMark.Knock](repeating: .shown, count: 3)
+  private static let knockEvery: TimeInterval = 4
+  private static let restingKnocks = [ShouldertapMark.Knock](repeating: .shown, count: 3)
 }
 
 // MARK: - React Native Delegate
