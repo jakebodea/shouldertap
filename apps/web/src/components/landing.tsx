@@ -149,6 +149,9 @@ export function Landing() {
       ref={rootRef}
       style={
         {
+          // Safari 26 tints its toolbars from this full-screen fixed layer and
+          // only notices an inline background-color change, not a variable's.
+          backgroundColor: swatches[scene.color].base,
           "--wipe-from": swatches[from].base,
           "--wipe-to": swatches[scene.color].base,
           "--frame": swatches[scene.color].base,
