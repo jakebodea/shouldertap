@@ -18,8 +18,15 @@ const { test, beforeAll, afterAll, deploy, destroy } = Test.make({
   state: Cloudflare.state(),
 });
 
-const stack = beforeAll(deploy(Stack), { timeout: 300_000 });
-afterAll.skipIf(!!process.env.NO_DESTROY)(destroy(Stack));
+// STACK_URL=<server url> runs the suite against an existing deployment.
+const existing = process.env.STACK_URL;
+const stack = beforeAll(
+  existing ? Effect.succeed({ server: existing }) : deploy(Stack),
+  {
+    timeout: 300_000,
+  }
+);
+afterAll.skipIf(!!existing || !!process.env.NO_DESTROY)(destroy(Stack));
 
 const HTTP_SCHEME = /^http/;
 const decodeEvent = Schema.decodeUnknownSync(ServerEvent);

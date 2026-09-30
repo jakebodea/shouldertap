@@ -93,7 +93,7 @@ type InboxShape = InboxRpc &
  * WebSockets.
  */
 export class Inbox extends Cloudflare.DurableObject<Inbox, InboxShape>()(
-  "Inbox",
+  "Inboxes",
   {
     // Revived as real instances on the Worker side of the RPC boundary.
     errors: [Unauthorized, NotFound, Conflict, Expired, InvalidRequest],
