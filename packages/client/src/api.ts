@@ -12,7 +12,7 @@ import {
   Snapshot,
   Tap,
 } from "@shouldertap/domain";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 export class ApiError extends Error {
   readonly code: ErrorCode | "network";

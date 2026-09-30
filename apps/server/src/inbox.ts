@@ -20,7 +20,8 @@ import {
   type Tap,
   type TapResponse,
 } from "@shouldertap/domain";
-import { Effect, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 /** Plain data so failures survive the Worker ↔ Durable Object RPC boundary. */
 export type Result<A> =

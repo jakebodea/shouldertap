@@ -16,6 +16,10 @@
       "!apps/macos/ios"
     ]
   },
+  "javascript": {
+    // React Native's dev-build flag.
+    "globals": ["__DEV__"]
+  },
   "linter": {
     "rules": {
       "performance": {

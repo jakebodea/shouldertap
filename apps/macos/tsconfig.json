@@ -1,0 +1,15 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "types": [],
+    "lib": ["es2022"],
+    "paths": {
+      "@shouldertap/domain": ["../../packages/domain/src/index.ts"],
+      "@shouldertap/client": ["../../packages/client/src/index.ts"],
+      "effect": ["./node_modules/effect"],
+      "effect/*": ["./node_modules/effect/*"]
+    }
+  },
+  "include": ["index.js", "src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["**/node_modules", "**/Pods"]
+}

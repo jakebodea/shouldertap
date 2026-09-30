@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 import { SendTapRequest, ServerEvent, Snapshot } from "./contracts";
 import { formatToken, parseBearer, parseToken } from "./token";

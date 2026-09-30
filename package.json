@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": {
     "packages": [
-      "apps/*",
+      "apps/server",
+      "apps/web",
       "packages/*"
     ],
     "catalog": {

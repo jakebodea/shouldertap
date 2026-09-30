@@ -6,7 +6,7 @@
  */
 
 import { ServerEvent, type Tap } from "@shouldertap/domain";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 const HTTP_SCHEME = /^http/;
 const base = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");

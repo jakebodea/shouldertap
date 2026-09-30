@@ -1,5 +1,5 @@
 import { ServerEvent, type Tap } from "@shouldertap/domain";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 import { type ApiClient, ApiError } from "./api";
 

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 export const MAX_TAP_LENGTH = 280;
 export const MAX_NAME_LENGTH = 40;
