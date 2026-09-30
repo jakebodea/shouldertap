@@ -117,6 +117,10 @@ The current Better T Stack Workers scaffold requires Hono. Keep that wrapper res
 
 For v0, one Worker, one D1 database, and a recipient Durable Object namespace supply the necessary backend roles. Add alarms for a real snooze/scheduling requirement, storage for attachments when implemented, and push for background companion notifications when implemented. Each infrastructure addition should correspond to a product requirement.
 
-## Outstanding proof
+## v0 status (September 30, 2026)
+
+The first vertical slice is built; see the [README](../README.md) for what it does, how to run it, and known gaps. It departs from this plan in three places: no D1/Better Auth yet (invite-link pairing with bearer credentials owned by the Inbox Durable Object); the Durable Object is a plain `cloudflare:workers` class with Effect Schema and Effect programs inside its methods, rather than Alchemy's beta Effect-native DO API; and the Mac credential is stored in a file until the app is Developer ID signed.
+
+## Outstanding proof (original)
 
 No installed framework, generated project, desktop overlay, network flow, or deployment was tested during this architecture discussion. The Mac bridge's behavior and the selected prerelease package combination remain implementation gates. The current folder began with only a README and no `.git` directory; research and this plan are the artifacts produced so far.

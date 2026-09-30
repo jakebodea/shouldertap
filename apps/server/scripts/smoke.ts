@@ -111,10 +111,18 @@ const a = await listen(deviceToken);
 const b = await listen(macB.json.token);
 const s = await listen(senderToken);
 
-const ticketReuse = await fetch(`${base}/v1/connect?ticket=${a.ticket}`, {
-  headers: { Upgrade: "websocket" },
+const reusedOpened = await new Promise<boolean>((resolve) => {
+  const socket = new WebSocket(
+    `${base.replace(HTTP_SCHEME, "ws")}/v1/connect?ticket=${a.ticket}`
+  );
+  socket.addEventListener("open", () => {
+    socket.close();
+    resolve(true);
+  });
+  socket.addEventListener("error", () => resolve(false));
+  socket.addEventListener("close", () => resolve(false));
 });
-expect("connect ticket is one-time", ticketReuse.status === 401);
+expect("connect ticket is one-time", !reusedOpened);
 
 const requestId = crypto.randomUUID();
 const sent = await call("POST", "/v1/taps", senderToken, {

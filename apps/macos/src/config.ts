@@ -7,9 +7,10 @@ const local = {
   webUrl: "http://localhost:3001",
 };
 
+// `dev` stage from `alchemy deploy --stage dev`.
 const deployed = {
-  serverUrl: "http://localhost:3000",
-  webUrl: "http://localhost:3001",
+  serverUrl: "https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev",
+  webUrl: "https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev",
 };
 
 export const endpoints = __DEV__ ? local : deployed;

@@ -1,10 +1,11 @@
+// biome-ignore-all lint/correctness/noGlobalDirnameFilename: Metro loads this file as CommonJS
 const path = require("node:path");
 const { getDefaultConfig, mergeConfig } = require("@react-native/metro-config");
 
-const repoRoot = path.resolve(import.meta.dirname, "../..");
+const repoRoot = path.resolve(__dirname, "../..");
 const shared = (name) => path.join(repoRoot, "packages", name);
 
-const defaults = getDefaultConfig(import.meta.dirname);
+const defaults = getDefaultConfig(__dirname);
 // Includes the CLI's react-native → react-native-macos redirect; keep it.
 const baseResolve = defaults.resolver.resolveRequest;
 
@@ -19,7 +20,7 @@ const baseResolve = defaults.resolver.resolveRequest;
 const config = {
   watchFolders: [shared("domain"), shared("client")],
   resolver: {
-    nodeModulesPaths: [path.join(import.meta.dirname, "node_modules")],
+    nodeModulesPaths: [path.join(__dirname, "node_modules")],
     extraNodeModules: {
       "@shouldertap/domain": shared("domain"),
       "@shouldertap/client": shared("client"),
@@ -30,7 +31,7 @@ const config = {
         return resolve(
           {
             ...context,
-            originModulePath: path.join(import.meta.dirname, "index.js"),
+            originModulePath: path.join(__dirname, "index.js"),
           },
           moduleName,
           platform
