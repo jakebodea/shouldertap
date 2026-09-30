@@ -65,6 +65,36 @@ Notes on the measurements:
 - **Rust core floor (measured):** linking a dependency-free Rust `staticlib` (Rust 1.93.1, `opt-level="z"`, LTO, `panic="abort"`) into the same app grew the arm64 binary from 237 KB to 473 KB. That is **+235 KB per architecture just for Rust `std`**, before any HTTP, TLS, WebSocket or JSON crates. A universal build doubles it.
 - **Tauri, Slint, iced and egui were not built.** None of their crates were in the local cargo cache, so measuring them meant fetching hundreds of crates. Their numbers below are cited.
 
+## Measured: GPUI vs native Swift
+
+Same Mac (M4, two displays: 4K external and built-in Retina), same script for both: idle, popover open for 2 seconds, a demo tap through `wss://echo.websocket.org` covering both displays for about 9 seconds, then idle. The GPUI prototype mirrors the Swift one:
+- `gpui` 0.2.2 from crates.io, with `gpui-tray` 0.1.4 for the menu bar item and a pop-up window for the popover.
+- One pop-up window per display, lifted to the screen-saver level through its raw AppKit handle.
+- `async-tungstenite` on smol's kqueue reactor, so the socket never polls.
+- Release build with fat LTO, one codegen unit and stripped symbols. Shaders compile at runtime (`runtime_shaders`) because the Metal toolchain isn't installed; precompiled shaders would change startup, not steady-state memory.
+
+| Measured | Swift (AppKit + SwiftUI) | GPUI |
+| --- | --- | --- |
+| Universal app | 792 KB | 7.5 MB |
+| DMG | 0.36 MB | 4.3 MB |
+| Idle memory | 13–14 MB | 11–12 MB |
+| Popover open | 18 MB | 11 MB |
+| Overlays on both displays | 28 MB (peak 30) | 174–226 MB (peak 430) |
+| Idle after a tap | 25 MB | 24 MB |
+| Idle CPU, 60 s | 0.0% | 0.0% |
+| Idle wakeups, 60 s, never shown a tap | 1 | 8 |
+| Idle wakeups, 30 s, after showing a tap | 15 | 215 |
+
+The overlay difference is GPU memory: each full-screen Metal window holds several drawables (`footprint` showed 127 MB of IOSurface and 64 MB of IOAccelerator). SwiftUI's solid fills and text layers need far less. It lasts only while a tap is on screen.
+
+GPUI rendered the design faithfully: custom fonts, rounded pills and colors. Gaps found:
+- There is no letter-spacing API, so the message's tight tracking is lost.
+- The overlay stopped below the menu bar, which needs fixing.
+- GPUI has no text field; its own input example is about 750 lines.
+- Keyboard focus in GPUI was not tested. The Swift overlay did become the key window with the app frontmost (measured, Mac unlocked).
+
+Verdict: Swift wins on download size (12 times smaller), on overlay memory (about 7 times less) and on wakeups after a tap. Idle memory is a tie. GPUI's advantage is one Rust UI codebase shared with Windows.
+
 ## Options compared
 
 | | (a) RN, trimmed | (b) Native Swift | (c) Rust core + Swift UI (UniFFI) | (d) Tauri 2 | (e) Slint / iced / egui |
