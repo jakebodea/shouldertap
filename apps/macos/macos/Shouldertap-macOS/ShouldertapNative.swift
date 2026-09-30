@@ -19,7 +19,7 @@ final class ShouldertapNative: RCTEventEmitter {
 
   override var methodQueue: DispatchQueue! { .main }
 
-  override func supportedEvents() -> [String]! { ["wake", "popover"] }
+  override func supportedEvents() -> [String]! { ["wake", "popover", "overlayKey"] }
 
   override func startObserving() { hasListeners = true }
 

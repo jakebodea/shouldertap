@@ -8,7 +8,12 @@ import {
   mergeSnapshot,
   mergeTap,
 } from "@shouldertap/client";
-import type { Credential, Tap, TapResponse } from "@shouldertap/domain";
+import type {
+  Credential,
+  PersonColor,
+  Tap,
+  TapResponse,
+} from "@shouldertap/domain";
 
 import { endpoints } from "./config";
 import { native, onNativeEvent } from "./native";
@@ -21,6 +26,7 @@ export interface OverlayTap {
   readonly id: string;
   /** Other taps waiting behind this one. */
   readonly queued: number;
+  readonly senderColor: PersonColor;
   readonly senderName: string;
 }
 
@@ -246,6 +252,7 @@ class Store {
           id: first.id,
           body: first.body,
           senderName: first.senderName,
+          senderColor: first.senderColor,
           createdAt: first.createdAt,
           queued: waiting.length - 1,
         }

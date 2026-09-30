@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private(set) var reactNativeFactory: RCTReactNativeFactory!
   private var statusItem: NSStatusItem!
   private let popover = NSPopover()
+  private var pending = false
+  private var knockTimer: Timer?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     let factory = RCTReactNativeFactory(delegate: reactNativeDelegate)
@@ -46,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     if let button = statusItem.button {
-      button.image = Self.statusImage(pending: false)
+      button.image = ShouldertapMark.templateImage(knocks: Self.idleKnocks)
       button.action = #selector(togglePopover(_:))
       button.target = self
     }
@@ -95,16 +97,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     popover.isShown ? [popover.contentViewController?.view].compactMap { $0 } : []
   }
 
+  /// Idle, the menu bar shows the bare frame. While a tap waits, the knock
+  /// marks land on its shoulder: they pop in twice when the tap arrives
+  /// (static with Reduce Motion), then stay until it is answered.
   func setPending(_ pending: Bool) {
-    statusItem.button?.image = Self.statusImage(pending: pending)
+    guard pending != self.pending else { return }
+    self.pending = pending
+    knockTimer?.invalidate()
+    knockTimer = nil
+    guard pending, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+      statusItem.button?.image = ShouldertapMark.templateImage(
+        knocks: pending ? Self.pendingKnocks : Self.idleKnocks)
+      return
+    }
+    let start = Date()
+    let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+      guard let self else { return timer.invalidate() }
+      let elapsed = Date().timeIntervalSince(start)
+      let done = elapsed >= ShouldertapMark.knockDuration
+      self.statusItem.button?.image = ShouldertapMark.templateImage(
+        knocks: done ? Self.pendingKnocks : ShouldertapMark.knockStates(elapsed: elapsed))
+      if done {
+        timer.invalidate()
+        self.knockTimer = nil
+      }
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    knockTimer = timer
   }
 
-  private static func statusImage(pending: Bool) -> NSImage? {
-    let name = pending ? "hand.tap.fill" : "hand.tap"
-    let image = NSImage(systemSymbolName: name, accessibilityDescription: "Shouldertap")
-    image?.isTemplate = true
-    return image
-  }
+  private static let idleKnocks = [ShouldertapMark.Knock](repeating: .hidden, count: 3)
+  private static let pendingKnocks = [ShouldertapMark.Knock](repeating: .shown, count: 3)
 }
 
 // MARK: - React Native Delegate
