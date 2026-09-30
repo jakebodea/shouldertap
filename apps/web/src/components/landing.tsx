@@ -18,6 +18,7 @@ import {
 
 import { InkIcon, InkMark, InkText } from "@/components/ink";
 import { Mark, Wordmark } from "@/components/mark";
+import { Swept } from "@/components/swept";
 import { useThemeColor } from "@/lib/frame";
 
 // Illustrative household: the demo's names and messages are not real users.
@@ -187,17 +188,20 @@ export function Landing() {
           <div className="flex flex-1 flex-col justify-center gap-7 md:gap-8">
             <p className="flex items-center gap-3 font-semibold text-lg text-tone md:text-[1.375rem]">
               <span className="frame-fill grid size-8 place-items-center rounded-full font-bold text-sm md:size-[2.125rem] md:text-[0.9375rem]">
-                <InkText>{scene.who[0]}</InkText>
+                <Swept id={index}>
+                  <InkText>{scene.who[0]}</InkText>
+                </Swept>
               </span>
-              <b className="font-bold text-ink">{scene.who}</b>
+              <b className="font-bold text-ink">
+                <Swept id={index}>{scene.who}</Swept>
+              </b>
               <span className="tabular-nums">just now</span>
             </p>
             <h2
               aria-live="polite"
-              className="min-h-[1em] max-w-[11ch] animate-[rise-in_600ms_var(--ease-out-expo)] text-balance font-extrabold text-[clamp(3.5rem,11vw,9.5rem)] leading-[0.92] tracking-[-0.045em]"
-              key={index}
+              className="min-h-[1.84em] max-w-[11ch] text-balance font-extrabold text-[clamp(3.5rem,11vw,9.5rem)] leading-[0.92] tracking-[-0.045em]"
             >
-              {scene.message}
+              <Swept id={index}>{scene.message}</Swept>
             </h2>
             <div className="flex flex-wrap gap-3">
               {REPLIES.map((reply, i) => (
@@ -247,22 +251,24 @@ export function Landing() {
               aria-live="polite"
               className="flex min-h-7 items-center gap-2.5 font-semibold text-[1.0625rem] text-tone md:min-w-64 md:justify-end md:text-lg"
             >
-              {answered ? (
-                <>
-                  <HugeiconsIcon
-                    className="size-5 text-ink"
-                    icon={Tick02Icon}
-                  />
-                  <span>
-                    <b className="text-ink">{answered.who}</b> saw “
-                    {answered.label}”
+              <Swept id={index}>
+                {answered ? (
+                  <span className="flex items-center gap-2.5">
+                    <HugeiconsIcon
+                      className="size-5 text-ink"
+                      icon={Tick02Icon}
+                    />
+                    <span>
+                      <b className="text-ink">{answered.who}</b> saw “
+                      {answered.label}”
+                    </span>
                   </span>
-                </>
-              ) : (
-                <span className="hidden md:inline">
-                  Try it: answer with 1, 2 or 3
-                </span>
-              )}
+                ) : (
+                  <span className="hidden md:inline">
+                    Try it: answer with 1, 2 or 3
+                  </span>
+                )}
+              </Swept>
             </p>
           </div>
         </section>
@@ -427,7 +433,7 @@ function MiniPhone({ scene }: { scene: Scene }) {
           </span>
         </div>
         <div className="min-h-20 rounded-2xl bg-faint px-3.5 py-3 text-[15px]">
-          {scene.message}
+          <Swept id={scene.who}>{scene.message}</Swept>
         </div>
         <div className="pill pill-fill frame-fill pill-sm w-full">
           <InkIcon className="size-4" icon={SentIcon} />
@@ -445,12 +451,14 @@ function MiniOverlay({ scene }: { scene: Scene }) {
       className="frame-fill relative aspect-[16/10] w-full max-w-[30rem] rounded-2xl px-3 pt-9 pb-3 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
     >
       <div className="absolute top-2.5 left-5 flex items-baseline gap-2 font-bold text-sm">
-        <InkText>{scene.who}</InkText>
+        <Swept id={scene.who}>
+          <InkText>{scene.who}</InkText>
+        </Swept>
         <InkText className="font-medium text-xs opacity-75">just now</InkText>
       </div>
       <div className="flex h-full flex-col justify-between rounded-xl bg-paper px-6 pt-8 pb-5 text-ink">
         <b className="font-extrabold text-[2.25rem] leading-[0.95] tracking-[-0.04em]">
-          {scene.message}
+          <Swept id={scene.who}>{scene.message}</Swept>
         </b>
         <div className="flex gap-1.5">
           <span className="pill pill-fill frame-fill h-7 gap-1.5 px-3 text-xs">
@@ -480,7 +488,7 @@ function MiniAnswer({ scene, earlier }: { scene: Scene; earlier: Scene }) {
       <div className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between">
           <b className="font-bold text-xl tracking-[-0.02em]">
-            {scene.message}
+            <Swept id={scene.who}>{scene.message}</Swept>
           </b>
           <span className="text-[13px] text-tone">now</span>
         </div>
@@ -498,7 +506,7 @@ function MiniAnswer({ scene, earlier }: { scene: Scene; earlier: Scene }) {
       <div className="flex flex-col gap-3 border-line border-t pt-5">
         <div className="flex items-baseline justify-between">
           <b className="font-bold text-xl tracking-[-0.02em]">
-            {earlier.message}
+            <Swept id={scene.who}>{earlier.message}</Swept>
           </b>
           <span className="text-[13px] text-tone">13m</span>
         </div>
