@@ -14,11 +14,13 @@ import { Mark, Wordmark } from "@/components/mark";
 import { frameStyle, useThemeColor } from "@/lib/frame";
 
 // Illustrative household: the demo's names and messages are not real users.
-const SCENES: ReadonlyArray<{
-  who: string;
-  color: PersonColor;
-  message: string;
-}> = [
+interface Scene {
+  readonly color: PersonColor;
+  readonly message: string;
+  readonly who: string;
+}
+
+const SCENES: readonly Scene[] = [
   { who: "Sam", color: "moss", message: "Dinner's ready" },
   { who: "Alex", color: "cobalt", message: "Can you come here?" },
   { who: "Rosa", color: "rose", message: "Call me" },
@@ -240,7 +242,10 @@ export function Landing() {
           </div>
         </section>
 
-        <HowItWorks color={scene.color} />
+        <HowItWorks
+          earlier={SCENES[(index + 2) % SCENES.length] ?? scene}
+          scene={scene}
+        />
         <Consent />
         <Close />
       </main>
@@ -276,7 +281,8 @@ function Step({
   );
 }
 
-function HowItWorks({ color }: { color: PersonColor }) {
+/** Every illustration follows whoever is tapping in the hero right now. */
+function HowItWorks({ scene, earlier }: { scene: Scene; earlier: Scene }) {
   return (
     <section
       aria-labelledby="how"
@@ -292,19 +298,27 @@ function HowItWorks({ color }: { color: PersonColor }) {
         Shouldertap lives in your menu bar. Create an invite link and they scan
         it with their iPhone camera. Only people you invite can tap you.
       </Step>
-      <Step art={<MiniPhone />} flip title="They tap you from their phone">
+      <Step
+        art={<MiniPhone scene={scene} />}
+        flip
+        title="They tap you from their phone"
+      >
         It opens in Safari, nothing to install. They pick a color so you know
         it's them, type what they need, and send.
       </Step>
       <Step
-        art={<MiniOverlay color={color} />}
+        art={<MiniOverlay scene={scene} />}
         title="It covers your screens until you answer"
       >
         Every display on every paired Mac, above full-screen apps. Answer with
         On it, In 10 min, or a quick reply. Answer on one Mac and it clears from
         all of them.
       </Step>
-      <Step art={<MiniAnswer />} flip title="They know you saw it">
+      <Step
+        art={<MiniAnswer earlier={earlier} scene={scene} />}
+        flip
+        title="They know you saw it"
+      >
         Their phone shows the tap arrive, land on your screen, and your answer,
         with how long it took.
       </Step>
@@ -366,12 +380,12 @@ function MiniMenuBar() {
   );
 }
 
-function MiniPhone() {
+function MiniPhone({ scene }: { scene: Scene }) {
   return (
     <div
       aria-hidden="true"
-      className="grid w-64 grid-rows-[2.25rem_1fr] rounded-[2.25rem] bg-frame px-1.5 pb-1.5 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
-      style={frameStyle("cobalt")}
+      className="grid w-64 grid-rows-[2.25rem_1fr] rounded-[2.25rem] bg-frame px-1.5 pb-1.5 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)] transition-colors duration-700"
+      style={frameStyle(scene.color)}
     >
       <div className="flex items-center justify-between px-6 pt-1 font-semibold text-xs">
         <span className="tabular-nums">7:41</span>
@@ -389,9 +403,9 @@ function MiniPhone() {
           </span>
         </div>
         <div className="min-h-20 rounded-2xl bg-faint px-3.5 py-3 text-[15px]">
-          Can you come here?
+          {scene.message}
         </div>
-        <div className="pill pill-frame pill-sm w-full">
+        <div className="pill pill-frame pill-sm w-full transition-colors duration-700">
           <HugeiconsIcon className="size-4" icon={SentIcon} />
           Send tap
         </div>
@@ -400,20 +414,20 @@ function MiniPhone() {
   );
 }
 
-function MiniOverlay({ color }: { color: PersonColor }) {
+function MiniOverlay({ scene }: { scene: Scene }) {
   return (
     <div
       aria-hidden="true"
       className="relative aspect-[16/10] w-full max-w-[30rem] rounded-2xl bg-frame px-3 pt-9 pb-3 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)] transition-colors duration-700"
-      style={frameStyle(color)}
+      style={frameStyle(scene.color)}
     >
       <div className="absolute top-2.5 left-5 flex items-baseline gap-2 font-bold text-sm">
-        Alex
+        {scene.who}
         <span className="font-medium text-xs opacity-75">just now</span>
       </div>
       <div className="flex h-full flex-col justify-between rounded-xl bg-paper px-6 pt-8 pb-5 text-ink">
         <b className="font-extrabold text-[2.25rem] leading-[0.95] tracking-[-0.04em]">
-          Can you come here?
+          {scene.message}
         </b>
         <div className="flex gap-1.5">
           <span className="pill pill-frame h-7 gap-1.5 px-3 text-xs">
@@ -434,23 +448,23 @@ function MiniOverlay({ color }: { color: PersonColor }) {
   );
 }
 
-function MiniAnswer() {
+function MiniAnswer({ scene, earlier }: { scene: Scene; earlier: Scene }) {
   return (
     <div
       aria-hidden="true"
       className="flex w-full max-w-sm flex-col gap-5 rounded-[1.5rem] bg-paper p-5 shadow-[0_0_0_1.5px_var(--line)]"
-      style={frameStyle("cobalt")}
+      style={frameStyle(scene.color)}
     >
       <div className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between">
           <b className="font-bold text-xl tracking-[-0.02em]">
-            Take out the trash
+            {scene.message}
           </b>
           <span className="text-[13px] text-tone">now</span>
         </div>
         <div className="grid grid-cols-3 gap-1">
-          <i className="h-[5px] rounded-full bg-frame" />
-          <i className="h-[5px] animate-[pulse-soft_1.6s_ease-in-out_infinite] rounded-full bg-frame" />
+          <i className="h-[5px] rounded-full bg-frame transition-colors duration-700" />
+          <i className="h-[5px] animate-[pulse-soft_1.6s_ease-in-out_infinite] rounded-full bg-frame transition-colors duration-700" />
           <i className="h-[5px] rounded-full bg-faint" />
         </div>
         <div className="grid grid-cols-3 gap-1 font-semibold text-tone text-xs">
@@ -462,7 +476,7 @@ function MiniAnswer() {
       <div className="flex flex-col gap-3 border-line border-t pt-5">
         <div className="flex items-baseline justify-between">
           <b className="font-bold text-xl tracking-[-0.02em]">
-            Can you come here?
+            {earlier.message}
           </b>
           <span className="text-[13px] text-tone">13m</span>
         </div>
