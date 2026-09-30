@@ -36,6 +36,7 @@ export type ApiErrorCode =
   | "not_found"
   | "conflict"
   | "expired"
+  | "rate_limited"
   | "network";
 
 export class ApiError extends Error {
@@ -66,6 +67,7 @@ const domainErrors: Record<string, { code: ApiErrorCode; status: number }> = {
   NotFound: { code: "not_found", status: 404 },
   Conflict: { code: "conflict", status: 409 },
   Expired: { code: "expired", status: 410 },
+  TooManyRequests: { code: "rate_limited", status: 429 },
 };
 
 const toApiError = (failure: unknown): ApiError => {

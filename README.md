@@ -90,7 +90,7 @@ Current `dev` stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea
 
 ## Known gaps in v0
 
-- No accounts: trust is invite links plus revocable bearer credentials. Anyone can create a new (empty) inbox; there's no rate limiting yet.
+- No accounts: trust is invite links plus revocable bearer credentials. Anyone can create a new (empty) inbox, rate-limited to 10 per client IP per minute (Cloudflare's approximate, per-location limiter). Running the integration suite uses up that budget for a minute.
 - The Mac credential lives in an owner-only file in `~/Library/Application Support/Shouldertap`, not the Keychain, because builds are ad-hoc signed (no Developer ID), so the Keychain would prompt after every rebuild.
 - The overlay can't be dismissed without answering. If the Mac is offline, answering still dismisses locally and the reply is retried until the server accepts it.
 - Handled in code but not yet tested by hand: Durable Object hibernation, sleep/wake, display hot-plug, full-screen apps/Spaces, and replying while offline. Tested: overlays on two displays, replying from the overlay, cross-Mac dismissal, and the protocol via the Alchemy integration suite.

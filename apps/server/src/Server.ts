@@ -4,6 +4,7 @@ import {
   NotFound,
   parseToken,
   ShouldertapApi,
+  TooManyRequests,
   Unauthorized,
 } from "@shouldertap/domain";
 import * as Cloudflare from "alchemy/Cloudflare";
@@ -21,6 +22,9 @@ import { Inbox, InboxLive } from "./Inbox";
 
 const newInboxId = Effect.sync(() => crypto.randomUUID().replaceAll("-", ""));
 
+/** New inboxes per client IP per minute. Approximate and per Cloudflare location. */
+const INBOX_CREATION_LIMIT = 10;
+
 /**
  * Public API. Parses credentials only far enough to find the recipient's
  * Inbox; the Inbox authenticates, authorizes, and owns all state.
@@ -35,6 +39,10 @@ export default class Server extends Cloudflare.Worker<Server>()(
   },
   Effect.gen(function* () {
     const inboxes = yield* Inbox;
+    const inboxCreation = yield* Cloudflare.RateLimit("INBOX_CREATION", {
+      namespaceId: 7201,
+      simple: { limit: INBOX_CREATION_LIMIT, period: 60 },
+    });
 
     const AuthorizationLive = Layer.succeed(
       Authorization,
@@ -57,11 +65,30 @@ export default class Server extends Cloudflare.Worker<Server>()(
         handlers
           .handle("createInbox", ({ payload }) =>
             Effect.gen(function* () {
+              const request = yield* HttpServerRequest;
+              const { success } = yield* inboxCreation
+                .limit({
+                  key: request.headers["cf-connecting-ip"] ?? "unknown",
+                })
+                .pipe(
+                  // Fail open: a limiter outage shouldn't block setting up a Mac.
+                  Effect.catchTag("RateLimitError", () =>
+                    Effect.succeed({ success: true })
+                  )
+                );
+              if (!success) {
+                return yield* new TooManyRequests({
+                  message:
+                    "Too many new inboxes from this network. Try again in a minute.",
+                });
+              }
               const inboxId = yield* newInboxId;
+              // A fresh random id can't already exist; Conflict would be a bug.
               return yield* inboxes
                 .getByName(inboxId)
-                .initialize(inboxId, payload);
-            }).pipe(Effect.orDie)
+                .initialize(inboxId, payload)
+                .pipe(Effect.orDie);
+            })
           )
           .handle("redeemInvite", ({ payload }) => {
             const code = parseToken(payload.code);
@@ -165,5 +192,5 @@ export default class Server extends Cloudflare.Worker<Server>()(
         return yield* api;
       }),
     };
-  }).pipe(Effect.provide(InboxLive))
+  }).pipe(Effect.provide([InboxLive, Cloudflare.Workers.RateLimitBinding]))
 ) {}

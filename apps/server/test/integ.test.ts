@@ -224,3 +224,25 @@ test(
   }).pipe(Effect.scoped),
   { timeout: 60_000 }
 );
+
+// Runs last: it exhausts this IP's inbox-creation budget for the next minute.
+test(
+  "rate-limits inbox creation per client",
+  Effect.gen(function* () {
+    const url = (yield* stack).server;
+    const anon = yield* client(url);
+    const create = anon.pairing
+      .createInbox({
+        payload: { recipientName: "Flood", deviceName: "Script" },
+      })
+      .pipe(
+        Effect.as("created" as const),
+        Effect.catchTag("TooManyRequests", () =>
+          Effect.succeed("limited" as const)
+        )
+      );
+    const results = yield* Effect.all(Array.from({ length: 15 }, () => create));
+    expect(results).toContain("limited");
+  }),
+  { timeout: 60_000 }
+);

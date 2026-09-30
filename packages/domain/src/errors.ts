@@ -32,3 +32,9 @@ export class Expired extends Schema.TaggedError<Expired>()(
   { message: Schema.String },
   { httpApiStatus: 410 }
 ) {}
+
+export class TooManyRequests extends Schema.TaggedError<TooManyRequests>()(
+  "TooManyRequests",
+  { message: Schema.String },
+  { httpApiStatus: 429 }
+) {}

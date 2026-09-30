@@ -24,6 +24,7 @@ import {
   Expired,
   InvalidRequest,
   NotFound,
+  TooManyRequests,
   Unauthorized,
 } from "./errors";
 import type { ParsedToken } from "./token";
@@ -56,6 +57,7 @@ export class PairingGroup extends HttpApiGroup.make("pairing")
     HttpApiEndpoint.post("createInbox", "/inboxes", {
       payload: CreateInboxRequest,
       success: CredentialGrant.pipe(created),
+      error: TooManyRequests,
     }),
     HttpApiEndpoint.post("redeemInvite", "/invites/redeem", {
       payload: RedeemInviteRequest,
