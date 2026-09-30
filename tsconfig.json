@@ -1,0 +1,3 @@
+{
+  "extends": "@shouldertap/config/tsconfig.base.json"
+}
