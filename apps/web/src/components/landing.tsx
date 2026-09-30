@@ -8,10 +8,16 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type PersonColor, swatches } from "@shouldertap/domain";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Mark, Wordmark } from "@/components/mark";
-import { frameStyle, useThemeColor } from "@/lib/frame";
+import { useThemeColor } from "@/lib/frame";
 
 // Illustrative household: the demo's names and messages are not real users.
 interface Scene {
@@ -41,16 +47,17 @@ const prefersReducedMotion = () =>
 /** The marketing page is a live tap: the frame cycles through a household. */
 export function Landing() {
   const [index, setIndex] = useState(0);
-  const [wipe, setWipe] = useState<{ color: PersonColor; id: number } | null>(
-    null
-  );
-  const [shown, setShown] = useState(0);
+  // The color the wipe starts from, and the one the frame's own text is set in.
+  const [from, setFrom] = useState<PersonColor>(SCENES[0]?.color ?? "moss");
+  const [ink, setInk] = useState<PersonColor>(from);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const wipeRef = useRef<Animation | null>(null);
+  const inkTimer = useRef<number | undefined>(undefined);
   const [answered, setAnswered] = useState<{
     who: string;
     label: string;
   } | null>(null);
   const [paused, setPaused] = useState(false);
-  const wipeId = useRef(0);
   const heroRef = useRef<HTMLElement>(null);
 
   // Hold the current tap while the visitor is pointing at or tabbing through it.
@@ -74,22 +81,36 @@ export function Landing() {
   }, []);
 
   const scene = SCENES[index] ?? SCENES[0];
-  const frame = SCENES[shown] ?? SCENES[0];
-  useThemeColor(swatches[frame.color].base);
+  useThemeColor(swatches[scene.color].base);
 
   const advance = useCallback(
     (reply?: string) => {
       const next = (index + 1) % SCENES.length;
+      const nextColor = SCENES[next]?.color ?? "cobalt";
       setAnswered(reply ? { who: scene.who, label: reply } : null);
       setIndex(next);
-      if (prefersReducedMotion()) {
-        setShown(next);
+      const root = rootRef.current;
+      if (!root || prefersReducedMotion()) {
+        setFrom(nextColor);
+        setInk(nextColor);
         return;
       }
-      wipeId.current += 1;
-      setWipe({ color: SCENES[next]?.color ?? "cobalt", id: wipeId.current });
+      setFrom(scene.color);
+      wipeRef.current?.cancel();
+      const wipe = root.animate(
+        [{ "--wipe": "0px" }, { "--wipe": "145vmax" }],
+        {
+          duration: 700,
+          easing: "cubic-bezier(0.65, 0, 0.35, 1)",
+          fill: "forwards",
+        }
+      );
+      wipe.onfinish = () => setFrom(nextColor);
+      wipeRef.current = wipe;
+      window.clearTimeout(inkTimer.current);
+      inkTimer.current = window.setTimeout(() => setInk(nextColor), 280);
     },
-    [index, scene.who]
+    [index, scene.color, scene.who]
   );
 
   useEffect(() => {
@@ -117,26 +138,18 @@ export function Landing() {
 
   return (
     <div
-      className="paper-light fixed inset-0 overflow-hidden bg-frame text-frame-ink"
-      style={frameStyle(frame.color)}
+      className="paper-light frame-fill fixed inset-0 overflow-hidden text-frame-ink"
+      ref={rootRef}
+      style={
+        {
+          "--wipe-from": swatches[from].base,
+          "--wipe-to": swatches[scene.color].base,
+          "--frame": swatches[scene.color].base,
+          "--frame-ink": swatches[ink].ink,
+        } as CSSProperties
+      }
     >
-      {wipe ? (
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 animate-[frame-wipe_700ms_cubic-bezier(0.65,0,0.35,1)_forwards]"
-          key={wipe.id}
-          onAnimationEnd={() => {
-            setShown(index);
-            setWipe(null);
-          }}
-          style={{ background: swatches[wipe.color].base }}
-        />
-      ) : null}
-
-      <header
-        className="absolute inset-x-0 top-0 z-10 flex h-16 items-center gap-6 px-5 font-semibold text-[0.9375rem] transition-colors delay-300 duration-300 md:h-24 md:px-[72px] md:text-lg"
-        style={{ color: swatches[scene.color].ink }}
-      >
+      <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-center gap-6 px-5 font-semibold text-[0.9375rem] transition-colors duration-300 md:h-24 md:px-[72px] md:text-lg">
         <a
           aria-label="Shouldertap home"
           className="mr-auto text-xl md:text-[1.625rem]"
@@ -150,14 +163,10 @@ export function Landing() {
         >
           How it works
         </a>
-        <span
-          className="inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm transition-colors delay-300 duration-300 md:h-[2.875rem] md:px-5 md:text-base"
-          style={{
-            background: swatches[scene.color].ink,
-            color: swatches[scene.color].base,
-          }}
-        >
-          Coming soon<span className="hidden sm:inline">&nbsp;for Mac</span>
+        <span className="inline-flex h-10 items-center whitespace-nowrap rounded-full bg-frame-ink px-4 font-bold text-sm transition-colors duration-300 md:h-[2.875rem] md:px-5 md:text-base">
+          <span className="frame-fill-text">
+            Coming soon<span className="hidden sm:inline">&nbsp;for Mac</span>
+          </span>
         </span>
       </header>
 
@@ -169,13 +178,7 @@ export function Landing() {
         >
           <div className="flex flex-1 flex-col justify-center gap-7 md:gap-8">
             <p className="flex items-center gap-3 font-semibold text-lg text-tone md:text-[1.375rem]">
-              <span
-                className="grid size-8 place-items-center rounded-full font-bold text-sm md:size-[2.125rem] md:text-[0.9375rem]"
-                style={{
-                  background: swatches[scene.color].base,
-                  color: swatches[scene.color].ink,
-                }}
-              >
+              <span className="frame-fill grid size-8 place-items-center rounded-full font-bold text-frame-ink text-sm transition-colors duration-300 md:size-[2.125rem] md:text-[0.9375rem]">
                 {scene.who[0]}
               </span>
               <b className="font-bold text-ink">{scene.who}</b>
@@ -191,10 +194,9 @@ export function Landing() {
             <div className="flex flex-wrap gap-3">
               {REPLIES.map((reply, i) => (
                 <button
-                  className={`pill md:h-[4.25rem] md:px-7 md:text-2xl ${i === 0 ? "pill-frame" : ""}`}
+                  className={`pill md:h-[4.25rem] md:px-7 md:text-2xl ${i === 0 ? "pill-fill frame-fill" : ""}`}
                   key={reply.key}
                   onClick={() => advance(reply.label)}
-                  style={i === 0 ? frameStyle(scene.color) : undefined}
                   type="button"
                 >
                   <HugeiconsIcon
@@ -384,8 +386,7 @@ function MiniPhone({ scene }: { scene: Scene }) {
   return (
     <div
       aria-hidden="true"
-      className="grid w-64 grid-rows-[2.25rem_1fr] rounded-[2.25rem] bg-frame px-1.5 pb-1.5 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)] transition-colors duration-700"
-      style={frameStyle(scene.color)}
+      className="frame-fill grid w-64 grid-rows-[2.25rem_1fr] rounded-[2.25rem] px-1.5 pb-1.5 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
     >
       <div className="flex items-center justify-between px-6 pt-1 font-semibold text-xs">
         <span className="tabular-nums">7:41</span>
@@ -405,7 +406,7 @@ function MiniPhone({ scene }: { scene: Scene }) {
         <div className="min-h-20 rounded-2xl bg-faint px-3.5 py-3 text-[15px]">
           {scene.message}
         </div>
-        <div className="pill pill-frame pill-sm w-full transition-colors duration-700">
+        <div className="pill pill-fill frame-fill pill-sm w-full">
           <HugeiconsIcon className="size-4" icon={SentIcon} />
           Send tap
         </div>
@@ -418,8 +419,7 @@ function MiniOverlay({ scene }: { scene: Scene }) {
   return (
     <div
       aria-hidden="true"
-      className="relative aspect-[16/10] w-full max-w-[30rem] rounded-2xl bg-frame px-3 pt-9 pb-3 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)] transition-colors duration-700"
-      style={frameStyle(scene.color)}
+      className="frame-fill relative aspect-[16/10] w-full max-w-[30rem] rounded-2xl px-3 pt-9 pb-3 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
     >
       <div className="absolute top-2.5 left-5 flex items-baseline gap-2 font-bold text-sm">
         {scene.who}
@@ -430,7 +430,7 @@ function MiniOverlay({ scene }: { scene: Scene }) {
           {scene.message}
         </b>
         <div className="flex gap-1.5">
-          <span className="pill pill-frame h-7 gap-1.5 px-3 text-xs">
+          <span className="pill pill-fill frame-fill h-7 gap-1.5 px-3 text-xs">
             <HugeiconsIcon className="size-3.5" icon={Tick02Icon} />
             On it
           </span>
@@ -453,7 +453,6 @@ function MiniAnswer({ scene, earlier }: { scene: Scene; earlier: Scene }) {
     <div
       aria-hidden="true"
       className="flex w-full max-w-sm flex-col gap-5 rounded-[1.5rem] bg-paper p-5 shadow-[0_0_0_1.5px_var(--line)]"
-      style={frameStyle(scene.color)}
     >
       <div className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between">
@@ -463,8 +462,8 @@ function MiniAnswer({ scene, earlier }: { scene: Scene; earlier: Scene }) {
           <span className="text-[13px] text-tone">now</span>
         </div>
         <div className="grid grid-cols-3 gap-1">
-          <i className="h-[5px] rounded-full bg-frame transition-colors duration-700" />
-          <i className="h-[5px] animate-[pulse-soft_1.6s_ease-in-out_infinite] rounded-full bg-frame transition-colors duration-700" />
+          <i className="frame-fill h-[5px] rounded-full" />
+          <i className="frame-fill h-[5px] animate-[pulse-soft_1.6s_ease-in-out_infinite] rounded-full" />
           <i className="h-[5px] rounded-full bg-faint" />
         </div>
         <div className="grid grid-cols-3 gap-1 font-semibold text-tone text-xs">
