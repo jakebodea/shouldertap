@@ -57,6 +57,3 @@ coverage
 tmp
 temp
 
-# macOS app
-apps/macos/macos/build
-apps/macos/macos/Pods

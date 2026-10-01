@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the Release Mac app as a universal binary, package it as a DMG, and
-# upload it to the production download bucket.
+# Test and build the native Mac app (apps/macos) as a universal binary,
+# package it as a DMG, and upload it to the production download bucket.
 #
 #   scripts/release-mac.sh              build, package, upload
 #   scripts/release-mac.sh --no-upload  build and package only
@@ -13,44 +13,29 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-macos="$root/apps/macos/macos"
-out="$macos/build/release"
+out="$root/apps/macos/build/dmg"
 bucket="shouldertap-releases"
 upload=true
 [[ "${1:-}" == "--no-upload" ]] && upload=false
 
-export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
-
-version="$(sed -n 's/.*MARKETING_VERSION = \(.*\);/\1/p' "$macos/Shouldertap.xcodeproj/project.pbxproj" | head -1)"
+version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$root/apps/macos/Resources/Info.plist")"
 echo "==> Shouldertap $version"
 
-echo "==> Syncing dependencies"
-(cd "$root/apps/macos" && npm install --no-audit --no-fund --silent && npm run --silent pods >/dev/null)
+echo "==> Testing"
+(cd "$root/apps/macos" && DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}" swift test --quiet)
 
 echo "==> Building Release (arm64 + x86_64)"
-xcodebuild \
-  -workspace "$macos/Shouldertap.xcworkspace" \
-  -scheme Shouldertap-macOS \
-  -configuration Release \
-  -derivedDataPath "$macos/build" \
-  -destination 'generic/platform=macOS' \
-  ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
-  -quiet build
-
-app="$macos/build/Build/Products/Release/Shouldertap.app"
+app="$("$root/apps/macos/scripts/build.sh" release)"
 lipo -info "$app/Contents/MacOS/Shouldertap"
 
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
   echo "==> Signing with $SIGN_IDENTITY"
-  # Inside out: nested code first, then the app.
-  find "$app/Contents" \( -name '*.framework' -o -name '*.dylib' \) -prune -print0 |
-    xargs -0 -I{} codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" {}
   codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$app"
 else
-  echo "==> No SIGN_IDENTITY: ad-hoc signing (not notarized)"
-  codesign --force --deep --sign - "$app"
+  echo "==> No SIGN_IDENTITY: ad-hoc signed (not notarized)"
 fi
 codesign --verify --deep --strict "$app"
+du -sh "$app"
 
 echo "==> Packaging DMG"
 rm -rf "$out"

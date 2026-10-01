@@ -23,12 +23,12 @@ apps/server/src/Inbox.ts    Cloudflare.DurableObject: one per recipient, Drizzle
 apps/server/src/schema.ts   Drizzle schema; migrations in apps/server/drizzle (drizzle-kit, durable-sqlite)
 apps/server/test/           Alchemy Test harness: deploys the Stack, drives the protocol
 apps/web                    Safari sender (React, TanStack Router, Vite) via Cloudflare.Website.Vite
-apps/macos                  React Native macOS menu-bar app + Swift overlay/bridge module
+apps/macos                  Native Swift menu-bar app (AppKit + SwiftUI), a Swift package
 packages/domain             Effect Schema contracts, typed errors, the HttpApi spec
 packages/client             HttpApiClient-based client + live WebSocket (tickets, reconnect, resync)
 ```
 
-`apps/macos` is deliberately outside the Bun workspace (npm, hoisted `node_modules` for CocoaPods and Metro). Its Metro config compiles `packages/domain` and `packages/client` from source.
+`apps/macos` is outside the Bun workspace. `ShouldertapCore` mirrors `packages/domain` and `packages/client` in Swift (contracts, API client, live socket, store); its tests decode fixtures in the server's JSON shapes. Change the protocol in both places. [Mac client research](docs/research/mac-client-efficiency.md) explains the move from React Native.
 
 ## Develop
 
@@ -54,21 +54,17 @@ Schema changes: edit `apps/server/src/schema.ts`, then generate and commit a mig
 cd apps/server && bun run db:generate
 ```
 
-Mac app (needs Xcode and CocoaPods; `DEVELOPER_DIR` avoids `sudo xcode-select`):
+Mac app (needs Xcode; `DEVELOPER_DIR` avoids `sudo xcode-select`). Tests, then a debug build that talks to the local stack:
 
 ```bash
-cd apps/macos && npm install && npm run pods
+cd apps/macos && swift test
 ```
 
 ```bash
-cd apps/macos && npm start        # Metro, keep running
+cd apps/macos && open "$(scripts/build.sh)"
 ```
 
-```bash
-cd apps/macos/macos && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -workspace Shouldertap.xcworkspace -scheme Shouldertap-macOS -configuration Debug -derivedDataPath build build && open build/Build/Products/Debug/Shouldertap.app
-```
-
-Debug builds talk to `localhost`; Release builds use production (`apps/macos/src/config.ts`). In debug, `globalThis.__shouldertap` exposes the store and native module to a debugger.
+Debug builds talk to `localhost` (override with `SHOULDERTAP_SERVER_URL` and `SHOULDERTAP_WEB_URL`) and run as a separate app, "Shouldertap Debug" (`app.shouldertap.mac.debug`), with their own pairing in `~/Library/Application Support/Shouldertap Debug`. Release builds use production (`apps/macos/Sources/Shouldertap/App.swift`, `Config`).
 
 ## Deploy
 
@@ -86,7 +82,7 @@ bun run deploy -- --stage prod --yes
 
 ## Release the Mac app
 
-Bump `MARKETING_VERSION` in the Xcode project, then build a universal DMG and upload it to the `shouldertap-releases` R2 bucket (needs `wrangler login`):
+Bump `CFBundleShortVersionString` and `CFBundleVersion` in `apps/macos/Resources/Info.plist`, then test and build a universal DMG and upload it to the `shouldertap-releases` R2 bucket (needs `wrangler login`):
 
 ```bash
 scripts/release-mac.sh
