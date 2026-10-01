@@ -189,6 +189,12 @@ export function Landing() {
         >
           <InkText>How it works</InkText>
         </a>
+        <a
+          className="hidden opacity-85 hover:opacity-100 sm:inline"
+          href="#pricing"
+        >
+          <InkText>Pricing</InkText>
+        </a>
         {pairing ? (
           <a
             className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
@@ -307,6 +313,7 @@ export function Landing() {
           scene={scene}
         />
         <Consent />
+        <Pricing />
         <Close />
       </main>
     </div>
@@ -587,6 +594,54 @@ function Consent() {
   );
 }
 
+/** Creem's review requires the price to be easy to find on the site. */
+function Pricing() {
+  const points = [
+    "Every feature from day one: unlimited taps, every Mac you own, and up to 20 people who can tap you.",
+    "The people who tap you never pay. They use any iPhone with Safari.",
+    "Not for you? Ask for a full refund within 14 days of buying.",
+  ];
+  return (
+    <section
+      aria-labelledby="pricing"
+      className="flex scroll-mt-4 flex-col gap-10 px-6 py-20 md:px-[72px] md:py-28"
+    >
+      <h2
+        className="max-w-[16ch] text-balance font-extrabold text-[2.75rem] leading-[0.98] tracking-[-0.04em] md:text-[4.5rem]"
+        id="pricing"
+      >
+        Free for a week. Then $5, once.
+      </h2>
+      <div className="grid gap-10 md:grid-cols-[auto_1fr] md:gap-16">
+        <div className="flex flex-col gap-2">
+          <p className="font-extrabold text-[4rem] leading-none tracking-[-0.045em] md:text-[5.5rem]">
+            $5
+          </p>
+          <p className="text-[1.0625rem] text-tone md:text-lg">
+            One-time purchase, plus tax where it applies.
+            <br />
+            No subscription.
+          </p>
+        </div>
+        <ul className="flex max-w-xl flex-col gap-4">
+          <li className="text-[1.0625rem] leading-relaxed md:text-lg">
+            Try everything free for 7 days. Then unlock Shouldertap on your Mac
+            for good.
+          </li>
+          {points.map((point) => (
+            <li
+              className="text-[1.0625rem] text-tone leading-relaxed md:text-lg"
+              key={point}
+            >
+              {point}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
 function Close() {
   return (
     <section className="flex flex-col gap-10 px-6 pt-24 pb-10 md:px-[72px] md:pt-36">
@@ -599,7 +654,7 @@ function Close() {
           Download for Mac
         </a>
         <span className="text-[0.9375rem] text-tone">
-          Mac app plus any iPhone with Safari.
+          Free for 7 days, then $5 once. Mac app plus any iPhone with Safari.
         </span>
       </div>
       <footer className="mt-16 flex flex-wrap items-center justify-between gap-4 border-line border-t-[1.5px] pt-6 text-sm text-tone">
