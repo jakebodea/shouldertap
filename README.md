@@ -76,14 +76,16 @@ GitHub Actions (`.github/workflows/deploy.yml`) lints and type-checks every push
 bun alchemy deploy --config stacks/github.ts --profile admin
 ```
 
-To deploy by hand:
+App secrets (`SUPPORT_FORWARD_TO`, a comma-separated list of addresses `support@` forwards to; payment and analytics keys to come) live in the Infisical project `shouldertap` (`.infisical.json`). CI loads the `prod` environment through the `INFISICAL_IDENTITY_ID` machine identity, which trusts GitHub OIDC tokens from `main` only.
+
+To deploy by hand, with prod's secrets injected:
 
 ```bash
-bun run plan -- --stage prod
+infisical run --env prod -- bun run plan -- --stage prod
 ```
 
 ```bash
-bun run deploy -- --stage prod --yes
+infisical run --env prod -- bun run deploy -- --stage prod --yes
 ```
 
 `dev` is a scratch stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev`, API `https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev`.

@@ -173,7 +173,14 @@ function Composer({
           type="button"
         >
           Unpair this phone
-        </button>
+        </button>{" "}
+        ·{" "}
+        <a
+          className="text-ink underline underline-offset-[3px]"
+          href="/support"
+        >
+          Help
+        </a>
       </footer>
     </Frame>
   );

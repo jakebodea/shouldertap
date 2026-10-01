@@ -1,5 +1,6 @@
 # Pushes to main deploy prod; pull requests deploy a pr-<number> preview,
-# destroyed when the PR closes. Credentials come from stacks/github.ts.
+# destroyed when the PR closes. Cloudflare credentials come from
+# stacks/github.ts; app secrets for prod come from Infisical.
 name: Deploy
 
 on:
@@ -56,12 +57,26 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      # Infisical authenticates this job by its GitHub OIDC token.
+      id-token: write
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      # Prod's app secrets (SUPPORT_FORWARD_TO, ...) as env vars for the
+      # deploy. The identity only trusts main, so previews never see them.
+      - name: Load prod secrets
+        if: env.STAGE == 'prod'
+        uses: Infisical/secrets-action@v1.0.12
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          oidc-audience: https://github.com/jakebodea
+          domain: https://app.infisical.com
+          project-slug: shouldertap-qp-dq
+          env-slug: prod
       - name: Deploy
         run: |
           bun alchemy provider check-env --provider Cloudflare

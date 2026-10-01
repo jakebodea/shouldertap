@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import { Path } from "effect/Path";
 
 import Server from "./apps/server/src/Server.ts";
+import Support, { parseForwardTo } from "./apps/server/src/Support.ts";
 import { domains, isProduction, macDownloadUrl, zoneId } from "./domains.ts";
 
 /** Set by .github/workflows/deploy.yml for preview deploys. */
@@ -71,6 +72,18 @@ export default Alchemy.Stack(
         settingId: "browser_cache_ttl",
         value: 0,
       });
+      // support@ forwards to each of these (Gmail, the Slack channel's email
+      // address). Cloudflare emails each a verification link on creation;
+      // mail isn't delivered to an address until its link is clicked.
+      const forwardTo = parseForwardTo(process.env.SUPPORT_FORWARD_TO ?? "");
+      if (forwardTo.length === 0) {
+        return yield* Effect.die("SUPPORT_FORWARD_TO is required for prod");
+      }
+      // Indexed ids: public CI logs print logical ids, not props.
+      for (const [index, email] of forwardTo.entries()) {
+        yield* Cloudflare.Email.Address(`SupportForward${index}`, { email });
+      }
+      yield* Support;
     }
 
     // The fixed logical ID makes each push update the same comment.

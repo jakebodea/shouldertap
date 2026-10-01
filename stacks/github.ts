@@ -39,6 +39,8 @@ export default Alchemy.Stack(
             "Workers Tail Read",
             // Cloudflare.state() reads its bearer token from the Secrets Store.
             "Secrets Store Write",
+            // The support@ forwarding destination.
+            "Email Routing Addresses Write",
           ],
           resources: { [account]: "*" },
         },
@@ -52,6 +54,7 @@ export default Alchemy.Stack(
             "SSL and Certificates Write",
             "Dynamic URL Redirects Write",
             "Zone Settings Write",
+            "Email Routing Rules Write",
           ],
           resources: {
             [account]: { [`com.cloudflare.api.account.zone.${zoneId}`]: "*" },

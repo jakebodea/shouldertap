@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 
+import { DocLinks } from "@/components/document";
 import { InkIcon, InkMark, InkText } from "@/components/ink";
 import { Mark, Wordmark } from "@/components/mark";
 import { Swept } from "@/components/swept";
@@ -603,6 +604,7 @@ function Close() {
       </div>
       <footer className="mt-16 flex flex-wrap items-center justify-between gap-4 border-line border-t-[1.5px] pt-6 text-sm text-tone">
         <Wordmark className="text-ink text-lg" />
+        <DocLinks />
         <span>Made for households.</span>
       </footer>
     </section>

@@ -11,6 +11,9 @@ export const domains = {
   downloads: "download.shouldertap.app",
 } as const;
 
+/** Inbound only: Email Routing hands it to the Support Worker. */
+export const supportEmail = `support@${domains.web}`;
+
 export const isProduction = (stage: string) => stage === "prod";
 
 /** Always the newest Mac build; scripts/release-mac.sh overwrites it. */
