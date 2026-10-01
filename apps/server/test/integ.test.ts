@@ -232,6 +232,82 @@ test(
   { timeout: 60_000 }
 );
 
+test(
+  "limits each sender to 30 taps an hour, retries still succeed",
+  Effect.gen(function* () {
+    const url = (yield* stack).server;
+    const { sender } = yield* pairedInbox(url);
+    const senderApi = yield* client(url, sender.token);
+    const send = (requestId: string, body: string) =>
+      senderApi.inbox.sendTap({ payload: { requestId, body } });
+
+    const requestIds = Array.from({ length: 30 }, () => crypto.randomUUID());
+    const sent = yield* Effect.forEach(requestIds, (requestId, i) =>
+      send(requestId, `tap ${i}`)
+    );
+    const limited = yield* send(crypto.randomUUID(), "one more").pipe(
+      Effect.flip
+    );
+    expect(limited._tag).toBe("TooManyRequests");
+    expect(limited.message).toContain("this hour");
+
+    // An idempotent retry of an accepted tap isn't a new tap.
+    const retry = yield* send(requestIds[0] as string, "tap 0");
+    expect(retry.id).toBe((sent[0] as Tap).id);
+  }),
+  { timeout: 60_000 }
+);
+
+test(
+  "caps an inbox at 20 senders and 10 Macs",
+  Effect.gen(function* () {
+    const url = (yield* stack).server;
+    const { anon, macA } = yield* pairedInbox(url);
+    const mac = yield* client(url, macA.token);
+    const invite = (kind: "sender" | "device") =>
+      mac.inbox.createInvite({ payload: { kind } });
+    const redeem = (code: string, name: string) =>
+      anon.pairing.redeemInvite({ payload: { code, name } });
+
+    // pairedInbox has 1 sender and 2 Macs. Fill senders to 19.
+    yield* Effect.forEach(
+      Array.from({ length: 18 }, (_, i) => i),
+      (i) =>
+        invite("sender").pipe(
+          Effect.flatMap(({ code }) => redeem(code, `Sender ${i}`))
+        )
+    );
+    // Two invites made at 19; the second can't be redeemed at 20…
+    const last = yield* invite("sender");
+    const spare = yield* invite("sender");
+    const twentieth = yield* redeem(last.code, "Twentieth");
+    const full = yield* redeem(spare.code, "Too many").pipe(Effect.flip);
+    expect(full._tag).toBe("Conflict");
+    expect(full.message).toContain("20");
+    const fullInvite = yield* invite("sender").pipe(Effect.flip);
+    expect(fullInvite._tag).toBe("Conflict");
+
+    // …but isn't used up: removing someone makes room for the same link.
+    yield* mac.inbox.revoke({ params: { id: twentieth.credentialId } });
+    const later = yield* redeem(spare.code, "Later");
+    expect(later.kind).toBe("sender");
+
+    // Macs: 2 paired, fill to 10.
+    yield* Effect.forEach(
+      Array.from({ length: 8 }, (_, i) => i),
+      (i) =>
+        invite("device").pipe(
+          Effect.flatMap(({ code }) => redeem(code, `Mac ${i}`))
+        )
+    );
+    const tooManyMacs = yield* invite("device").pipe(Effect.flip);
+    expect(tooManyMacs._tag).toBe("Conflict");
+    expect(tooManyMacs.message).toContain("10 Macs");
+    expect(fullInvite.message).toContain("Remove someone");
+  }),
+  { timeout: 120_000 }
+);
+
 // Runs last: it exhausts this IP's inbox-creation budget for the next minute.
 test(
   "rate-limits inbox creation per client",

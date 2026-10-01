@@ -21,18 +21,20 @@ import {
   type ServerEvent,
   type Snapshot,
   type Tap,
+  TooManyRequests,
   Unauthorized,
 } from "@shouldertap/domain";
 import type { RuntimeContext } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Drizzle from "alchemy/Drizzle/Cloudflare";
-import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 import migrations from "../drizzle/migrations.js";
+import { retentionFilters } from "./retention";
 import { credentials, inbox, invites, taps, tickets } from "./schema";
 
 const SENDER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -40,6 +42,31 @@ const DEVICE_INVITE_TTL_MS = 15 * 60 * 1000;
 const TICKET_TTL_MS = 60 * 1000;
 const HISTORY_LIMIT = 25;
 const LAST_SEEN_WRITE_INTERVAL_MS = 60 * 1000;
+
+/** Taps one sender may send in any rolling hour. */
+const TAPS_PER_HOUR = 30;
+const HOUR_MS = 60 * 60 * 1000;
+/** Active (non-revoked) pairings an inbox may hold, by kind. */
+const PAIRING_CAPS: Record<CredentialKind, number> = {
+  sender: 20,
+  device: 10,
+};
+
+/** One daily retention pass per inbox, via Alchemy's scheduled events. */
+const RETENTION_EVENT = "retention";
+const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** Shown to someone redeeming an invite into a full inbox. */
+const fullInboxMessage = (kind: CredentialKind, recipientName: string) =>
+  kind === "sender"
+    ? `${recipientName || "This inbox"} already has ${PAIRING_CAPS.sender} people who can send taps. Ask them to remove someone in the Mac app, then try this link again.`
+    : `This inbox already has ${PAIRING_CAPS.device} Macs. Remove one in the Mac app, then try again.`;
+
+/** Shown to the recipient's Mac when it asks for an invite it can't use. */
+const fullInviteMessage = (kind: CredentialKind) =>
+  kind === "sender"
+    ? `You already have ${PAIRING_CAPS.sender} people who can tap you. Remove someone before inviting someone new.`
+    : `You already have ${PAIRING_CAPS.device} Macs paired. Remove one before adding another.`;
 
 /** Only senders carry a frame color; Macs never do. */
 const colorFor = (kind: CredentialKind, color: PersonColor | undefined) =>
@@ -57,7 +84,7 @@ export interface InboxRpc {
   readonly createInvite: (
     token: ParsedToken,
     request: CreateInviteRequest
-  ) => Rpc<Invite, Unauthorized>;
+  ) => Rpc<Invite, Unauthorized | Conflict>;
   readonly createTicket: (
     token: ParsedToken
   ) => Rpc<ConnectTicket, Unauthorized>;
@@ -72,7 +99,7 @@ export interface InboxRpc {
   readonly redeemInvite: (
     code: ParsedToken,
     request: RedeemInviteRequest
-  ) => Rpc<CredentialGrant, NotFound | Expired>;
+  ) => Rpc<CredentialGrant, NotFound | Expired | Conflict>;
   readonly revoke: (
     token: ParsedToken,
     credentialId: string
@@ -80,7 +107,7 @@ export interface InboxRpc {
   readonly sendTap: (
     token: ParsedToken,
     request: SendTapRequest
-  ) => Rpc<Tap, Unauthorized | Conflict>;
+  ) => Rpc<Tap, Unauthorized | Conflict | TooManyRequests>;
   readonly snapshot: (token: ParsedToken) => Rpc<Snapshot, Unauthorized>;
 }
 
@@ -88,7 +115,7 @@ type InboxShape = InboxRpc &
   Required<
     Pick<
       Cloudflare.DurableObjectShape,
-      "fetch" | "webSocketMessage" | "webSocketClose"
+      "fetch" | "alarm" | "webSocketMessage" | "webSocketClose"
     >
   >;
 
@@ -102,7 +129,14 @@ export class Inbox extends Cloudflare.DurableObject<Inbox, InboxShape>()(
   "Inboxes",
   {
     // Revived as real instances on the Worker side of the RPC boundary.
-    errors: [Unauthorized, NotFound, Conflict, Expired, InvalidRequest],
+    errors: [
+      Unauthorized,
+      NotFound,
+      Conflict,
+      Expired,
+      InvalidRequest,
+      TooManyRequests,
+    ],
   }
 ) {}
 
@@ -156,6 +190,30 @@ const orDieOnStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Exclude<E, { _tag: "EffectDrizzleQueryError" | "SqlError" }>,
     R
   >;
+
+/** A redeemable invite: it exists, the secret matches, unused and unexpired. */
+const checkInvite = (
+  invite: typeof invites.$inferSelect | undefined,
+  secretHash: string,
+  at: number
+): Effect.Effect<typeof invites.$inferSelect, NotFound | Expired> => {
+  if (!invite || invite.secretHash !== secretHash) {
+    return Effect.fail(
+      new NotFound({ message: "This invite link isn't valid" })
+    );
+  }
+  if (invite.redeemedAt !== null) {
+    return Effect.fail(
+      new Expired({ message: "This invite link was already used" })
+    );
+  }
+  if (invite.expiresAt < at) {
+    return Effect.fail(
+      new Expired({ message: "This invite link has expired" })
+    );
+  }
+  return Effect.succeed(invite);
+};
 
 export const InboxLive = Inbox.make(
   Effect.gen(function* () {
@@ -354,6 +412,48 @@ export const InboxLive = Inbox.make(
         return { row: { id, kind, name, secretHash, createdAt }, secret };
       });
 
+      /** Active (non-revoked) pairings of one kind. */
+      const isActive = (kind: CredentialKind) =>
+        and(eq(credentials.kind, kind), isNull(credentials.revokedAt));
+
+      // Retention: one repeating event in Alchemy's DO scheduler drives the
+      // alarm. Armed when the inbox is created, and on every activation of
+      // an existing inbox, so inboxes created before retention get one too.
+      const withState = Effect.provideService(
+        Cloudflare.DurableObjectState,
+        state
+      );
+
+      const ensureRetention = Effect.gen(function* () {
+        const events = yield* Cloudflare.Workers.listEvents;
+        if (events.some((event) => event.id === RETENTION_EVENT)) {
+          return;
+        }
+        const at = yield* now;
+        yield* Cloudflare.Workers.scheduleEvent(
+          RETENTION_EVENT,
+          new Date(at + RETENTION_INTERVAL_MS),
+          {},
+          RETENTION_INTERVAL_MS
+        );
+      }).pipe(withState);
+
+      const pruneExpired = Effect.gen(function* () {
+        const filters = retentionFilters(yield* now);
+        yield* db.transaction((tx) =>
+          Effect.gen(function* () {
+            yield* tx.delete(taps).where(filters.taps);
+            yield* tx.delete(invites).where(filters.invites);
+            yield* tx.delete(tickets).where(filters.tickets);
+            yield* tx.delete(credentials).where(filters.revokedCredentials);
+          })
+        );
+      });
+
+      if (yield* inboxRow.pipe(Effect.orDie)) {
+        yield* ensureRetention;
+      }
+
       const rpc: InboxRpc = {
         initialize: Effect.fn("Inbox.initialize")(function* (inboxId, request) {
           const existing = yield* inboxRow;
@@ -374,6 +474,7 @@ export const InboxLive = Inbox.make(
               yield* tx.insert(credentials).values(credential.row);
             })
           );
+          yield* ensureRetention;
           return {
             kind: "device" as const,
             credentialId: credential.row.id,
@@ -425,6 +526,16 @@ export const InboxLive = Inbox.make(
           request
         ) {
           const actor = yield* requireDevice(token);
+          // Refuse early; redeeming re-checks, since pairings change meanwhile.
+          const [active] = yield* db
+            .select({ n: count() })
+            .from(credentials)
+            .where(isActive(request.kind));
+          if ((active?.n ?? 0) >= PAIRING_CAPS[request.kind]) {
+            return yield* new Conflict({
+              message: fullInviteMessage(request.kind),
+            });
+          }
           const id = yield* randomId();
           const secret = yield* randomId(24);
           const createdAt = yield* now;
@@ -461,43 +572,41 @@ export const InboxLive = Inbox.make(
                 .select()
                 .from(invites)
                 .where(eq(invites.id, code.id));
-              if (!invite || invite.secretHash !== secretHash) {
-                return yield* new NotFound({
-                  message: "This invite link isn't valid",
-                });
-              }
-              if (invite.redeemedAt !== null) {
-                return yield* new Expired({
-                  message: "This invite link was already used",
-                });
-              }
-              if (invite.expiresAt < at) {
-                return yield* new Expired({
-                  message: "This invite link has expired",
+              const { kind } = yield* checkInvite(invite, secretHash, at);
+              const [inboxState] = yield* tx
+                .select()
+                .from(inbox)
+                .where(eq(inbox.id, 1));
+              const recipientName = inboxState?.recipientName ?? "";
+              // Checked before consuming the invite, so the same link works
+              // once the recipient makes room.
+              const [active] = yield* tx
+                .select({ n: count() })
+                .from(credentials)
+                .where(isActive(kind));
+              if ((active?.n ?? 0) >= PAIRING_CAPS[kind]) {
+                return yield* new Conflict({
+                  message: fullInboxMessage(kind, recipientName),
                 });
               }
               yield* tx
                 .update(invites)
                 .set({ redeemedAt: at })
-                .where(eq(invites.id, invite.id));
+                .where(eq(invites.id, code.id));
               yield* tx.insert(credentials).values({
                 ...credential.row,
-                kind: invite.kind,
-                color: colorFor(invite.kind, request.color),
+                kind,
+                color: colorFor(kind, request.color),
               });
-              const [row] = yield* tx
-                .select()
-                .from(inbox)
-                .where(eq(inbox.id, 1));
               return {
-                kind: invite.kind,
+                kind,
                 credentialId: credential.row.id,
                 token: formatToken({
                   inboxId: code.inboxId,
                   id: credential.row.id,
                   secret: credential.secret,
                 }),
-                recipientName: row?.recipientName ?? "",
+                recipientName,
               };
             })
           );
@@ -528,6 +637,21 @@ export const InboxLive = Inbox.make(
                   });
                 }
                 return { id: existing.id, isNew: false };
+              }
+              const [recent] = yield* tx
+                .select({ n: count() })
+                .from(taps)
+                .where(
+                  and(
+                    eq(taps.senderId, actor.id),
+                    gt(taps.createdAt, createdAt - HOUR_MS)
+                  )
+                );
+              if ((recent?.n ?? 0) >= TAPS_PER_HOUR) {
+                return yield* new TooManyRequests({
+                  message:
+                    "You've sent a lot of taps this hour. Try again later.",
+                });
               }
               const [row] = yield* tx
                 .update(inbox)
@@ -722,6 +846,18 @@ export const InboxLive = Inbox.make(
           } satisfies SocketSession);
           return response;
         }).pipe(Effect.orDie),
+
+        alarm: () =>
+          Effect.gen(function* () {
+            if (!(yield* inboxRow)) {
+              // Never initialized: nothing to keep, so stop the schedule.
+              return yield* Cloudflare.Workers.cancelEvent(RETENTION_EVENT);
+            }
+            // Prune before advancing the schedule: if this fails, the alarm
+            // is retried with the event still due.
+            yield* pruneExpired;
+            yield* Cloudflare.Workers.processScheduledEvents;
+          }).pipe(withState, Effect.orDie),
 
         // Clients send commands over HTTPS; "ping" is handled by the auto-response.
         webSocketMessage: () => Effect.void,

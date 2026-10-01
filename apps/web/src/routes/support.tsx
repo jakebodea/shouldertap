@@ -55,7 +55,8 @@ function SupportComponent() {
           Click the Shouldertap mark in the menu bar. Under “Can tap you”, point
           at the person, click the remove icon, then click Remove. They can't
           tap you again unless you send a new invite. Removing someone doesn't
-          delete the taps they already sent; email us for that.
+          delete the taps they already sent right away: those are deleted
+          automatically after 90 days, or email us to delete them sooner.
         </p>
       </DocSection>
 

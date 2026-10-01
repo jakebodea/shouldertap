@@ -62,7 +62,8 @@ export class PairingGroup extends HttpApiGroup.make("pairing")
     HttpApiEndpoint.post("redeemInvite", "/invites/redeem", {
       payload: RedeemInviteRequest,
       success: CredentialGrant.pipe(created),
-      error: [NotFound, Expired],
+      // Conflict: the inbox already has the maximum pairings of that kind.
+      error: [NotFound, Expired, Conflict],
     })
   )
   .prefix("/v1") {}
@@ -73,11 +74,13 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
     HttpApiEndpoint.post("createInvite", "/invites", {
       payload: CreateInviteRequest,
       success: Invite.pipe(created),
+      error: Conflict,
     }),
     HttpApiEndpoint.post("sendTap", "/taps", {
       payload: SendTapRequest,
       success: Tap.pipe(created),
-      error: Conflict,
+      // TooManyRequests: the sender's hourly tap limit.
+      error: [Conflict, TooManyRequests],
     }),
     HttpApiEndpoint.post("markDisplayed", "/taps/:id/displayed", {
       params: idParams,

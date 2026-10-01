@@ -16,6 +16,8 @@ import type { Pairing } from "./pairing";
 export interface OutgoingTap {
   readonly body: string;
   readonly createdAt: number;
+  /** Why the server refused it, e.g. the hourly limit. */
+  readonly error?: string;
   readonly failed: boolean;
   readonly requestId: string;
 }
@@ -82,10 +84,18 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
           revokedRef.current();
           return;
         }
+        const failed = !isRetryable(error);
         updateOutbox((current) =>
           current.map((o) =>
             o.requestId === item.requestId
-              ? { ...o, failed: !isRetryable(error) }
+              ? {
+                  ...o,
+                  failed,
+                  error:
+                    failed && error instanceof ApiError
+                      ? error.message
+                      : undefined,
+                }
               : o
           )
         );

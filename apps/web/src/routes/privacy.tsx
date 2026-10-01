@@ -8,6 +8,7 @@ export const Route = createFileRoute("/privacy")({
 });
 
 // Keep this in step with what the code stores: apps/server/src/schema.ts,
+// apps/server/src/retention.ts, apps/server/src/Inbox.ts (limits),
 // apps/web/src/lib/pairing.ts, apps/web/src/lib/use-sender.ts, and the Mac app.
 function PrivacyComponent() {
   return (
@@ -27,6 +28,9 @@ function PrivacyComponent() {
           <li>
             Only the people paired to an inbox can see it. We never sell it or
             use it for ads.
+          </li>
+          <li>
+            Taps and their answers are deleted automatically after 90 days.
           </li>
         </ul>
       </DocSection>
@@ -64,10 +68,10 @@ function PrivacyComponent() {
         <p>
           When you open the site or the app talks to our servers, your IP
           address is used to deliver the connection and to rate-limit inbox
-          creation. Our hosting provider also keeps standard request logs (such
-          as time, address requested, IP address, and browser or app version)
-          for a limited period, which we use to keep the service running and fix
-          problems.
+          creation; it isn't stored with your inbox. Our hosting provider also
+          keeps standard request logs (such as time, address requested, IP
+          address, and browser or app version) for a limited period, which we
+          use to keep the service running and fix problems.
         </p>
       </DocSection>
 
@@ -128,13 +132,37 @@ function PrivacyComponent() {
       </DocSection>
 
       <DocSection title="How long we keep it">
+        <p>Once a day, each inbox deletes old data on its own:</p>
+        <ul>
+          <li>
+            <b>Taps and their answers</b> are deleted 90 days after the tap was
+            sent.
+          </li>
+          <li>
+            <b>Invites</b> are deleted a day after they expire, whether or not
+            they were used. Sender invites expire after 7 days; Mac invites
+            after 15 minutes.
+          </li>
+          <li>
+            <b>Removed senders and Macs</b> (their name, color, hashed key and
+            dates) are deleted 90 days after removal, once none of their taps
+            remain.
+          </li>
+          <li>
+            One-time connection tickets, which last a minute, are deleted once
+            they expire.
+          </li>
+        </ul>
         <p>
-          Today, inbox data is kept until it is deleted on request. Removing a
-          sender or Mac from the menu bar immediately stops it from using the
-          inbox, but its name and the taps and answers already sent stay in the
-          inbox's history. Unpairing a phone deletes its key from that phone
+          Everything else (the recipient's name, and the senders and Macs still
+          paired) is kept while the inbox exists, until it is deleted on
+          request. Removing a sender or Mac from the menu bar immediately stops
+          it from using the inbox; its taps stay in the inbox's history until
+          they reach 90 days. Unpairing a phone deletes its key from that phone
           only; the sender stays listed on the recipient's Mac until the
-          recipient removes them. Used and expired invites stay stored too.
+          recipient removes them. Deletion can run up to a day late, and our
+          hosting provider keeps recovery copies of stored data for up to 30
+          days, so deleted data can remain in those copies for that long.
         </p>
       </DocSection>
 
@@ -145,6 +173,16 @@ function PrivacyComponent() {
           the recipient, include your name as senders see it and the name of one
           of your Macs so we can find the right inbox. Senders can ask too, and
           we'll work with the recipient to remove their taps.
+        </p>
+      </DocSection>
+
+      <DocSection title="Limits">
+        <p>
+          To keep the service fair and to limit abuse, each sender can send up
+          to 30 taps in any hour, and each inbox can have up to 20 senders and
+          10 Macs paired at once. Inbox creation is rate-limited per network.
+          These limits are enforced by counting what the inbox already stores;
+          they don't need any extra data about you.
         </p>
       </DocSection>
 
