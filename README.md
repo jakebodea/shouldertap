@@ -70,6 +70,14 @@ Debug builds talk to `localhost` (override with `SHOULDERTAP_SERVER_URL` and `SH
 
 Production is the `prod` stage: the site at `https://shouldertap.app` (`www` redirects), the API at `https://api.shouldertap.app`, and Mac downloads at `https://download.shouldertap.app`. Hostnames live in `domains.ts`; other stages stay on `workers.dev`. The domain is registered with Cloudflare Registrar on the same account (auto-renew off, renews 2027-09-30).
 
+GitHub Actions (`.github/workflows/deploy.yml`) lints and type-checks every push and PR, deploys `main` to `prod`, and deploys each PR to a `pr-<number>` preview, commented on the PR and destroyed when it closes. Its Cloudflare token is minted by `stacks/github.ts` and stored as repo secrets; deploy that under the `admin` profile once, and again to rotate or rescope the token:
+
+```bash
+bun alchemy deploy --config stacks/github.ts --profile admin
+```
+
+To deploy by hand:
+
 ```bash
 bun run plan -- --stage prod
 ```

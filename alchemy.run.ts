@@ -1,20 +1,31 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
+import * as GitHub from "alchemy/GitHub";
+import * as Output from "alchemy/Output";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { Path } from "effect/Path";
 
 import Server from "./apps/server/src/Server.ts";
 import { domains, isProduction, macDownloadUrl, zoneId } from "./domains.ts";
 
+/** Set by .github/workflows/deploy.yml for preview deploys. */
+const pullRequest = process.env.PULL_REQUEST;
+
 /**
  * Composition root: the API Worker (with its Inbox Durable Object), the
  * Safari sender site, and, in production, the bucket the Mac app downloads
- * from, deployed together as one Stack.
+ * from, deployed together as one Stack. In CI, pull requests deploy to a
+ * `pr-<number>` stage and get a comment linking the preview.
  */
 export default Alchemy.Stack(
   "shouldertap",
   {
-    providers: Cloudflare.providers(),
+    // GitHub is only needed for the preview comment, so local deploys don't
+    // need it in their profile.
+    providers: pullRequest
+      ? Layer.mergeAll(Cloudflare.providers(), GitHub.providers())
+      : Cloudflare.providers(),
     state: Cloudflare.state(),
   },
   Effect.gen(function* () {
@@ -59,6 +70,23 @@ export default Alchemy.Stack(
         zoneId,
         settingId: "browser_cache_ttl",
         value: 0,
+      });
+    }
+
+    // The fixed logical ID makes each push update the same comment.
+    if (pullRequest) {
+      yield* GitHub.Comment("preview-comment", {
+        owner: "jakebodea",
+        repository: "shouldertap",
+        issueNumber: Number(pullRequest),
+        body: Output.interpolate`
+          ## Preview deployed
+
+          **Web:** ${web.url}
+          **API:** ${server.url}
+
+          Built from ${process.env.GITHUB_SHA?.slice(0, 7)}. Destroyed when this PR closes.
+        `,
       });
     }
 
