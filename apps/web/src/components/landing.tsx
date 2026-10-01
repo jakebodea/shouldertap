@@ -2,6 +2,7 @@ import {
   BubbleChatIcon,
   Clock01Icon,
   ComputerIcon,
+  Download04Icon,
   SentIcon,
   Tick02Icon,
   UserAdd01Icon,
@@ -20,6 +21,7 @@ import { InkIcon, InkMark, InkText } from "@/components/ink";
 import { Mark, Wordmark } from "@/components/mark";
 import { Swept } from "@/components/swept";
 import { useThemeColor } from "@/lib/frame";
+import { loadPairing } from "@/lib/pairing";
 
 // Illustrative household: the demo's names and messages are not real users.
 interface Scene {
@@ -59,6 +61,7 @@ export function Landing() {
   } | null>(null);
   const [paused, setPaused] = useState(false);
   const heroRef = useRef<HTMLElement>(null);
+  const [pairing] = useState(loadPairing);
 
   // Hold the current tap while the visitor is pointing at or tabbing through it.
   useEffect(() => {
@@ -148,6 +151,9 @@ export function Landing() {
       ref={rootRef}
       style={
         {
+          // Safari 26 tints its toolbars from this full-screen fixed layer and
+          // only notices an inline background-color change, not a variable's.
+          backgroundColor: swatches[scene.color].base,
           "--wipe-from": swatches[from].base,
           "--wipe-to": swatches[scene.color].base,
           "--frame": swatches[scene.color].base,
@@ -172,11 +178,23 @@ export function Landing() {
         >
           <InkText>How it works</InkText>
         </a>
-        <span className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm md:h-[2.875rem] md:px-5 md:text-base">
-          <span className="frame-fill-text">
-            Coming soon<span className="hidden sm:inline">&nbsp;for Mac</span>
-          </span>
-        </span>
+        {pairing ? (
+          <a
+            className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
+            href="/tap"
+          >
+            <span className="frame-fill-text">Tap {pairing.recipientName}</span>
+          </a>
+        ) : (
+          <a
+            className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
+            href="/download"
+          >
+            <span className="frame-fill-text">
+              Download<span className="hidden sm:inline">&nbsp;for Mac</span>
+            </span>
+          </a>
+        )}
       </header>
 
       <main className="absolute inset-x-2.5 top-16 bottom-2.5 z-10 overflow-y-auto overscroll-contain rounded-[1.5rem] bg-paper text-ink md:inset-x-10 md:top-24 md:bottom-10 md:rounded-[1.75rem]">
@@ -565,9 +583,10 @@ function Close() {
         Dinner's ready. Really.
       </p>
       <div className="flex flex-wrap items-center gap-4">
-        <span className="pill pill-ink cursor-default">
-          Coming soon for Mac
-        </span>
+        <a className="pill pill-ink" href="/download">
+          <HugeiconsIcon className="size-5" icon={Download04Icon} />
+          Download for Mac
+        </a>
         <span className="text-[0.9375rem] text-tone">
           Mac app plus any iPhone with Safari.
         </span>

@@ -23,12 +23,12 @@ apps/server/src/Inbox.ts    Cloudflare.DurableObject: one per recipient, Drizzle
 apps/server/src/schema.ts   Drizzle schema; migrations in apps/server/drizzle (drizzle-kit, durable-sqlite)
 apps/server/test/           Alchemy Test harness: deploys the Stack, drives the protocol
 apps/web                    Safari sender (React, TanStack Router, Vite) via Cloudflare.Website.Vite
-apps/macos                  React Native macOS menu-bar app + Swift overlay/bridge module
+apps/macos                  Native Swift menu-bar app (AppKit + SwiftUI), a Swift package
 packages/domain             Effect Schema contracts, typed errors, the HttpApi spec
 packages/client             HttpApiClient-based client + live WebSocket (tickets, reconnect, resync)
 ```
 
-`apps/macos` is deliberately outside the Bun workspace (npm, hoisted `node_modules` for CocoaPods and Metro). Its Metro config compiles `packages/domain` and `packages/client` from source.
+`apps/macos` is outside the Bun workspace. `ShouldertapCore` mirrors `packages/domain` and `packages/client` in Swift (contracts, API client, live socket, store); its tests decode fixtures in the server's JSON shapes. Change the protocol in both places. [Mac client research](docs/research/mac-client-efficiency.md) explains the move from React Native.
 
 ## Develop
 
@@ -54,39 +54,51 @@ Schema changes: edit `apps/server/src/schema.ts`, then generate and commit a mig
 cd apps/server && bun run db:generate
 ```
 
-Mac app (needs Xcode and CocoaPods; `DEVELOPER_DIR` avoids `sudo xcode-select`):
+Mac app (needs Xcode; `DEVELOPER_DIR` avoids `sudo xcode-select`). Tests, then a debug build that talks to the local stack:
 
 ```bash
-cd apps/macos && npm install && npm run pods
+cd apps/macos && swift test
 ```
 
 ```bash
-cd apps/macos && npm start        # Metro, keep running
+cd apps/macos && open "$(scripts/build.sh)"
 ```
 
-```bash
-cd apps/macos/macos && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -workspace Shouldertap.xcworkspace -scheme Shouldertap-macOS -configuration Debug -derivedDataPath build build && open build/Build/Products/Debug/Shouldertap.app
-```
-
-Debug builds talk to `localhost`; Release builds use the deployed `dev` stage (`apps/macos/src/config.ts`). In debug, `globalThis.__shouldertap` exposes the store and native module to a debugger.
+Debug builds talk to `localhost` (override with `SHOULDERTAP_SERVER_URL` and `SHOULDERTAP_WEB_URL`) and run as a separate app, "Shouldertap Debug" (`app.shouldertap.mac.debug`), with their own pairing in `~/Library/Application Support/Shouldertap Debug`. Release builds use production (`apps/macos/Sources/Shouldertap/App.swift`, `Config`).
 
 ## Deploy
 
+Production is the `prod` stage: the site at `https://shouldertap.app` (`www` redirects), the API at `https://api.shouldertap.app`, and Mac downloads at `https://download.shouldertap.app`. Hostnames live in `domains.ts`; other stages stay on `workers.dev`. The domain is registered with Cloudflare Registrar on the same account (auto-renew off, renews 2027-09-30).
+
 ```bash
-bun run plan -- --stage dev
+bun run plan -- --stage prod
 ```
 
 ```bash
-bun run deploy -- --stage dev
+bun run deploy -- --stage prod --yes
 ```
 
-After a deploy that changes URLs, update `deployed` in `apps/macos/src/config.ts` and rebuild the Release app:
+`dev` is a scratch stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev`, API `https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev`.
+
+## Release the Mac app
+
+Bump `CFBundleShortVersionString` and `CFBundleVersion` in `apps/macos/Resources/Info.plist`, then test and build a universal DMG and upload it to the `shouldertap-releases` R2 bucket (needs `wrangler login`):
 
 ```bash
-cd apps/macos/macos && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -workspace Shouldertap.xcworkspace -scheme Shouldertap-macOS -configuration Release -derivedDataPath build -destination 'platform=macOS,arch=arm64' build
+scripts/release-mac.sh
 ```
 
-Current `dev` stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev`, API `https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev`.
+It uploads `Shouldertap-<version>.dmg` (immutable), overwrites `Shouldertap.dmg` (the site's Download button), then publishes `appcast.xml`, the [Sparkle](https://sparkle-project.org) feed installed apps check daily. `--no-upload` builds only. `CFBundleVersion` must go up every release; Sparkle compares it.
+
+Updates are signed with an EdDSA key in the login keychain (account `app.shouldertap.mac`); its public half is `SUPublicEDKey` in Info.plist. Without the private key no update can ship to existing installs, so keep a copy somewhere safe, such as a password manager:
+
+```bash
+apps/macos/.build/artifacts/sparkle/Sparkle/bin/generate_keys --account app.shouldertap.mac -x shouldertap-sparkle-key.txt
+```
+
+Debug builds can rehearse an update against a local feed with `SHOULDERTAP_FEED_URL` and `SHOULDERTAP_UPDATE_SELFTEST=1`, which downloads, installs and relaunches without UI.
+
+Builds are ad-hoc signed until there's an Apple Developer ID, so Gatekeeper makes people click Open Anyway on first launch (the download page explains it). With a Developer ID, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the script header) and drop the "Allow it once" step from `apps/web/src/routes/download.tsx`.
 
 ## Known gaps in v0
 

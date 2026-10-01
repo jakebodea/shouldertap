@@ -6,18 +6,13 @@
     "ultracite/biome/tanstack"
   ],
   "files": {
-    // Generated: shadcn primitives, router tree, drizzle-kit output, native projects.
+    // Generated: shadcn primitives, router tree, drizzle-kit output. Not TypeScript: the Swift Mac app.
     "includes": [
       "!packages/ui/src/components",
       "!apps/server/drizzle",
       "!**/routeTree.gen.ts",
-      "!apps/macos/macos",
-      "!apps/macos/ios"
+      "!apps/macos"
     ]
-  },
-  "javascript": {
-    // React Native's dev-build flag.
-    "globals": ["__DEV__"]
   },
   "overrides": [
     {

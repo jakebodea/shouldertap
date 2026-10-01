@@ -6,7 +6,7 @@ September 30, 2026. Architecture planning only; application scaffolding, Git ini
 
 - Apple devices first. Initial receiver: native Mac menu-bar app. Initial sender: Safari on iPhone/iPad.
 - A native iPhone/iPad companion is part of the future plan.
-- React Native macOS with a small Apple-specific module is the selected desktop direction. Prioritize native UI and broad TypeScript/Effect reuse.
+- The Mac app is native Swift (AppKit + SwiftUI). It replaced React Native macOS on 2026-09-30 for size and efficiency: about 1.7 MB installed instead of 40 MB. The protocol is mirrored in `ShouldertapCore`. See [Mac client research](research/mac-client-efficiency.md).
 - TypeScript for application logic, contracts, web/native interfaces, backend, and infrastructure. Swift/AppKit and any required bridge glue cover Mac OS integration.
 - Use Alchemy, Cloudflare, and Effect extensively. Use Better T Stack for the foundation and Ultracite for TypeScript formatting/linting.
 
@@ -16,7 +16,7 @@ September 30, 2026. Architecture planning only; application scaffolding, Git ini
 | --- | --- | --- |
 | Workspace | Bun workspaces + Turborepo | Dependency management and coordinated build/check tasks |
 | Starting scaffold | Better T Stack | Web, Workers, auth/database packages, Alchemy, Ultracite conventions |
-| Mac app | React Native macOS + AppKit module | Menu-bar receiver, one interactive overlay per display, response input |
+| Mac app | Native Swift: AppKit shell, SwiftUI views (`apps/macos`, a Swift package) | Menu-bar receiver, one interactive overlay per display, response input |
 | Web sender | React + Vite + TanStack Router | Pairing, message composer, connection and response status |
 | Future mobile app | Expo + React Native, iOS/iPadOS first | Native sender, response history, notifications, later native integrations |
 | API | Cloudflare Worker + Effect | Request validation, authentication adapters, typed errors and application programs |
@@ -27,7 +27,7 @@ September 30, 2026. Architecture planning only; application scaffolding, Git ini
 
 These are proposed implementation choices beneath the agreed direction. The cited [backend research](research/backend-stack.md) and [Apple client research](research/apple-clients.md) record current support and compatibility gates. Better T Stack supplies a foundation, not every application abstraction: its stock API layer should give way to Effect's HTTP facilities where feasible.
 
-React/Vite suits a small authenticated sender with little server-rendering need. A later public marketing site can be a separate choice. Expo handles the future mobile client; the Mac client has its own React Native macOS/Xcode project.
+React/Vite suits a small authenticated sender with little server-rendering need. A later public marketing site can be a separate choice. Expo handles the future mobile client; the Mac client is a Swift package built into an app by `apps/macos/scripts/build.sh`.
 
 ## Runtime topology
 
@@ -37,7 +37,7 @@ flowchart LR
     Mobile["Future Expo iOS companion"] <-.->|"same protocol"| API
     API --> Accounts["D1: accounts / sessions"]
     API <-->|"authorized commands / events"| Inbox["Recipient Durable Object + SQLite"]
-    Inbox -->|"WebSocket events"| Mac["React Native Mac app + AppKit overlays"]
+    Inbox -->|"WebSocket events"| Mac["Native Swift Mac app + AppKit overlays"]
     Mac -->|"HTTPS: display receipt / response"| API
     Alchemy["Alchemy infrastructure"] -.-> API
     Alchemy -.-> Accounts
@@ -83,7 +83,7 @@ Expose ordinary HTTPS JSON commands and versioned JSON WebSocket events. Schema-
 apps/
   web/               # Safari sender
   api/               # Worker entry points and recipient Durable Object
-  macos/             # React Native macOS + Apple platform module
+  macos/             # Native Swift Mac app (Swift package: ShouldertapCore + app)
   mobile/            # later: Expo iPhone/iPad companion
 packages/
   domain/            # Effect schemas, typed faults and message policies
@@ -97,7 +97,7 @@ docs/
   research/
 ```
 
-This is a proposed tree, not a set of empty packages to create now. Add packages when code needs the boundary. Keep UI implementation separate for web and native; extract small React Native UI pieces only once Mac and mobile genuinely share them. Do not share server auth configuration or Node/Bun infrastructure packages with application bundles.
+This is a proposed tree, not a set of empty packages to create now. Add packages when code needs the boundary. Keep UI implementation separate for web and native; the Mac app is Swift and shares only the wire protocol (mirrored in `ShouldertapCore`). Do not share server auth configuration or Node/Bun infrastructure packages with application bundles.
 
 ## Versions and generator choices
 

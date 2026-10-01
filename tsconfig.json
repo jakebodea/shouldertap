@@ -5,5 +5,5 @@
     "allowImportingTsExtensions": true,
     "types": ["@cloudflare/workers-types", "bun"]
   },
-  "include": ["alchemy.run.ts", "apps/server/drizzle/**/*.d.ts"]
+  "include": ["alchemy.run.ts", "domains.ts", "apps/server/drizzle/**/*.d.ts"]
 }
