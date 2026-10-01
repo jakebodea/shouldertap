@@ -32,7 +32,16 @@ rm -rf "$sparkle/Headers" "$sparkle/PrivateHeaders" "$sparkle/Modules" \
 codesign --force --sign - "$sparkle" >&2
 cp Resources/Info.plist "$app/Contents/Info.plist"
 cp Resources/Fonts/*.ttf Resources/Fonts/OFL.txt "$app/Contents/Resources/Fonts/"
-iconutil -c icns Resources/AppIcon.iconset -o "$app/Contents/Resources/AppIcon.icns"
+if [[ "$config" == "release" ]]; then
+  iconutil -c icns Resources/AppIcon.iconset -o "$app/Contents/Resources/AppIcon.icns"
+else
+  # Debug builds get an orange DEBUG band on their icon.
+  iconset="$(mktemp -d)/AppIcon.iconset"
+  cp -R Resources/AppIcon.iconset "$iconset"
+  swift scripts/debug-icon.swift "$iconset" >&2
+  iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+  rm -rf "$(dirname "$iconset")"
+fi
 
 plist() { /usr/libexec/PlistBuddy -c "$1" "$app/Contents/Info.plist"; }
 if [[ "$config" == "release" ]]; then

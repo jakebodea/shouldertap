@@ -104,6 +104,22 @@ enum ShouldertapMark {
     return image
   }
 
+  /// The menu bar image. Debug builds draw it in orange, not as a template,
+  /// so they never pass for the installed app.
+  static func menuBarImage(knocks states: [Knock]) -> NSImage {
+    #if DEBUG
+      let size: CGFloat = 18
+      let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { rect in
+        draw(in: rect.insetBy(dx: 0.5, dy: 0.5), color: .systemOrange, knocks: states)
+        return true
+      }
+      image.accessibilityDescription = "Shouldertap Debug"
+      return image
+    #else
+      return templateImage(knocks: states)
+    #endif
+  }
+
   /// The knock (DESIGN.md, "Motion"): each mark pops in twice over 900ms,
   /// staggered 60ms. `elapsed` is seconds since the knock started.
   static func knockStates(elapsed: TimeInterval) -> [Knock] {

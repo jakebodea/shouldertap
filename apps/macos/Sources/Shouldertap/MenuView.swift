@@ -12,7 +12,10 @@ struct MenuView: View {
 
   var body: some View {
     ScrollView {
-      Group {
+      VStack(spacing: 12) {
+        #if DEBUG
+          DebugBanner()
+        #endif
         switch store.phase {
         case .loading: ProgressView().frame(maxWidth: .infinity, minHeight: 120)
         case .setup: SetupView(store: store, updates: updates)
@@ -27,6 +30,21 @@ struct MenuView: View {
     .frame(width: 380, height: min(max(contentHeight, 120), 620))
   }
 }
+
+#if DEBUG
+  /// Says which build and server this is, so a debug build is never taken
+  /// for the installed app.
+  private struct DebugBanner: View {
+    var body: some View {
+      Text("DEBUG BUILD · \(Config.endpoints.server.host(percentEncoded: false) ?? "?"):\(Config.endpoints.server.port.map(String.init) ?? "")")
+        .font(.system(size: 11, weight: .bold, design: .monospaced))
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 5)
+        .background(.orange, in: RoundedRectangle(cornerRadius: 6))
+    }
+  }
+#endif
 
 // MARK: Screens
 
