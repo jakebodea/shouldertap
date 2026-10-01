@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Schedule from "effect/Schedule";
 import * as Etag from "effect/unstable/http/Etag";
 import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
@@ -33,6 +34,40 @@ import {
 import { Inbox, InboxLive } from "./Inbox";
 
 const newInboxId = Effect.sync(() => crypto.randomUUID().replaceAll("-", ""));
+
+/**
+ * Right after a stage's first deploy, a brand-new Inbox can briefly start on
+ * the method-less placeholder class Alchemy uploads before the real script
+ * (Cloudflare lets a Durable Object run the previous version for seconds to
+ * minutes after a deploy). workerd rejects the call at method lookup, before
+ * any of our code runs, so retrying it is safe.
+ */
+const isStaleInboxVersion = (error: unknown) =>
+  typeof error === "object" &&
+  error !== null &&
+  "_tag" in error &&
+  error._tag === "RpcCallError" &&
+  "cause" in error &&
+  error.cause instanceof Error &&
+  error.cause.message.startsWith("The RPC receiver does not implement");
+
+const retryStaleInboxVersion = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.tapError((error) =>
+      isStaleInboxVersion(error)
+        ? Effect.logWarning("Inbox is still on the previous version; retrying")
+        : Effect.void
+    ),
+    Effect.retry({
+      while: isStaleInboxVersion,
+      // 250ms doubling to 2s, ~28s in all. Fresh previews have needed ~16s.
+      schedule: Schedule.min([
+        Schedule.exponential("250 millis"),
+        Schedule.spaced("2 seconds"),
+      ]),
+      times: 16,
+    })
+  );
 
 /** New inboxes per client IP per minute. Approximate and per Cloudflare location. */
 const INBOX_CREATION_LIMIT = 10;
@@ -121,7 +156,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
               return yield* inboxes
                 .getByName(inboxId)
                 .initialize(inboxId, payload)
-                .pipe(Effect.orDie);
+                .pipe(retryStaleInboxVersion, Effect.orDie);
             })
           )
           .handle("redeemInvite", ({ payload }) => {
