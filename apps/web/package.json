@@ -21,6 +21,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-router": "^1.170.32",
     "effect": "catalog:",
+    "jsqr": "^1.4.0",
     "next-themes": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

@@ -1,4 +1,4 @@
-import { Tick02Icon } from "@hugeicons/core-free-icons";
+import { QrCodeIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ApiError } from "@shouldertap/client";
 import {
@@ -13,6 +13,7 @@ import { type FormEvent, useState } from "react";
 import { Frame } from "@/components/frame";
 import { HomeScreenCard } from "@/components/home-screen";
 import { Mark } from "@/components/mark";
+import { QrScanner } from "@/components/qr-scanner";
 import { api } from "@/lib/api";
 import { frameStyle } from "@/lib/frame";
 import { isIosBrowser } from "@/lib/install";
@@ -32,6 +33,18 @@ const codeFromPaste = (value: string) => {
   const trimmed = value.trim();
   const hash = trimmed.indexOf("#");
   return decodeURIComponent(hash === -1 ? trimmed : trimmed.slice(hash + 1));
+};
+
+/** The code from a scanned invite link, or null for any other QR code. */
+const codeFromScan = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.pathname === "/join" && url.hash.length > 1
+      ? codeFromPaste(value)
+      : null;
+  } catch {
+    return null;
+  }
 };
 
 function JoinComponent() {
@@ -209,12 +222,20 @@ function JoinComponent() {
  */
 function PasteInvite({ onCode }: { onCode: (code: string) => void }) {
   const [value, setValue] = useState("");
+  const [scanning, setScanning] = useState(false);
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     const pasted = codeFromPaste(value);
     if (pasted) {
       onCode(pasted);
     }
+  };
+  const onScan = (scanned: string) => {
+    const code = codeFromScan(scanned);
+    if (code) {
+      onCode(code);
+    }
+    return code !== null;
   };
   return (
     <Frame color="graphite">
@@ -224,11 +245,37 @@ function PasteInvite({ onCode }: { onCode: (code: string) => void }) {
           Pair this phone
         </h1>
         <p className="text-[1.0625rem] text-tone leading-snug">
-          Paste the invite link you were sent. If this phone used to send taps
-          and stopped, Safari may have forgotten the pairing: ask for a new
-          invite link.
+          Scan the invite QR code on their Mac, or paste the invite link you
+          were sent. If this phone used to send taps and stopped, Safari may
+          have forgotten the pairing: ask for a new invite.
         </p>
       </div>
+      {scanning ? (
+        <div className="flex flex-col gap-3">
+          <QrScanner onScan={onScan} />
+          <button
+            className="pill w-full"
+            onClick={() => setScanning(false)}
+            type="button"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          className="pill pill-ink w-full"
+          onClick={() => setScanning(true)}
+          type="button"
+        >
+          <HugeiconsIcon
+            aria-hidden="true"
+            className="size-5"
+            icon={QrCodeIcon}
+            strokeWidth={2}
+          />
+          Scan QR code
+        </button>
+      )}
       <form className="flex flex-col gap-3" onSubmit={onSubmit}>
         <label className="sr-only" htmlFor="invite-link">
           Invite link
@@ -244,11 +291,7 @@ function PasteInvite({ onCode }: { onCode: (code: string) => void }) {
           spellCheck={false}
           value={value}
         />
-        <button
-          className="pill pill-ink w-full"
-          disabled={!value.trim()}
-          type="submit"
-        >
+        <button className="pill w-full" disabled={!value.trim()} type="submit">
           Continue
         </button>
       </form>
