@@ -227,6 +227,41 @@
  * when the next person's color sweeps in from the corner it passes through
  * the frame and the pills, avatars, and illustrations at the same moment.
  */
+.wipe-edge {
+  position: fixed;
+  left: 0;
+  z-index: 10;
+  width: 100%;
+  /* Safari ignores fixed backgrounds no more than 10px tall. Only the 6px
+     outer frame margin is visible; the rest sits beyond the viewport. */
+  height: 12px;
+  pointer-events: none;
+}
+
+.wipe-edge-top {
+  top: -6px;
+}
+
+.wipe-edge-bottom {
+  bottom: -6px;
+}
+
+.landing-header {
+  top: env(safe-area-inset-top, 0px);
+}
+
+.landing-page {
+  top: calc(4rem + env(safe-area-inset-top, 0px));
+  bottom: calc(0.625rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 48rem) {
+  .landing-page {
+    top: calc(6rem + env(safe-area-inset-top, 0px));
+    bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 @property --wipe {
   syntax: "<length>";
   inherits: true;
