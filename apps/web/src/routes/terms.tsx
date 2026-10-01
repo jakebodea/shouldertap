@@ -18,10 +18,34 @@ function TermsComponent() {
         <p>
           Shouldertap lets someone you invite send you a short message that
           covers the screens of your paired Macs until you answer, and shows
-          them your answer. It's free to use. It needs no account: access comes
-          from invite links and the keys stored on each paired device, so keep
-          your devices and invite links to yourself.
+          them your answer. It needs no account: access comes from invite links
+          and the keys stored on each paired device, so keep your devices and
+          invite links to yourself.
         </p>
+      </DocSection>
+
+      <DocSection title="Price, payment and refunds">
+        <ul>
+          <li>
+            Each inbox (one recipient and their paired Macs) is free for 7 days
+            from when it's created. After that, taps to it pause until it's
+            unlocked.
+          </li>
+          <li>
+            Unlocking is a one-time purchase of US$5, plus tax where it applies,
+            made from the Mac app. It unlocks that inbox for as long as
+            Shouldertap runs, with no subscription. Senders never pay.
+          </li>
+          <li>
+            Payments are handled by our reseller and merchant of record, Creem,
+            which is the seller of record and handles billing and taxes; Creem's
+            terms apply to the purchase itself.
+          </li>
+          <li>
+            If you're not happy, email <EmailLink /> within 14 days of buying
+            for a full refund. A refunded inbox goes back to being paused.
+          </li>
+        </ul>
       </DocSection>
 
       <DocSection title="Acceptable use">

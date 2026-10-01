@@ -19,7 +19,10 @@ function PrivacyComponent() {
     >
       <DocSection title="The short version">
         <ul>
-          <li>No accounts, no email addresses, no phone numbers.</li>
+          <li>
+            No accounts or phone numbers. The only email address we keep is the
+            one you give when you buy, so we can restore your purchase.
+          </li>
           <li>No analytics, advertising, or tracking scripts.</li>
           <li>
             We store what the service needs to work: names, colors, the taps you
@@ -49,6 +52,10 @@ function PrivacyComponent() {
           <li>The recipient's name, as shown to senders.</li>
           <li>The name of each paired Mac.</li>
           <li>Each sender's name and the color they picked.</li>
+          <li>
+            When the inbox's free week ends, and if it was bought: the date,
+            Creem's order number and the buyer's email address.
+          </li>
           <li>
             For each paired Mac and sender: a hashed (SHA-256) copy of its
             access key, when it was paired, when it was last active, and when it
@@ -114,6 +121,14 @@ function PrivacyComponent() {
 
       <DocSection title="Service providers">
         <ul>
+          <li>
+            <b>Creem</b> is our merchant of record and processes purchases. Your
+            card details and billing address go to Creem, not to us. Creem tells
+            us that an inbox was paid for, the order number, and the buyer's
+            email address, which we keep with the inbox to restore the purchase
+            on a new Mac and to answer support requests. Creem's privacy policy
+            covers what it does with payment data.
+          </li>
           <li>
             <b>Cloudflare</b> hosts the website, the servers, and the stored
             data, and serves Mac app downloads and updates.
