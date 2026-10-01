@@ -14,13 +14,8 @@ export type RouterAppContext = Record<string, never>;
 export const Route = createRootRouteWithContext<RouterAppContext>()({
   component: RootComponent,
   head: () => ({
-    meta: [
-      { title: "Shouldertap" },
-      {
-        name: "description",
-        content: "Tap someone on the shoulder, even mid-flow.",
-      },
-    ],
+    // The description and link-preview tags are static in index.html.
+    meta: [{ title: "Shouldertap" }],
   }),
 });
 
