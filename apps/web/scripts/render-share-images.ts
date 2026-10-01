@@ -1,8 +1,7 @@
 /**
- * Renders the link-preview cards (public/og-image.png for the site,
- * public/og-invite.png for invite links) and the Home Screen icon
- * (public/apple-touch-icon.png). All are committed; rerun after changing the
- * copy, the mark or the palette:
+ * Renders the link-preview cards: public/og-image.png for the site and
+ * public/og-invite.png for invite links. Both are committed; rerun after
+ * changing the copy, the mark or the palette:
  *
  *   bun run render:share-images
  *
@@ -128,8 +127,6 @@ const invite = card(`
     .join("")}</div>
   <footer>Your taps cover their Mac until they answer. <span>Nothing to install.</span></footer>`);
 
-const touchIcon = `<!doctype html><html><body style="margin:0;width:180px;height:180px;background:${frame.base};display:grid;place-items:center;color:${frame.ink}">${mark(108)}</body></html>`;
-
 const browser = await chromium.launch();
 try {
   const page = await browser.newPage({
@@ -144,11 +141,6 @@ try {
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: `${web}public/${file}` });
   }
-
-  // iOS ignores SVG touch icons and rounds the corners itself, so a full bleed square.
-  await page.setViewportSize({ width: 180, height: 180 });
-  await page.setContent(touchIcon);
-  await page.screenshot({ path: `${web}public/apple-touch-icon.png` });
 } finally {
   await browser.close();
 }
