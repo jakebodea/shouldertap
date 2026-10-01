@@ -11,14 +11,16 @@
 # Connect API key when all three are set:
 #   ASC_KEY_PATH=~/.appstoreconnect/AuthKey_XXXX.p8 ASC_KEY_ID=XXXX ASC_ISSUER_ID=<uuid>
 #
-# The version is MARKETING_VERSION in the Xcode project. The build number is
-# a UTC timestamp, so every upload goes up; override with BUILD_NUMBER.
+# The version is MARKETING_VERSION and the build number CURRENT_PROJECT_VERSION
+# in the Xcode project. App Store Connect needs each upload's build number to
+# be higher than the last for that version: bump it (or the version, which
+# starts builds again at 1) before releasing. Override with BUILD_NUMBER.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 project="$root/apps/ios/Shouldertap.xcodeproj"
 out="$root/apps/ios/build/release"
-build="${BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
+build="${BUILD_NUMBER:-$(sed -n 's/.*CURRENT_PROJECT_VERSION = \([0-9]*\);/\1/p' "$project/project.pbxproj" | head -1)}"
 destination=upload
 [[ "${1:-}" == "--no-upload" ]] && destination=export
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"

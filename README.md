@@ -112,7 +112,7 @@ Archive, sign for App Store distribution (team `6C46GY4Z38`, automatic signing t
 scripts/release-ios.sh
 ```
 
-The version is `MARKETING_VERSION` in the Xcode project; the build number is a UTC timestamp so every upload goes up. `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
+The version is `MARKETING_VERSION` and the build number `CURRENT_PROJECT_VERSION` in the Xcode project. Each upload needs a higher build number than the last for that version, so bump it before releasing (a new version starts again at 1). `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
 
 ## Release the Mac app
 
