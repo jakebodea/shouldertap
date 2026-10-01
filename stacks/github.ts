@@ -10,9 +10,10 @@ import { zoneId } from "../domains.ts";
 const repo = { owner: "jakebodea", repository: "shouldertap" } as const;
 
 /**
- * CI credentials as code: mints a Cloudflare API token scoped to what
- * `alchemy.run.ts` deploys and stores it as GitHub Actions secrets. Deploy
- * once from a laptop, and again only to rotate or rescope the token:
+ * The repo's CI setup as code: mints a Cloudflare API token scoped to what
+ * `alchemy.run.ts` deploys, stores it as GitHub Actions secrets, and protects
+ * main. Deploy from a laptop to rotate or rescope the token or to change the
+ * protection:
  *
  *   bun alchemy deploy --config stacks/github.ts --profile admin
  */
@@ -73,6 +74,24 @@ export default Alchemy.Stack(
       ...repo,
       name: "CLOUDFLARE_ACCOUNT_ID",
       value: Redacted.make(accountId),
+    });
+
+    // Changes reach main only through a pull request whose `check` job (in
+    // .github/workflows/deploy.yml) passed. Nobody can bypass it, admins
+    // included; loosen it here if that ever has to change.
+    yield* GitHub.Ruleset("protect-main", {
+      ...repo,
+      name: "Protect main",
+      conditions: { include: ["~DEFAULT_BRANCH"] },
+      rules: {
+        deletion: true,
+        nonFastForward: true,
+        pullRequest: { requiredApprovingReviewCount: 0 },
+        requiredStatusChecks: {
+          // 15368 is the GitHub Actions app.
+          checks: [{ context: "check", integrationId: 15368 }],
+        },
+      },
     });
   })
 );
