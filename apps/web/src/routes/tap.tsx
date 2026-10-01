@@ -18,6 +18,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Frame } from "@/components/frame";
+import { isStandalone } from "@/lib/install";
 import {
   clearPairing,
   loadPairing,
@@ -27,13 +28,14 @@ import {
 import { duration, relativeTime } from "@/lib/time";
 import { type OutgoingTap, useSender } from "@/lib/use-sender";
 
-// The composer only means something on a paired phone; anyone else gets the
-// landing page, which explains how to get an invite.
+// The composer only means something on a paired phone. Anyone else gets the
+// landing page, which explains how to get an invite; a Home Screen app has no
+// landing page to show, so it asks for an invite link.
 export const Route = createFileRoute("/tap")({
   beforeLoad: () => {
     const pairing = loadPairing();
     if (!pairing) {
-      throw redirect({ to: "/", replace: true });
+      throw redirect({ to: isStandalone() ? "/join" : "/", replace: true });
     }
     return { pairing };
   },

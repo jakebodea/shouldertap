@@ -11,9 +11,11 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 
 import { Frame } from "@/components/frame";
+import { HomeScreenCard } from "@/components/home-screen";
 import { Mark } from "@/components/mark";
 import { api } from "@/lib/api";
 import { frameStyle } from "@/lib/frame";
+import { isIosBrowser } from "@/lib/install";
 import { loadPairing, savePairing } from "@/lib/pairing";
 
 export const Route = createFileRoute("/join")({
@@ -25,9 +27,17 @@ const LEADING_HASH = /^#/;
 const readCode = () =>
   decodeURIComponent(window.location.hash.replace(LEADING_HASH, "")).trim();
 
+/** A pasted invite: the full link (code after "#") or just the code. */
+const codeFromPaste = (value: string) => {
+  const trimmed = value.trim();
+  const hash = trimmed.indexOf("#");
+  return decodeURIComponent(hash === -1 ? trimmed : trimmed.slice(hash + 1));
+};
+
 function JoinComponent() {
   const navigate = useNavigate();
-  const [code] = useState(readCode);
+  const [code, setCode] = useState(readCode);
+  const [pairInBrowser, setPairInBrowser] = useState(() => !isIosBrowser());
   const [name, setName] = useState("");
   const [color, setColor] = useState<PersonColor>("cobalt");
   const [pending, setPending] = useState(false);
@@ -68,18 +78,12 @@ function JoinComponent() {
 
   if (!code) {
     return (
-      <Frame color="graphite">
-        <Mark className="size-9" />
-        <div className="flex flex-col gap-2">
-          <h1 className="font-extrabold text-[2.125rem] leading-none tracking-[-0.035em]">
-            Missing invite
-          </h1>
-          <p className="text-[1.0625rem] text-tone leading-snug">
-            Open the full invite link you were sent. It ends with a long code
-            after “#”.
-          </p>
-        </div>
-      </Frame>
+      <PasteInvite
+        onCode={(pasted) => {
+          history.replaceState(null, "", `/join#${encodeURIComponent(pasted)}`);
+          setCode(pasted);
+        }}
+      />
     );
   }
 
@@ -96,6 +100,10 @@ function JoinComponent() {
         </p>
       </div>
 
+      {pairInBrowser ? null : (
+        <HomeScreenCard onSkip={() => setPairInBrowser(true)} />
+      )}
+
       {existing ? (
         <p className="rounded-2xl bg-faint px-4 py-3 text-[0.9375rem] leading-snug">
           This phone already sends taps to {existing.recipientName}. Pairing
@@ -103,7 +111,11 @@ function JoinComponent() {
         </p>
       ) : null}
 
-      <form className="flex flex-1 flex-col gap-6" onSubmit={onSubmit}>
+      <form
+        className="flex flex-1 flex-col gap-6"
+        hidden={!pairInBrowser}
+        onSubmit={onSubmit}
+      >
         <div>
           <label className="mb-2 block font-bold text-sm" htmlFor="sender-name">
             Your name
@@ -186,6 +198,59 @@ function JoinComponent() {
             .
           </p>
         </div>
+      </form>
+    </Frame>
+  );
+}
+
+/**
+ * Reached without a code: a Home Screen app whose saved page lost it, or a
+ * phone whose pairing Safari forgot.
+ */
+function PasteInvite({ onCode }: { onCode: (code: string) => void }) {
+  const [value, setValue] = useState("");
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const pasted = codeFromPaste(value);
+    if (pasted) {
+      onCode(pasted);
+    }
+  };
+  return (
+    <Frame color="graphite">
+      <Mark className="size-9" />
+      <div className="flex flex-col gap-2">
+        <h1 className="font-extrabold text-[2.125rem] leading-none tracking-[-0.035em]">
+          Pair this phone
+        </h1>
+        <p className="text-[1.0625rem] text-tone leading-snug">
+          Paste the invite link you were sent. If this phone used to send taps
+          and stopped, Safari may have forgotten the pairing: ask for a new
+          invite link.
+        </p>
+      </div>
+      <form className="flex flex-col gap-3" onSubmit={onSubmit}>
+        <label className="sr-only" htmlFor="invite-link">
+          Invite link
+        </label>
+        <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          className="field"
+          id="invite-link"
+          onChange={(event) => setValue(event.target.value)}
+          placeholder="https://shouldertap.app/join#…"
+          spellCheck={false}
+          value={value}
+        />
+        <button
+          className="pill pill-ink w-full"
+          disabled={!value.trim()}
+          type="submit"
+        >
+          Continue
+        </button>
       </form>
     </Frame>
   );
