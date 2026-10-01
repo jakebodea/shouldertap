@@ -54,7 +54,7 @@ function JoinComponent() {
         color,
       });
       history.replaceState(null, "", "/join");
-      navigate({ to: "/" });
+      navigate({ to: "/tap" });
     } catch (caught) {
       setError(
         caught instanceof ApiError && caught.code !== "network"
