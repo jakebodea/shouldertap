@@ -260,8 +260,8 @@ function OutboxItem({
       </p>
       {item.failed ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="mr-auto font-semibold text-[0.9375rem] text-destructive">
-            Couldn't send
+          <span className="mr-auto font-semibold text-[0.9375rem] text-destructive leading-snug">
+            {item.error ?? "Couldn't send"}
           </span>
           <button
             className="pill pill-sm"
