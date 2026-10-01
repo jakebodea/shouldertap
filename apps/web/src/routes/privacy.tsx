@@ -195,9 +195,9 @@ function PrivacyComponent() {
           they reach 90 days. Unpairing a phone deletes its key from that phone
           and removes the sender from the recipient's Mac, the same as the
           recipient removing them (if the phone is offline, only the phone
-          forgets it). Deletion can run up to a day late, and our
-          hosting provider keeps recovery copies of stored data for up to 30
-          days, so deleted data can remain in those copies for that long.
+          forgets it). Deletion can run up to a day late, and our hosting
+          provider keeps recovery copies of stored data for up to 30 days, so
+          deleted data can remain in those copies for that long.
         </p>
         <p>
           <b>Trial records</b> (a Mac's fingerprint and when its free week ends)
