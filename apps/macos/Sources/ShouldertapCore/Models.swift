@@ -137,10 +137,29 @@ public struct Plan: Sendable, Codable, Hashable {
 
   public var status: Status
   public var trialEndsAt: Timestamp
+  /// What unlocking costs right now, in US cents; nil from older servers.
+  public var unlockPrice: Int?
 
-  public init(status: Status, trialEndsAt: Timestamp) {
+  /// Mirrors packages/domain/src/pricing.ts.
+  public static let trialPriceCents = 500
+  public static let fullPriceCents = 1000
+
+  public init(status: Status, trialEndsAt: Timestamp, unlockPrice: Int? = nil) {
     self.status = status
     self.trialEndsAt = trialEndsAt
+    self.unlockPrice = unlockPrice
+  }
+
+  /// The price as of `now`: the trial price only while the trial is still
+  /// running here, even if the last snapshot said otherwise.
+  public func price(now: Date = .now) -> Int {
+    currentStatus(now: now) == .trial
+      ? (unlockPrice ?? Self.trialPriceCents) : Self.fullPriceCents
+  }
+
+  /// "$5", "$10", "$4.99".
+  public static func format(cents: Int) -> String {
+    cents % 100 == 0 ? "$\(cents / 100)" : String(format: "$%.2f", Double(cents) / 100)
   }
 
   /// Whole days of trial left as of `now`, rounded up: 1 on the last day,

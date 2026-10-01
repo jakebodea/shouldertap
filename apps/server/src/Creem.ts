@@ -28,14 +28,21 @@ export const creemClient = (apiKey: string) =>
 
 export const createCheckout = (
   client: CreemCore,
-  { productId, inboxId }: { productId: string; inboxId: string }
+  {
+    productId,
+    inboxId,
+    priceCents,
+  }: { productId: string; inboxId: string; priceCents: number }
 ) =>
   Effect.tryPromise({
     try: () =>
       checkoutsCreate(client, {
         productId,
-        // One open checkout per inbox; Creem uses it to correlate retries.
-        requestId: `inbox-${inboxId}`,
+        // Set per checkout (one-time products allow it), so the product's own
+        // price doesn't matter: the trial and full prices live in pricing.ts.
+        customPrice: priceCents,
+        // One open checkout per inbox and price; Creem correlates retries by it.
+        requestId: `inbox-${inboxId}-${priceCents}`,
         metadata: { [INBOX_METADATA_KEY]: inboxId },
       }),
     catch: (cause) =>

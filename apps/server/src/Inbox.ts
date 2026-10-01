@@ -93,7 +93,10 @@ export interface InboxRpc {
   /** Authorizes a paired Mac to start a checkout for this inbox. */
   readonly checkoutContext: (
     token: ParsedToken
-  ) => Rpc<{ inboxId: string; recipientName: string }, Unauthorized | Conflict>;
+  ) => Rpc<
+    { inboxId: string; recipientName: string; priceCents: number },
+    Unauthorized | Conflict
+  >;
   readonly createInvite: (
     token: ParsedToken,
     request: CreateInviteRequest
@@ -814,6 +817,9 @@ export const InboxLive = Inbox.make(
           return {
             inboxId: token.inboxId,
             recipientName: row?.recipientName ?? "",
+            // Priced when the checkout starts: a trial checkout keeps the
+            // trial price even if it's paid just after the trial ends.
+            priceCents: planOf(row, yield* now).unlockPrice,
           };
         }, orDieOnStorage),
 

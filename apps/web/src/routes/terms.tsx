@@ -1,3 +1,8 @@
+import {
+  FULL_PRICE_CENTS,
+  formatPrice,
+  TRIAL_PRICE_CENTS,
+} from "@shouldertap/domain";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { DocPage, DocSection, EmailLink } from "@/components/document";
@@ -32,8 +37,10 @@ function TermsComponent() {
             unlocked.
           </li>
           <li>
-            Unlocking is a one-time purchase of US$5, plus tax where it applies,
-            made from the Mac app. It unlocks that inbox for as long as
+            Unlocking is a one-time purchase made from the Mac app: US
+            {formatPrice(TRIAL_PRICE_CENTS)} if you start the checkout during
+            the free 7 days, or US{formatPrice(FULL_PRICE_CENTS)} after, plus
+            tax where it applies. It unlocks that inbox for as long as
             Shouldertap runs, with no subscription. Senders never pay.
           </li>
           <li>
