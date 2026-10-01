@@ -32,15 +32,24 @@ enum Config {
     #endif
   }
 
+  /// Developer ID builds keep the credential in the Keychain, under their
+  /// own bundle id; ad-hoc builds would be prompted after every update, so
+  /// they keep the file.
+  static var vault: (any CredentialVault)? {
+    guard CodeSignature.teamIdentifier != nil else { return nil }
+    return KeychainVault(service: Bundle.main.bundleIdentifier ?? "app.shouldertap.mac")
+  }
+
   /// Debug builds keep their own pairing (and, via their own bundle id, their
   /// own defaults) so testing never touches the installed app's.
   static var persistence: LocalPersistence {
     #if DEBUG
       LocalPersistence(
         directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-          .appending(path: "Shouldertap Debug", directoryHint: .isDirectory))
+          .appending(path: "Shouldertap Debug", directoryHint: .isDirectory),
+        vault: vault)
     #else
-      LocalPersistence()
+      LocalPersistence(vault: vault)
     #endif
   }
 }

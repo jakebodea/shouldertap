@@ -130,4 +130,49 @@ private func fixture(_ name: String) throws -> Data {
     store.savePendingAcks([:])
     #expect(store.loadPendingAcks().isEmpty)
   }
+
+  @Test func movesAFileCredentialIntoTheVault() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appending(path: "credential.secret")
+    // An older, ad-hoc build left its credential in the file.
+    try LocalPersistence(directory: directory).saveCredential("inbox.id.secret")
+
+    let vault = MemoryVault()
+    let store = LocalPersistence(directory: directory, vault: vault)
+    #expect(store.loadCredential() == "inbox.id.secret")
+    #expect(vault.read() == "inbox.id.secret")
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+
+    try store.saveCredential("inbox.id.other")
+    #expect(vault.read() == "inbox.id.other")
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+    store.deleteCredential()
+    #expect(store.loadCredential() == nil)
+  }
+
+  @Test func keepsTheFileWhenTheVaultFails() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try LocalPersistence(directory: directory).saveCredential("inbox.id.secret")
+
+    let store = LocalPersistence(directory: directory, vault: MemoryVault(failing: true))
+    #expect(store.loadCredential() == "inbox.id.secret")
+    // Still readable next launch: the file stays until a write succeeds.
+    #expect(LocalPersistence(directory: directory).loadCredential() == "inbox.id.secret")
+  }
+}
+
+final class MemoryVault: CredentialVault, @unchecked Sendable {
+  private var token: String?
+  private let failing: Bool
+
+  init(failing: Bool = false) { self.failing = failing }
+
+  func read() -> String? { token }
+  func write(_ token: String) throws {
+    if failing { throw CocoaError(.fileWriteUnknown) }
+    self.token = token
+  }
+  func delete() { token = nil }
 }
