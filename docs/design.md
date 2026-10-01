@@ -47,7 +47,7 @@ The Mac menu bar popover uses the system font (it is a native surface); Bricolag
 
 ## Icons
 
-Hugeicons stroke (`@hugeicons/react` + `@hugeicons/core-free-icons`), 1.5 stroke, `currentColor`. Standard glyphs: `Tick02Icon` (On it), `Clock01Icon` (In 10 min), `BubbleChatIcon` (Reply), `SentIcon` (Send), `ArrowLeft01Icon` (Back), `UserAdd01Icon` (Invite), `ComputerIcon` (Mac), `Link01Icon` (Add Mac), `Delete02Icon` (Remove), `Copy01Icon` (Copy).
+Hugeicons stroke (`@hugeicons/react` + `@hugeicons/core-free-icons`), 1.5 stroke, `currentColor`. Standard glyphs: `Tick02Icon` (On it), `Clock01Icon` (In 10 min), `BubbleChatIcon` (Reply), `SentIcon` (Send), `ArrowLeft01Icon` (Back), `UserAdd01Icon` (Invite), `ComputerIcon` (Mac), `Link01Icon` (Add Mac), `Delete02Icon` (Remove), `Copy01Icon` (Copy), `Cancel01Icon` (Close).
 
 ## The mark
 
@@ -71,4 +71,5 @@ Wordmark: **Shouldertap**, one word, Bricolage 800, tracking −0.035em, mark at
 - **Overlay (Mac, every display):** Frame in sender color; top band: sender name (700, 36px) + time + "N more waiting". Page: message 800 at 156→80px by length, left-aligned, then reply pills (On it filled in sender color, In 10 min, Reply) with key hints 1/2/3. Reply mode: pill field + Send + Back.
 - **Menu bar popover:** native vibrancy surface, system font. Header (mark, "Shouldertap", "Taps for {name}", connection status), ink "Invite someone" button, "Can tap you" (color avatars), "Your Macs", "Recent" (avatar, message, answer with icon), footer (Open at login, Quit).
 - **Sender (Safari):** the sender's own color frames the phone. Join: name, color picker, live preview of how taps look on the recipient's Mac. Compose: title "Tap {recipient}", live status, one field, full-width send pill, recent taps with progress track or answer card, unpair link.
+- **Sender (iOS app):** same Frame, with navigation on the frame's top edge in the color's ink (wordmark, Back pill, three-segment step track, close; no system bars). Onboarding: welcome (a sample tap cycling people and colors), get the Mac app, get an invite (a looping menu-bar demo), name and color, then the page drops away and the full-screen color knocks the mark twice. Composer: everyone you can tap as avatars on the frame (tap to switch, the color floods in; tap the selected one to unpair), add someone beside them; the page rises into place.
 - **Landing (`/` when not paired):** the page is a live tap. Frame cycles through people and their messages; the visitor can answer (click or 1/2/3). Nav sits on the frame's top edge; the pitch sits under the message on the page.

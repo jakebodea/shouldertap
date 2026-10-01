@@ -1,22 +1,122 @@
 import ShouldertapCore
 import SwiftUI
 
-/// Compose and follow taps to one recipient. Mirrors apps/web/src/routes/tap.tsx.
+/// The paired screen: everyone you can tap as avatars on the frame (tap one
+/// to switch, and the frame floods to their color), and the composer for the
+/// selected person on the page, which rises into place when it appears.
 struct ComposeView: View {
   let session: SenderSession
   let store: SenderStore
   let onSelect: (String) -> Void
   let onAdd: () -> Void
 
+  @State private var unpairing: SenderSession?
+  @State private var risen = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    VStack(spacing: 0) {
+      FrameBar {
+        // Knocks each time one of your taps reaches their screen.
+        Wordmark(knock: session.taps.filter { $0.displayedAt != nil }.count)
+      } trailing: {
+        people
+      }
+      ZStack {
+        ComposerPage(session: session)
+          .id(session.id)
+          .transition(reduceMotion ? .opacity : .rise)
+      }
+      .onPaper()
+        .offset(y: risen || reduceMotion ? 0 : 320)
+        .opacity(risen ? 1 : 0)
+    }
+    .onAppear {
+      withAnimation(.outExpo(0.8)) { risen = true }
+    }
+    .confirmationDialog(
+      unpairing.map { "Stop tapping \($0.pairing.recipientName)?" } ?? "",
+      isPresented: Binding(get: { unpairing != nil }, set: { if !$0 { unpairing = nil } }),
+      titleVisibility: .visible,
+      presenting: unpairing
+    ) { person in
+      Button("Unpair", role: .destructive) { store.unpair(id: person.id) }
+    } message: { person in
+      Text(
+        "Your taps stop reaching \(person.pairing.recipientName)'s Mac. To pair again, you'll need a new invite.")
+    }
+  }
+
+  private var people: some View {
+    HStack(spacing: 6) {
+      ForEach(store.sessions) { person in
+        let selected = person.id == session.id
+        Group {
+          if selected {
+            // The selected person: details and unpair.
+            Menu {
+              Section("You're \(person.pairing.senderName) on \(person.pairing.recipientName)'s Mac") {
+                Button("Unpair \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
+                  unpairing = person
+                }
+              }
+            } label: {
+              PersonChip(person: person, selected: true)
+            }
+          } else {
+            Button { onSelect(person.id) } label: { PersonChip(person: person, selected: false) }
+              .buttonStyle(.plain)
+              .contextMenu {
+                Button("Unpair \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
+                  unpairing = person
+                }
+              }
+          }
+        }
+        .accessibilityLabel(person.pairing.recipientName)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("person-\(person.pairing.recipientName)")
+      }
+      Button(action: onAdd) { IconView(icon: .invite, size: 19) }
+        .buttonStyle(FrameButtonStyle(iconOnly: true))
+        .accessibilityLabel("Add someone")
+        .accessibilityIdentifier("add-person")
+    }
+    .sensoryFeedback(.selection, trigger: session.id)
+  }
+}
+
+/// Someone you can tap, on the frame: their initial in their color, ringed
+/// in the frame's ink when selected.
+private struct PersonChip: View {
+  let person: SenderSession
+  let selected: Bool
+  @Environment(\.frameColor) private var frame
+
+  var body: some View {
+    Avatar(name: person.pairing.recipientName, color: person.color, size: 34)
+      .overlay(Circle().strokeBorder(frame.ink.opacity(selected ? 0 : 0.3), lineWidth: 1.5))
+      .padding(3)
+      .overlay(Circle().strokeBorder(frame.ink, lineWidth: 2).opacity(selected ? 1 : 0))
+      .scaleEffect(selected ? 1.06 : 0.94)
+      .animation(.spring(duration: 0.4, bounce: 0.4), value: selected)
+      .contentShape(.circle)
+  }
+}
+
+/// Compose and follow taps to one recipient. Mirrors apps/web/src/routes/tap.tsx.
+private struct ComposerPage: View {
+  let session: SenderSession
+
   @State private var draft = ""
-  @State private var confirmUnpair = false
+  @State private var sent = 0
   @FocusState private var focused: Bool
 
   private var recipient: String { session.pairing.recipientName }
   private var trimmed: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
 
   var body: some View {
-    Frame(color: session.color) {
+    Page {
       header
 
       VStack(spacing: 12) {
@@ -49,52 +149,20 @@ struct ComposeView: View {
       }
 
       recent
-
-      footer
-    }
-    .confirmationDialog(
-      "Stop sending taps to \(recipient) from this phone?", isPresented: $confirmUnpair, titleVisibility: .visible
-    ) {
-      Button("Unpair", role: .destructive) { store.unpair(id: session.id) }
     }
     .sensoryFeedback(.success, trigger: session.taps.first { $0.state == .acknowledged }?.id)
+    .sensoryFeedback(.impact(weight: .medium), trigger: sent)
   }
 
   private var header: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 16) {
-      if store.sessions.count > 1 {
-        Menu {
-          ForEach(store.sessions) { other in
-            Button {
-              onSelect(other.id)
-            } label: {
-              Text(other.pairing.recipientName)
-              if other.id == session.id { Image(systemName: "checkmark") }
-            }
-          }
-          Divider()
-          Button("Pair with someone else", action: onAdd)
-        } label: {
-          HStack(alignment: .firstTextBaseline, spacing: 6) {
-            title
-            Image(systemName: "chevron.down").font(.system(size: 18, weight: .bold)).foregroundStyle(Paper.tone)
-          }
-        }
-        .tint(Paper.ink)
-      } else {
-        title
-      }
-      Spacer(minLength: 0)
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Tap \(recipient)")
+        .font(Bricolage.extraBold(34))
+        .tracking(-1.2)
+        .multilineTextAlignment(.leading)
+        .accessibilityAddTraits(.isHeader)
       StatusLabel(status: session.status)
     }
-  }
-
-  private var title: some View {
-    Text("Tap \(recipient)")
-      .font(Bricolage.extraBold(34))
-      .tracking(-1.2)
-      .multilineTextAlignment(.leading)
-      .foregroundStyle(Paper.ink)
   }
 
   private var recent: some View {
@@ -130,26 +198,11 @@ struct ComposeView: View {
     .transition(.opacity.combined(with: .move(edge: .top)))
   }
 
-  private var footer: some View {
-    VStack(spacing: 10) {
-      Text("Paired as \(session.pairing.senderName)")
-      HStack(spacing: 18) {
-        Button("Unpair this phone") { confirmUnpair = true }
-        Button("Pair with someone else", action: onAdd)
-      }
-      .underline()
-      .foregroundStyle(Paper.ink)
-    }
-    .font(Bricolage.medium(13, relativeTo: .footnote))
-    .foregroundStyle(Paper.tone)
-    .frame(maxWidth: .infinity)
-    .padding(.top, 8)
-  }
-
   private func send() {
     do {
-      try withAnimation(.easeOut(duration: 0.25)) { try session.send(draft) }
+      try withAnimation(.outExpo(0.5)) { try session.send(draft) }
       draft = ""
+      sent += 1
     } catch {
       // The button is disabled for empty drafts and the field caps length.
     }
