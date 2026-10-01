@@ -64,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     if let button = statusItem.button {
-      button.image = ShouldertapMark.templateImage(knocks: KnockAnimator.resting)
+      button.image = ShouldertapMark.menuBarImage(knocks: KnockAnimator.resting)
       button.target = self
       button.action = #selector(togglePopover)
       knock.button = button
@@ -194,10 +194,10 @@ final class KnockAnimator {
     guard elapsed < ShouldertapMark.knockDuration else {
       frameTimer?.invalidate()
       frameTimer = nil
-      button?.image = ShouldertapMark.templateImage(knocks: Self.resting)
+      button?.image = ShouldertapMark.menuBarImage(knocks: Self.resting)
       return
     }
-    button?.image = ShouldertapMark.templateImage(knocks: ShouldertapMark.knockStates(elapsed: elapsed))
+    button?.image = ShouldertapMark.menuBarImage(knocks: ShouldertapMark.knockStates(elapsed: elapsed))
   }
 
   private func stop() {
@@ -205,7 +205,7 @@ final class KnockAnimator {
     nextKnock?.invalidate()
     frameTimer = nil
     nextKnock = nil
-    button?.image = ShouldertapMark.templateImage(knocks: Self.resting)
+    button?.image = ShouldertapMark.menuBarImage(knocks: Self.resting)
   }
 }
 
