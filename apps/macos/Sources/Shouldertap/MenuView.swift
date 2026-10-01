@@ -182,6 +182,18 @@ private struct PlanView: View {
           unlockButton(kind: .secondary)
           messages
         }
+      } else if hasAnsweredATap {
+        // Ask once it has worked: the first tap they answered.
+        Card {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Liking Shouldertap?")
+              .font(.system(size: 13, weight: .semibold))
+            Muted("Keep it for good with a one-time $5. Trial · \(days) days left.")
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          unlockButton(kind: .secondary)
+          messages
+        }
       } else {
         VStack(alignment: .leading, spacing: 4) {
           HStack {
@@ -194,6 +206,10 @@ private struct PlanView: View {
         }
       }
     }
+  }
+
+  private var hasAnsweredATap: Bool {
+    store.taps.contains { $0.state == .acknowledged }
   }
 
   private func unlockButton(kind: MenuButton.Kind) -> some View {
