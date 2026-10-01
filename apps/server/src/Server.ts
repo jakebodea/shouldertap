@@ -6,9 +6,11 @@ import {
   ShouldertapApi,
   TooManyRequests,
   Unauthorized,
+  Unavailable,
 } from "@shouldertap/domain";
 import { Stage } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -21,6 +23,13 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import { domains, isProduction } from "../../../domains.ts";
+import {
+  checkoutInboxId,
+  createCheckout,
+  creemClient,
+  verifyWebhook,
+  webhookAction,
+} from "./Creem";
 import { Inbox, InboxLive } from "./Inbox";
 
 const newInboxId = Effect.sync(() => crypto.randomUUID().replaceAll("-", ""));
@@ -49,6 +58,21 @@ export default class Server extends Cloudflare.Worker<Server>()(
   }),
   Effect.gen(function* () {
     const inboxes = yield* Inbox;
+    // Payments are optional so previews and dev run without Creem: checkout
+    // answers 503 and the webhook 404 until all three are configured.
+    const creem = Option.all({
+      apiKey: yield* Config.option(Config.Redacted("CREEM_API_KEY")),
+      webhookSecret: yield* Config.option(
+        Config.Redacted("CREEM_WEBHOOK_SECRET")
+      ),
+      productId: yield* Config.option(Config.String("CREEM_PRODUCT_ID")),
+    }).pipe(
+      Option.map((config) => ({
+        ...config,
+        client: creemClient(Redacted.value(config.apiKey)),
+      }))
+    );
+
     const inboxCreation = yield* Cloudflare.RateLimit("INBOX_CREATION", {
       namespaceId: 7201,
       simple: { limit: INBOX_CREATION_LIMIT, period: 60 },
@@ -144,6 +168,30 @@ export default class Server extends Cloudflare.Worker<Server>()(
             stub.revoke(token, params.id)
           )
         )
+        .handle("createCheckout", () =>
+          Effect.gen(function* () {
+            const { token, stub } = yield* forCaller;
+            const context = yield* stub.checkoutContext(token);
+            if (Option.isNone(creem)) {
+              return yield* new Unavailable({
+                message: "Payments aren't set up here yet.",
+              });
+            }
+            const url = yield* createCheckout(creem.value.client, {
+              productId: creem.value.productId,
+              inboxId: context.inboxId,
+            }).pipe(
+              Effect.tapError((error) => Effect.logError(error)),
+              Effect.mapError(
+                () =>
+                  new Unavailable({
+                    message: "Couldn't start checkout. Try again in a minute.",
+                  })
+              )
+            );
+            return { url };
+          })
+        )
         .handle("connectTicket", () =>
           Effect.flatMap(forCaller, ({ token, stub }) =>
             stub.createTicket(token)
@@ -174,6 +222,71 @@ export default class Server extends Cloudflare.Worker<Server>()(
       )
     );
 
+    /**
+     * Creem's webhook: verified against the raw body, then applied to the
+     * inbox named in the checkout metadata. A 5xx makes Creem retry, so only
+     * transient failures answer one; anything we'll never act on gets 200.
+     */
+    const creemWebhook = Effect.gen(function* () {
+      if (Option.isNone(creem)) {
+        return HttpServerResponse.text("Not found", { status: 404 });
+      }
+      const { client, productId, webhookSecret } = creem.value;
+      const request = yield* HttpServerRequest;
+      const body = yield* request.text.pipe(Effect.orDie);
+      const verified = yield* verifyWebhook(
+        body,
+        request.headers,
+        Redacted.value(webhookSecret)
+      ).pipe(
+        Effect.as(true),
+        Effect.catch(() => Effect.succeed(false))
+      );
+      if (!verified) {
+        return HttpServerResponse.text("Invalid signature", { status: 400 });
+      }
+      const action = yield* Effect.try(() =>
+        webhookAction(body, productId)
+      ).pipe(
+        Effect.catch(() =>
+          Effect.succeed({
+            kind: "ignore",
+            reason: "unreadable payload",
+          } as const)
+        )
+      );
+      if (action.kind === "purchase") {
+        const at = Date.now();
+        const { applied } = yield* inboxes
+          .getByName(action.inboxId)
+          .recordPurchase({ orderId: action.orderId, email: action.email, at });
+        yield* Effect.logInfo("Creem purchase", { applied });
+      } else if (action.kind === "refund") {
+        const inboxId =
+          action.inboxId ??
+          (action.checkoutId
+            ? yield* checkoutInboxId(client, action.checkoutId)
+            : null);
+        if (inboxId) {
+          const { applied } = yield* inboxes
+            .getByName(inboxId)
+            .recordRefund(action.orderId);
+          yield* Effect.logInfo("Creem refund", { applied });
+        } else {
+          yield* Effect.logWarning("Creem refund for an unknown inbox");
+        }
+      } else {
+        yield* Effect.logInfo(`Creem webhook ignored: ${action.reason}`);
+      }
+      return HttpServerResponse.text("ok");
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logError("Creem webhook failed", error).pipe(
+          Effect.as(HttpServerResponse.text("Try again", { status: 500 }))
+        )
+      )
+    );
+
     return {
       fetch: Effect.gen(function* () {
         const request = yield* HttpServerRequest;
@@ -195,6 +308,9 @@ export default class Server extends Cloudflare.Worker<Server>()(
             );
           }
           return yield* inboxes.getByName(ticket.inboxId).fetch(request);
+        }
+        if (request.url === "/v1/webhooks/creem" && request.method === "POST") {
+          return yield* creemWebhook;
         }
         if (request.url === "/" || request.url === "") {
           return HttpServerResponse.text("Shouldertap API");

@@ -14,7 +14,9 @@ import {
   type Invite,
   NotFound,
   type ParsedToken,
+  PaymentRequired,
   type PersonColor,
+  type Plan,
   parseToken,
   type RedeemInviteRequest,
   type SendTapRequest,
@@ -52,6 +54,27 @@ const PAIRING_CAPS: Record<CredentialKind, number> = {
   device: 10,
 };
 
+/** How long a new inbox delivers taps before it needs paying for. */
+const TRIAL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** A purchase reported by Creem's checkout.completed webhook. */
+export interface Purchase {
+  readonly at: number;
+  readonly email: string | null;
+  readonly orderId: string;
+}
+
+const planOf = (
+  row: { trialEndsAt: number | null; paidAt: number | null } | undefined,
+  at: number
+): Plan => {
+  const trialEndsAt = row?.trialEndsAt ?? at + TRIAL_MS;
+  if ((row?.paidAt ?? null) !== null) {
+    return { status: "paid", trialEndsAt };
+  }
+  return { status: at < trialEndsAt ? "trial" : "expired", trialEndsAt };
+};
+
 /** One daily retention pass per inbox, via Alchemy's scheduled events. */
 const RETENTION_EVENT = "retention";
 const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -81,6 +104,10 @@ export interface InboxRpc {
     tapId: string,
     request: AcknowledgeRequest
   ) => Rpc<Tap, Unauthorized | NotFound | InvalidRequest>;
+  /** Authorizes a paired Mac to start a checkout for this inbox. */
+  readonly checkoutContext: (
+    token: ParsedToken
+  ) => Rpc<{ inboxId: string; recipientName: string }, Unauthorized | Conflict>;
   readonly createInvite: (
     token: ParsedToken,
     request: CreateInviteRequest
@@ -96,6 +123,10 @@ export interface InboxRpc {
     token: ParsedToken,
     tapId: string
   ) => Rpc<Tap, Unauthorized | NotFound>;
+  /** Marks the inbox paid. Idempotent; false if it doesn't apply. */
+  readonly recordPurchase: (purchase: Purchase) => Rpc<{ applied: boolean }>;
+  /** Undoes the purchase with this order id, if it's the one on record. */
+  readonly recordRefund: (orderId: string) => Rpc<{ applied: boolean }>;
   readonly redeemInvite: (
     code: ParsedToken,
     request: RedeemInviteRequest
@@ -136,6 +167,7 @@ export class Inbox extends Cloudflare.DurableObject<Inbox, InboxShape>()(
       Expired,
       InvalidRequest,
       TooManyRequests,
+      PaymentRequired,
     ],
   }
 ) {}
@@ -464,12 +496,14 @@ export const InboxLive = Inbox.make(
             "device",
             request.deviceName
           );
+          const createdAt = yield* now;
           yield* db.transaction((tx) =>
             Effect.gen(function* () {
               yield* tx.insert(inbox).values({
                 id: 1,
                 inboxId,
                 recipientName: request.recipientName,
+                trialEndsAt: createdAt + TRIAL_MS,
               });
               yield* tx.insert(credentials).values(credential.row);
             })
@@ -518,6 +552,7 @@ export const InboxLive = Inbox.make(
             sequence,
             taps: [...byId.values()].sort((a, b) => b.createdAt - a.createdAt),
             credentials: yield* listCredentials,
+            plan: planOf(row, yield* now),
           };
         }, orDieOnStorage),
 
@@ -774,6 +809,55 @@ export const InboxLive = Inbox.make(
           }
           yield* broadcastCredentials;
           return { revoked: true as const };
+        }, orDieOnStorage),
+
+        checkoutContext: Effect.fn("Inbox.checkoutContext")(function* (token) {
+          yield* requireDevice(token);
+          const row = yield* inboxRow;
+          if ((row?.paidAt ?? null) !== null) {
+            return yield* new Conflict({
+              message: "Shouldertap is already unlocked for this inbox.",
+            });
+          }
+          return {
+            inboxId: token.inboxId,
+            recipientName: row?.recipientName ?? "",
+          };
+        }, orDieOnStorage),
+
+        recordPurchase: Effect.fn("Inbox.recordPurchase")(function* (purchase) {
+          // Webhooks retry and can repeat: only an unpaid inbox, or the same
+          // order again, is updated. A second purchase keeps the first.
+          const updated = yield* db
+            .update(inbox)
+            .set({
+              paidAt: purchase.at,
+              orderId: purchase.orderId,
+              purchaseEmail: purchase.email,
+            })
+            .where(
+              and(
+                eq(inbox.id, 1),
+                sql`(${inbox.paidAt} IS NULL OR ${inbox.orderId} = ${purchase.orderId})`
+              )
+            )
+            .returning({ id: inbox.id });
+          if (updated.length > 0) {
+            yield* broadcastCredentials;
+          }
+          return { applied: updated.length > 0 };
+        }, orDieOnStorage),
+
+        recordRefund: Effect.fn("Inbox.recordRefund")(function* (orderId) {
+          const updated = yield* db
+            .update(inbox)
+            .set({ paidAt: null })
+            .where(and(eq(inbox.id, 1), eq(inbox.orderId, orderId)))
+            .returning({ id: inbox.id });
+          if (updated.length > 0) {
+            yield* broadcastCredentials;
+          }
+          return { applied: updated.length > 0 };
         }, orDieOnStorage),
 
         createTicket: Effect.fn("Inbox.createTicket")(function* (token) {

@@ -12,12 +12,19 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-/** One row: this inbox's identity and its event sequence counter. */
+/** One row: this inbox's identity, event sequence counter and plan. */
 export const inbox = sqliteTable("inbox", {
   id: integer("id").primaryKey(),
   inboxId: text("inbox_id").notNull(),
   recipientName: text("recipient_name").notNull(),
   sequence: integer("sequence").notNull().default(0),
+  /** Taps stop being delivered after this unless the inbox is paid for. */
+  trialEndsAt: integer("trial_ends_at"),
+  /** Set by Creem's checkout.completed webhook; cleared by a refund. */
+  paidAt: integer("paid_at"),
+  orderId: text("order_id"),
+  /** The buyer's email, kept to restore the purchase on a new Mac. */
+  purchaseEmail: text("purchase_email"),
 });
 
 /** Paired Macs ("device") and trusted senders ("sender"). */

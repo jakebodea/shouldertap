@@ -11,6 +11,7 @@
     "@effect/sql-sqlite-do": "4.0.0-rc.115",
     "@shouldertap/domain": "workspace:*",
     "alchemy": "2.0.0-beta.79",
+    "creem": "1.13.0",
     "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "effect": "catalog:"
   },

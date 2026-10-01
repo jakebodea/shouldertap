@@ -119,6 +119,23 @@ test(
         : [];
     expect(colors).toContainEqual(["sender", "moss"]);
     expect(colors).toContainEqual(["device", null]);
+
+    // A new inbox starts a 14-day trial.
+    const plan = snapshot.kind === "device" ? snapshot.plan : null;
+    expect(plan?.status).toBe("trial");
+    const trialDays = ((plan?.trialEndsAt ?? 0) - Date.now()) / 86_400_000;
+    expect(trialDays).toBeGreaterThan(13.9);
+    expect(trialDays).toBeLessThanOrEqual(14);
+
+    // Only a Mac can start a checkout; test stacks have no Creem keys.
+    const senderCheckout = yield* (yield* client(url, sender.token)).inbox
+      .createCheckout()
+      .pipe(Effect.flip);
+    expect(senderCheckout._tag).toBe("Unauthorized");
+    const checkout = yield* (yield* client(url, macA.token)).inbox
+      .createCheckout()
+      .pipe(Effect.flip);
+    expect(checkout._tag).toBe("Unavailable");
   }),
   { timeout: 60_000 }
 );

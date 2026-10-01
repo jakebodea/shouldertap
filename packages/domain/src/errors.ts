@@ -38,3 +38,17 @@ export class TooManyRequests extends Schema.TaggedError<TooManyRequests>()(
   { message: Schema.String },
   { httpApiStatus: 429 }
 ) {}
+
+/** The inbox's trial ended and it hasn't been paid for. */
+export class PaymentRequired extends Schema.TaggedError<PaymentRequired>()(
+  "PaymentRequired",
+  { message: Schema.String },
+  { httpApiStatus: 402 }
+) {}
+
+/** A dependency (e.g. the payment provider) isn't configured or reachable. */
+export class Unavailable extends Schema.TaggedError<Unavailable>()(
+  "Unavailable",
+  { message: Schema.String },
+  { httpApiStatus: 503 }
+) {}
