@@ -23,6 +23,10 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Only HTTPS/WSS through the system, which is exempt; skips the export
+	     compliance question on every App Store Connect upload. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<!-- Debug builds talk to http://localhost:3000 (ws:// for live updates). -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

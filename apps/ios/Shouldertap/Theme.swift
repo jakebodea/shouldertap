@@ -83,10 +83,15 @@ func duration(from: Timestamp, to: Timestamp) -> String {
 // MARK: Components
 
 /// The sender's own color frames the screen; the app lives on the paper page
-/// inside it (9pt sides, ~44pt page radius under the status bar).
+/// inside it (9pt sides, ~44pt page radius under the status bar), running
+/// down off the bottom edge.
 struct Frame<Content: View>: View {
   let color: PersonColor
   @ViewBuilder var content: Content
+
+  private var page: UnevenRoundedRectangle {
+    UnevenRoundedRectangle(topLeadingRadius: 40, topTrailingRadius: 40, style: .continuous)
+  }
 
   var body: some View {
     ZStack {
@@ -101,10 +106,13 @@ struct Frame<Content: View>: View {
       }
       .scrollDismissesKeyboard(.interactively)
       .foregroundStyle(Paper.ink)
-      .background(Paper.paper, in: .rect(cornerRadius: 40, style: .continuous))
-      .clipShape(.rect(cornerRadius: 40, style: .continuous))
+      .background(Paper.paper, in: page)
+      .clipShape(page)
       .padding(.horizontal, 9)
-      .padding(.vertical, 9)
+      .padding(.top, 9)
+      // The page runs off the bottom of the screen; the scroll view still
+      // insets its content above the home indicator.
+      .ignoresSafeArea(.container, edges: .bottom)
     }
     .animation(.easeInOut(duration: 0.5), value: color)
   }
