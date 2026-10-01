@@ -7,6 +7,7 @@ import SwiftUI
 /// Bricolage only in the "Shouldertap" title (docs/design.md, "Surfaces").
 struct MenuView: View {
   let store: ReceiverStore
+  let updates: Updates
   @State private var contentHeight: CGFloat = 0
 
   var body: some View {
@@ -14,8 +15,8 @@ struct MenuView: View {
       Group {
         switch store.phase {
         case .loading: ProgressView().frame(maxWidth: .infinity, minHeight: 120)
-        case .setup: SetupView(store: store)
-        case .ready: ReadyView(store: store)
+        case .setup: SetupView(store: store, updates: updates)
+        case .ready: ReadyView(store: store, updates: updates)
         }
       }
       .padding(14)
@@ -31,6 +32,7 @@ struct MenuView: View {
 
 private struct SetupView: View {
   let store: ReceiverStore
+  let updates: Updates
   @State private var name = ""
   @State private var code = ""
   @State private var busy = false
@@ -63,7 +65,7 @@ private struct SetupView: View {
 
       if let error { ErrorText(error) }
       if busy { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
-      Footer()
+      Footer(updates: updates)
     }
   }
 
@@ -89,6 +91,7 @@ private struct SetupView: View {
 
 private struct ReadyView: View {
   let store: ReceiverStore
+  let updates: Updates
 
   var body: some View {
     let senders = store.credentials.filter { $0.kind == .sender }
@@ -121,7 +124,7 @@ private struct ReadyView: View {
         }
       }
 
-      Footer()
+      Footer(updates: updates)
     }
   }
 }
@@ -325,10 +328,20 @@ private struct TapRow: View {
 }
 
 private struct Footer: View {
+  let updates: Updates
   @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
   var body: some View {
-    VStack(spacing: 0) {
+    VStack(alignment: .leading, spacing: 0) {
+      if let version = updates.available {
+        Row(action: updates.checkForUpdates) { _ in
+          Circle().fill(Color.accentColor).frame(width: 7, height: 7).frame(width: 26)
+          Text("Update available: \(version)").font(.system(size: 13, weight: .semibold))
+          Spacer(minLength: 0)
+          Text("Install").font(.system(size: 12)).foregroundStyle(.secondary)
+        }
+        .padding(.bottom, 8)
+      }
       Divider().padding(.bottom, 12)
       HStack {
         Toggle(isOn: $launchAtLogin) {
@@ -343,6 +356,7 @@ private struct Footer: View {
           launchAtLogin = SMAppService.mainApp.status == .enabled
         }
         Spacer()
+        MenuButton(title: "Check for Updates…", kind: .plain, action: updates.checkForUpdates)
         MenuButton(title: "Quit", kind: .plain) { NSApp.terminate(nil) }
       }
     }

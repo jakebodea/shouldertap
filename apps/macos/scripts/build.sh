@@ -16,20 +16,27 @@ if [[ "$config" == "release" ]]; then
 else
   flags=(-c debug)
 fi
-swift build "${flags[@]}" --product Shouldertap >&2
-bin="$(swift build "${flags[@]}" --show-bin-path)/Shouldertap"
+swift build "${flags[@]}" --product Shouldertap 2>&1 | grep -v "not stripping binary because it is signed" >&2
+products="$(swift build "${flags[@]}" --show-bin-path)"
 
 app="build/$config/Shouldertap.app"
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Fonts"
-cp "$bin" "$app/Contents/MacOS/Shouldertap"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Fonts" "$app/Contents/Frameworks"
+cp "$products/Shouldertap" "$app/Contents/MacOS/Shouldertap"
+sparkle="$app/Contents/Frameworks/Sparkle.framework"
+ditto "$products/Sparkle.framework" "$sparkle"
+# Not needed at runtime: headers, and the XPC services only sandboxed apps use.
+rm -rf "$sparkle/Headers" "$sparkle/PrivateHeaders" "$sparkle/Modules" \
+  "$sparkle/Versions/B/Headers" "$sparkle/Versions/B/PrivateHeaders" "$sparkle/Versions/B/Modules" \
+  "$sparkle/XPCServices" "$sparkle/Versions/B/XPCServices"
+codesign --force --sign - "$sparkle" >&2
 cp Resources/Info.plist "$app/Contents/Info.plist"
 cp Resources/Fonts/*.ttf Resources/Fonts/OFL.txt "$app/Contents/Resources/Fonts/"
 iconutil -c icns Resources/AppIcon.iconset -o "$app/Contents/Resources/AppIcon.icns"
 
 plist() { /usr/libexec/PlistBuddy -c "$1" "$app/Contents/Info.plist"; }
 if [[ "$config" == "release" ]]; then
-  strip -x "$app/Contents/MacOS/Shouldertap"
+  strip -x "$app/Contents/MacOS/Shouldertap" 2>/dev/null
 else
   # A separate identity, so a debug build never shares state with the installed app.
   plist "Set :CFBundleIdentifier app.shouldertap.mac.debug"

@@ -15,10 +15,13 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 out="$root/apps/macos/build/dmg"
 bucket="shouldertap-releases"
+downloads="${DOWNLOADS_URL:-https://download.shouldertap.app}"
 upload=true
 [[ "${1:-}" == "--no-upload" ]] && upload=false
 
-version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$root/apps/macos/Resources/Info.plist")"
+plist="$root/apps/macos/Resources/Info.plist"
+version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")"
+build="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$plist")"
 echo "==> Shouldertap $version"
 
 echo "==> Testing"
@@ -58,6 +61,28 @@ fi
 shasum -a 256 "$dmg"
 du -h "$dmg"
 
+# The Sparkle feed: one item, the newest build, EdDSA-signed with the key in
+# the login keychain (account app.shouldertap.mac; see the README).
+echo "==> Signing the update feed"
+sparkle_bin="$root/apps/macos/.build/artifacts/sparkle/Sparkle/bin"
+signature="$("$sparkle_bin/sign_update" --account app.shouldertap.mac "$dmg")"
+cat > "$out/appcast.xml" <<XML
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Shouldertap</title>
+    <item>
+      <title>Shouldertap $version</title>
+      <pubDate>$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S +0000")</pubDate>
+      <sparkle:version>$build</sparkle:version>
+      <sparkle:shortVersionString>$version</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure url="$downloads/Shouldertap-$version.dmg" type="application/octet-stream" $signature/>
+    </item>
+  </channel>
+</rss>
+XML
+
 if ! $upload; then
   echo "==> Built $dmg (not uploaded)"
   exit 0
@@ -73,5 +98,8 @@ put() {
 # Versioned copy is immutable; the stable name always points at the newest build.
 put "Shouldertap-$version.dmg" "public, max-age=31536000, immutable"
 put "Shouldertap.dmg" "public, max-age=300"
+# Last, so the feed never points at a DMG that isn't up yet.
+bunx wrangler r2 object put "$bucket/appcast.xml" --remote --file "$out/appcast.xml" \
+  --content-type application/rss+xml --cache-control "public, max-age=300"
 
 echo "==> Live at https://download.shouldertap.app/Shouldertap.dmg"

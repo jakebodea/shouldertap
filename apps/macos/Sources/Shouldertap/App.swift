@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     persistence: Config.persistence,
     deviceName: { Host.current().localizedName ?? "Mac" })
   private lazy var overlays = OverlayController(store: store)
+  private let updates = Updates()
   private let popover = NSPopover()
   private var statusItem: NSStatusItem!
   private let knock = KnockAnimator()
@@ -98,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func openPopover() {
     guard let button = statusItem.button else { return }
     if popover.contentViewController == nil {
-      let controller = NSHostingController(rootView: MenuView(store: store))
+      let controller = NSHostingController(rootView: MenuView(store: store, updates: updates))
       controller.sizingOptions = .preferredContentSize
       popover.contentViewController = controller
     }

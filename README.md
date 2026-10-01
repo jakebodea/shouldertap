@@ -88,7 +88,15 @@ Bump `CFBundleShortVersionString` and `CFBundleVersion` in `apps/macos/Resources
 scripts/release-mac.sh
 ```
 
-It uploads `Shouldertap-<version>.dmg` (immutable) and overwrites `Shouldertap.dmg`, which the site's Download button points at. `--no-upload` builds only.
+It uploads `Shouldertap-<version>.dmg` (immutable), overwrites `Shouldertap.dmg` (the site's Download button), then publishes `appcast.xml`, the [Sparkle](https://sparkle-project.org) feed installed apps check daily. `--no-upload` builds only. `CFBundleVersion` must go up every release; Sparkle compares it.
+
+Updates are signed with an EdDSA key in the login keychain (account `app.shouldertap.mac`); its public half is `SUPublicEDKey` in Info.plist. Without the private key no update can ship to existing installs, so keep a copy somewhere safe, such as a password manager:
+
+```bash
+apps/macos/.build/artifacts/sparkle/Sparkle/bin/generate_keys --account app.shouldertap.mac -x shouldertap-sparkle-key.txt
+```
+
+Debug builds can rehearse an update against a local feed with `SHOULDERTAP_FEED_URL` and `SHOULDERTAP_UPDATE_SELFTEST=1`, which downloads, installs and relaunches without UI.
 
 Builds are ad-hoc signed until there's an Apple Developer ID, so Gatekeeper makes people click Open Anyway on first launch (the download page explains it). With a Developer ID, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the script header) and drop the "Allow it once" step from `apps/web/src/routes/download.tsx`.
 
