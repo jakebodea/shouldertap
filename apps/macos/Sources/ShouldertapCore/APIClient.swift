@@ -4,7 +4,10 @@ import Foundation
 /// packages/client/src/api.ts.
 public struct APIError: Error, Sendable, LocalizedError {
   public enum Code: String, Sendable {
-    case invalidRequest, unauthorized, notFound, conflict, expired, rateLimited, network
+    case invalidRequest, unauthorized, paymentRequired, notFound, conflict, expired, rateLimited
+    /// The server said a dependency (e.g. payments) isn't available.
+    case unavailable
+    case network
   }
 
   public var code: Code
@@ -20,22 +23,34 @@ public struct APIError: Error, Sendable, LocalizedError {
   public var isRetryable: Bool { code == .network || status >= 500 }
 
   static func from(status: Int, body: Data) -> APIError {
-    let message =
-      (try? JSONDecoder().decode(ErrorBody.self, from: body))?.message ?? "Request failed (\(status))"
+    let decoded = try? JSONDecoder().decode(ErrorBody.self, from: body)
+    let message = decoded?.message ?? "Request failed (\(status))"
     let code: Code =
       switch status {
       case 400: .invalidRequest
       case 401: .unauthorized
+      case 402: .paymentRequired
       case 404: .notFound
       case 409: .conflict
       case 410: .expired
       case 429: .rateLimited
+      // Only the server's own 503 carries a message worth showing; a proxy's
+      // is just the network.
+      case 503 where decoded?.tag == "Unavailable": .unavailable
       default: .network
       }
     return APIError(code: code, message: message, status: status)
   }
 
-  private struct ErrorBody: Decodable { var message: String }
+  private struct ErrorBody: Decodable {
+    var tag: String?
+    var message: String
+
+    private enum CodingKeys: String, CodingKey {
+      case tag = "_tag"
+      case message
+    }
+  }
 }
 
 /// The HTTP half of the protocol (see `ShouldertapApi` in
@@ -94,6 +109,12 @@ public struct APIClient: Sendable {
 
   public func revoke(credentialId: String) async throws {
     let _: Revoked = try await send("DELETE", "/v1/credentials/\(escape(credentialId))")
+  }
+
+  /// Macs only: where to pay for this inbox. `conflict` once it's already
+  /// paid for; `unavailable` when the server has no payments set up.
+  public func createCheckout() async throws -> Checkout {
+    try await send("POST", "/v1/checkout")
   }
 
   public func connectTicket() async throws -> ConnectTicket {

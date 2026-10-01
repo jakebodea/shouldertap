@@ -19,6 +19,8 @@ export interface OutgoingTap {
   /** Why the server refused it, e.g. the hourly limit. */
   readonly error?: string;
   readonly failed: boolean;
+  /** Refused because the recipient's trial ended; retrying won't help yet. */
+  readonly paused?: boolean;
   readonly requestId: string;
 }
 
@@ -84,13 +86,17 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
           revokedRef.current();
           return;
         }
+        // A 402 is never retried automatically: isRetryable is false for it.
         const failed = !isRetryable(error);
+        const paused =
+          error instanceof ApiError && error.code === "payment_required";
         updateOutbox((current) =>
           current.map((o) =>
             o.requestId === item.requestId
               ? {
                   ...o,
                   failed,
+                  paused,
                   error:
                     failed && error instanceof ApiError
                       ? error.message

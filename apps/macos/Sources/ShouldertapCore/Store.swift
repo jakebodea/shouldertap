@@ -43,6 +43,9 @@ public final class ReceiverStore {
   public private(set) var recipientName = ""
   public private(set) var credentialId: String?
   public private(set) var credentials: [Credential] = []
+  /// Trial, paid or expired; nil until the first snapshot, or from a server
+  /// older than payments.
+  public private(set) var plan: Plan?
   public private(set) var taps: [Tap] = []
   public private(set) var status: LiveStatus = .connecting
   /// Responses given on this Mac that the server hasn't confirmed yet.
@@ -89,6 +92,26 @@ public final class ReceiverStore {
   /// Reconnect after sleep or a network change.
   public func nudge() {
     live?.nudge()
+  }
+
+  /// Refetch the snapshot (one GET) when the menu opens, so the plan is
+  /// current after a checkout even if the live event was missed.
+  public func refresh() {
+    guard phase == .ready, api.token != nil else { return }
+    resync()
+  }
+
+  // MARK: Plan
+
+  /// Where to pay for this inbox. If it turns out to be paid for already
+  /// (`conflict`), the snapshot is refreshed so the menu catches up.
+  public func checkoutURL() async throws -> URL {
+    do {
+      return try await api.createCheckout().url
+    } catch let error as APIError where error.code == .conflict {
+      resync()
+      throw error
+    }
   }
 
   // MARK: Overlay
@@ -165,6 +188,7 @@ public final class ReceiverStore {
         recipientName = snapshot.recipientName
         credentialId = snapshot.credentialId
         credentials = snapshot.credentials
+        plan = snapshot.plan
         taps = mergeSnapshot(local: taps, snapshot: snapshot.taps)
       } catch let error as APIError where error.code == .unauthorized {
         forget()
@@ -189,6 +213,7 @@ public final class ReceiverStore {
     recipientName = ""
     credentialId = nil
     credentials = []
+    plan = nil
     taps = []
     status = .offline
     phase = .setup

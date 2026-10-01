@@ -85,6 +85,8 @@ public struct OutgoingTap: Sendable, Codable, Hashable, Identifiable {
   public var createdAt: Timestamp
   /// Rejected for good (not a transient failure): offer Try again / Discard.
   public var failed: Bool
+  /// Why the server refused it, e.g. the recipient's trial ended.
+  public var error: String?
 
   public var id: String { requestId }
 }
@@ -210,10 +212,18 @@ public final class SenderSession: Identifiable {
         revoked()
       } catch {
         // Transient failures stay queued and go again on the next resync.
-        let failed = !((error as? APIError)?.isRetryable ?? true)
+        // Refusals (including a 402 once the recipient's trial ends) are
+        // marked failed with the server's message and never retried alone.
+        let apiError = error as? APIError
+        let failed = !(apiError?.isRetryable ?? true)
         updateOutbox { outbox in
-          outbox.map { $0.requestId == item.requestId ? OutgoingTap(
-            requestId: $0.requestId, body: $0.body, createdAt: $0.createdAt, failed: failed) : $0 }
+          outbox.map {
+            guard $0.requestId == item.requestId else { return $0 }
+            var updated = $0
+            updated.failed = failed
+            updated.error = failed ? apiError?.message : nil
+            return updated
+          }
         }
       }
     }

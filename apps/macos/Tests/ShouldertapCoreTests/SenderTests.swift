@@ -214,6 +214,33 @@ private func makeStore(_ persistence: MemorySenderPersistence, handler: @escapin
     #expect(await eventually { session.outbox.isEmpty })
   }
 
+  @Test func pausedTrialFailsWithTheMessageAndIsNotRetried() async throws {
+    let persistence = MemorySenderPersistence(pairings: [pairing()])
+    let calls = Calls()
+    let paused = "Jamie's Shouldertap trial has ended, so taps are paused."
+    let store = makeStore(persistence) { request in
+      switch request.url!.path {
+      case "/v1/taps":
+        _ = calls.record(request)
+        return (402, #"{"_tag":"PaymentRequired","message":"\#(paused)"}"#)
+      case "/v1/me":
+        return (200, String(decoding: try! fixture("sender_snapshot"), as: UTF8.self))
+      default:
+        return (503, "")
+      }
+    }
+    store.start()
+    let session = try #require(store.sessions.first)
+    try session.send("Hi")
+    #expect(await eventually { session.outbox.first?.failed == true })
+    #expect(session.outbox.first?.error == paused)
+    // A resync pushes queued sends again, but not refused ones.
+    session.resync()
+    #expect(await eventually { session.loaded })
+    try? await Task.sleep(for: .milliseconds(50))
+    #expect(calls.count("/v1/taps") == 1)
+  }
+
   @Test func snapshotFillsAMissingColor() async throws {
     let persistence = MemorySenderPersistence(pairings: [pairing(color: nil)])
     let store = makeStore(persistence) { request in

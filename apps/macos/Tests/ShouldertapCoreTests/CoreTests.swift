@@ -55,6 +55,31 @@ private func fixture(_ name: String) throws -> Data {
     #expect(snapshot.taps.first?.response == TapResponse(kind: .text, text: "Coming"))
     #expect(snapshot.credentials.contains { $0.kind == .sender && $0.color == .rose })
     #expect(snapshot.credentials.contains { $0.kind == .device && $0.color == nil })
+    #expect(snapshot.plan == Plan(status: .trial, trialEndsAt: 1_791_990_000_000))
+  }
+
+  /// Servers older than payments send no plan; neither does a malformed one.
+  @Test(arguments: ["", #","plan":{"status":"lifetime","trialEndsAt":1}"#])
+  func receiverSnapshotToleratesMissingPlan(plan: String) throws {
+    let json = #"{"kind":"device","credentialId":"d","recipientName":"J","sequence":0,"taps":[],"credentials":[]"#
+    guard case let .receiver(snapshot) = try JSONDecoder().decode(Snapshot.self, from: Data((json + plan + "}").utf8))
+    else { Issue.record("expected a receiver snapshot"); return }
+    #expect(snapshot.plan == nil)
+  }
+
+  @Test func planDaysLeftAndExpiry() {
+    let now = Date(timeIntervalSince1970: 1_790_000_000)
+    let ms = now.timeIntervalSince1970 * 1000
+    let day = 86_400_000.0
+    let trial = { (ends: Double) in Plan(status: .trial, trialEndsAt: ends) }
+    #expect(trial(ms + 14 * day).daysLeft(now: now) == 14)
+    #expect(trial(ms + 2.5 * day).daysLeft(now: now) == 3)
+    #expect(trial(ms + 1000).daysLeft(now: now) == 1)
+    #expect(trial(ms + 1000).currentStatus(now: now) == .trial)
+    // Ran out since the last snapshot: already expired.
+    #expect(trial(ms - 1).daysLeft(now: now) == 0)
+    #expect(trial(ms - 1).currentStatus(now: now) == .expired)
+    #expect(Plan(status: .paid, trialEndsAt: ms - day).currentStatus(now: now) == .paid)
   }
 
   @Test func decodesEvents() throws {
@@ -104,6 +129,19 @@ private func fixture(_ name: String) throws -> Data {
     #expect(error.message == "No such tap")
     #expect(!error.isRetryable)
     #expect(APIError.from(status: 503, body: Data()).isRetryable)
+    #expect(APIError.from(status: 503, body: Data()).code == .network)
+  }
+
+  @Test func paymentErrorsKeepTheServersMessage() {
+    let paused = APIError.from(
+      status: 402, body: Data(#"{"_tag":"PaymentRequired","message":"Taps are paused."}"#.utf8))
+    #expect(paused.code == .paymentRequired)
+    #expect(!paused.isRetryable)
+    #expect(paused.localizedDescription == "Taps are paused.")
+    let unavailable = APIError.from(
+      status: 503, body: Data(#"{"_tag":"Unavailable","message":"Payments aren't set up here yet."}"#.utf8))
+    #expect(unavailable.code == .unavailable)
+    #expect(unavailable.localizedDescription == "Payments aren't set up here yet.")
   }
 }
 

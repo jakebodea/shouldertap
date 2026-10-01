@@ -97,8 +97,12 @@ private struct ReadyView: View {
     let senders = store.credentials.filter { $0.kind == .sender }
     let macs = store.credentials.filter { $0.kind == .device }
     VStack(alignment: .leading, spacing: 16) {
-      Brand(subtitle: store.recipientName.isEmpty ? " " : "Taps for \(store.recipientName)") {
+      Brand(subtitle: subtitle) {
         StatusLabel(status: store.status)
+      }
+
+      if let plan = store.plan, plan.currentStatus() != .paid {
+        PlanView(store: store, plan: plan)
       }
 
       InviteSender(store: store)
@@ -125,6 +129,104 @@ private struct ReadyView: View {
       }
 
       Footer(updates: updates)
+    }
+  }
+
+  /// "Taps for Jake", plus a quiet "Unlocked" once paid for.
+  private var subtitle: String {
+    guard !store.recipientName.isEmpty else { return " " }
+    let base = "Taps for \(store.recipientName)"
+    return store.plan?.status == .paid ? "\(base) · Unlocked" : base
+  }
+}
+
+// MARK: Plan
+
+/// The trial and the way out of it. Quiet while the trial has time left,
+/// a card in its last 3 days, and the first thing in the menu once it ends.
+private struct PlanView: View {
+  let store: ReceiverStore
+  let plan: Plan
+  @State private var busy = false
+  @State private var opened = false
+  @State private var error: String?
+  @State private var notice: String?
+
+  var body: some View {
+    let status = plan.currentStatus()
+    let days = plan.daysLeft()
+    Group {
+      if status == .expired {
+        Card {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Your trial ended — taps are paused")
+              .font(.system(size: 13, weight: .semibold))
+            Muted("Unlock Shouldertap for a one-time $5. People who can tap you get through again right away.")
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          unlockButton(kind: .primary)
+          messages
+        }
+      } else if days <= 3 {
+        Card {
+          VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+              Circle().fill(.orange).frame(width: 7, height: 7)
+              Text(days == 1 ? "Last day of your trial" : "Trial · \(days) days left")
+                .font(.system(size: 13, weight: .semibold))
+            }
+            .accessibilityElement(children: .combine)
+            Muted("Taps pause when the trial ends. Unlock for good with a one-time $5.")
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          unlockButton(kind: .secondary)
+          messages
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 4) {
+          HStack {
+            Text("Trial · \(days) days left").font(.system(size: 12)).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            if busy { ProgressView().controlSize(.mini) }
+            MenuButton(title: "Unlock for $5", kind: .plain, action: unlock).disabled(busy)
+          }
+          messages
+        }
+      }
+    }
+  }
+
+  private func unlockButton(kind: MenuButton.Kind) -> some View {
+    MenuButton(title: busy ? "Opening checkout…" : "Unlock for $5", kind: kind, fullWidth: true, action: unlock)
+      .disabled(busy)
+  }
+
+  @ViewBuilder private var messages: some View {
+    if let error {
+      ErrorText(error).frame(maxWidth: .infinity, alignment: .leading)
+    } else if let notice {
+      Muted(notice).frame(maxWidth: .infinity, alignment: .leading)
+    } else if opened {
+      Muted("Finish checking out in your browser. This updates on its own once you've paid.")
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private func unlock() {
+    busy = true
+    error = nil
+    notice = nil
+    Task {
+      do {
+        NSWorkspace.shared.open(try await store.checkoutURL())
+        opened = true
+      } catch let failure as APIError where failure.code == .conflict {
+        // Already paid: the store refreshes the plan, so say so quietly.
+        notice = failure.message
+      } catch {
+        self.error = error.localizedDescription
+      }
+      busy = false
     }
   }
 }

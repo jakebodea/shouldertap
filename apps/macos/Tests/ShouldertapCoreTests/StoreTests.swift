@@ -81,6 +81,11 @@ private func makeStore(
     ackRetryDelay: .milliseconds(50))
 }
 
+private func fixture(_ name: String) throws -> Data {
+  let url = try #require(Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Fixtures"))
+  return try Data(contentsOf: url)
+}
+
 @MainActor
 private func eventually(_ condition: () -> Bool) async -> Bool {
   for _ in 0..<100 {
@@ -150,6 +155,41 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     store.start()
     #expect(await eventually { store.phase == .setup })
     #expect(persistence.loadCredential() == nil)
+  }
+
+  @Test func refreshPicksUpThePlan() async throws {
+    let snapshot = String(decoding: try fixture("snapshot"), as: UTF8.self)
+    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
+      request.url!.path == "/v1/me" ? (200, snapshot) : (503, "")
+    }
+    store.start()
+    #expect(store.plan == nil)
+    store.refresh()
+    #expect(await eventually { store.plan?.status == .trial })
+  }
+
+  @Test func checkoutOpensTheReturnedURL() async throws {
+    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
+      guard request.url!.path == "/v1/checkout", request.httpMethod == "POST" else { return (503, "") }
+      return (201, #"{"url":"https://checkout.test/ch_1"}"#)
+    }
+    store.start()
+    #expect(try await store.checkoutURL().absoluteString == "https://checkout.test/ch_1")
+  }
+
+  @Test func checkoutWhenAlreadyPaidRefreshesThePlan() async throws {
+    let paid = String(decoding: try fixture("snapshot"), as: UTF8.self)
+      .replacingOccurrences(of: #""status":"trial""#, with: #""status":"paid""#)
+    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
+      switch request.url!.path {
+      case "/v1/checkout": (409, #"{"_tag":"Conflict","message":"Shouldertap is already unlocked for this inbox."}"#)
+      case "/v1/me": (200, paid)
+      default: (503, "")
+      }
+    }
+    store.start()
+    await #expect(throws: APIError.self) { try await store.checkoutURL() }
+    #expect(await eventually { store.plan?.status == .paid })
   }
 
   @Test func senderInviteLinkCarriesTheCodeInTheFragment() async throws {

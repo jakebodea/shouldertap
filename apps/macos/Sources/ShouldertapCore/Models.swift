@@ -128,6 +128,41 @@ public struct ConnectTicket: Sendable, Codable {
   public var expiresAt: Timestamp
 }
 
+/// Whether the inbox delivers taps: during its free trial, once paid for, or
+/// neither (`expired`).
+public struct Plan: Sendable, Codable, Hashable {
+  public enum Status: String, Sendable, Codable {
+    case trial, paid, expired
+  }
+
+  public var status: Status
+  public var trialEndsAt: Timestamp
+
+  public init(status: Status, trialEndsAt: Timestamp) {
+    self.status = status
+    self.trialEndsAt = trialEndsAt
+  }
+
+  /// Whole days of trial left as of `now`, rounded up: 1 on the last day,
+  /// 0 once it has ended.
+  public func daysLeft(now: Date = .now) -> Int {
+    let remaining = trialEndsAt - now.timeIntervalSince1970 * 1000
+    guard remaining > 0 else { return 0 }
+    return Int((remaining / 86_400_000).rounded(.up))
+  }
+
+  /// The status as of `now`: a trial that ran out since the last snapshot is
+  /// already expired (the server refuses taps from then on too).
+  public func currentStatus(now: Date = .now) -> Status {
+    status == .trial && daysLeft(now: now) == 0 ? .expired : status
+  }
+}
+
+/// Where a paired Mac sends its person to pay.
+public struct Checkout: Sendable, Codable {
+  public var url: URL
+}
+
 /// What a paired Mac sees: every pending tap plus recent history.
 public struct ReceiverSnapshot: Sendable, Decodable {
   public var credentialId: String
@@ -135,6 +170,23 @@ public struct ReceiverSnapshot: Sendable, Decodable {
   public var sequence: Int
   public var taps: [Tap]
   public var credentials: [Credential]
+  /// Missing from servers older than payments; the menu then shows no plan.
+  public var plan: Plan?
+
+  private enum CodingKeys: String, CodingKey {
+    case credentialId, recipientName, sequence, taps, credentials, plan
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    credentialId = try container.decode(String.self, forKey: .credentialId)
+    recipientName = try container.decode(String.self, forKey: .recipientName)
+    sequence = try container.decode(Int.self, forKey: .sequence)
+    taps = try container.decode([Tap].self, forKey: .taps)
+    credentials = try container.decode([Credential].self, forKey: .credentials)
+    // A plan shaped differently by a newer server mustn't fail the snapshot.
+    plan = try? container.decodeIfPresent(Plan.self, forKey: .plan)
+  }
 }
 
 /// What a sender sees: only their own recent taps.
