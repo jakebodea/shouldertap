@@ -66,7 +66,9 @@ jobs:
       - name: Integration tests
         if: github.event_name == 'pull_request'
         run: |
-          STACK_URL=$(bun alchemy state cat shouldertap/${{ env.STAGE }}/output --no-input | jq -re .server)
+          # In CI the CLI logs to stdout too, so keep only the JSON record.
+          STACK_URL=$(bun alchemy state cat shouldertap/${{ env.STAGE }}/output --no-input \
+            | sed -n '/^{/,/^}/p' | jq -re .server)
           echo "Testing $STACK_URL"
           cd apps/server && STACK_URL=$STACK_URL bun test
         env:
