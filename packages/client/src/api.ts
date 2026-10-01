@@ -37,6 +37,8 @@ export type ApiErrorCode =
   | "conflict"
   | "expired"
   | "rate_limited"
+  | "payment_required"
+  | "unavailable"
   | "network";
 
 export class ApiError extends Error {
@@ -68,6 +70,8 @@ const domainErrors: Record<string, { code: ApiErrorCode; status: number }> = {
   Conflict: { code: "conflict", status: 409 },
   Expired: { code: "expired", status: 410 },
   TooManyRequests: { code: "rate_limited", status: 429 },
+  PaymentRequired: { code: "payment_required", status: 402 },
+  Unavailable: { code: "unavailable", status: 503 },
 };
 
 const toApiError = (failure: unknown): ApiError => {

@@ -127,6 +127,13 @@ test(
     expect(trialDays).toBeGreaterThan(6.9);
     expect(trialDays).toBeLessThanOrEqual(7);
 
+    // A trial delivers taps; expiry (402) is covered by test/plan.test.ts,
+    // since no public API can end a trial early.
+    const trialTap = yield* (yield* client(url, sender.token)).inbox.sendTap({
+      payload: { requestId: crypto.randomUUID(), body: "Trial tap" },
+    });
+    expect(trialTap.state).toBe("pending");
+
     // Only a Mac can start a checkout; test stacks have no Creem keys.
     const senderCheckout = yield* (yield* client(url, sender.token)).inbox
       .createCheckout()

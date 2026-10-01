@@ -112,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       controller.sizingOptions = .preferredContentSize
       popover.contentViewController = controller
     }
+    // One GET: picks up a purchase made while the live event was missed.
+    store.refresh()
     NSApp.activate(ignoringOtherApps: true)
     popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     popover.contentViewController?.view.window?.makeKey()

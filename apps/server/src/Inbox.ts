@@ -16,7 +16,6 @@ import {
   type ParsedToken,
   PaymentRequired,
   type PersonColor,
-  type Plan,
   parseToken,
   type RedeemInviteRequest,
   type SendTapRequest,
@@ -36,6 +35,7 @@ import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 import migrations from "../drizzle/migrations.js";
+import { planOf, requireActivePlan, TRIAL_MS } from "./plan";
 import { retentionFilters } from "./retention";
 import { credentials, inbox, invites, taps, tickets } from "./schema";
 
@@ -54,26 +54,12 @@ const PAIRING_CAPS: Record<CredentialKind, number> = {
   device: 10,
 };
 
-/** How long a new inbox delivers taps before it needs paying for. */
-const TRIAL_MS = 7 * 24 * 60 * 60 * 1000;
-
 /** A purchase reported by Creem's checkout.completed webhook. */
 export interface Purchase {
   readonly at: number;
   readonly email: string | null;
   readonly orderId: string;
 }
-
-const planOf = (
-  row: { trialEndsAt: number | null; paidAt: number | null } | undefined,
-  at: number
-): Plan => {
-  const trialEndsAt = row?.trialEndsAt ?? at + TRIAL_MS;
-  if ((row?.paidAt ?? null) !== null) {
-    return { status: "paid", trialEndsAt };
-  }
-  return { status: at < trialEndsAt ? "trial" : "expired", trialEndsAt };
-};
 
 /** One daily retention pass per inbox, via Alchemy's scheduled events. */
 const RETENTION_EVENT = "retention";
@@ -138,7 +124,7 @@ export interface InboxRpc {
   readonly sendTap: (
     token: ParsedToken,
     request: SendTapRequest
-  ) => Rpc<Tap, Unauthorized | Conflict | TooManyRequests>;
+  ) => Rpc<Tap, Unauthorized | Conflict | TooManyRequests | PaymentRequired>;
   readonly snapshot: (token: ParsedToken) => Rpc<Snapshot, Unauthorized>;
 }
 
@@ -673,6 +659,12 @@ export const InboxLive = Inbox.make(
                 }
                 return { id: existing.id, isNew: false };
               }
+              // A paused inbox refuses new taps; retries above still resolve.
+              const [plan] = yield* tx
+                .select()
+                .from(inbox)
+                .where(eq(inbox.id, 1));
+              yield* requireActivePlan(plan, createdAt);
               const [recent] = yield* tx
                 .select({ n: count() })
                 .from(taps)

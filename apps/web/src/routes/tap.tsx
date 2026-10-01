@@ -69,6 +69,8 @@ function Composer({
   const [, setTick] = useState(0);
   const color =
     pairing.color ?? senderColor ?? fallbackColor(pairing.credentialId);
+  // The recipient's trial ended: say so above the composer, once.
+  const paused = outbox.find((item) => item.paused);
 
   useEffect(() => {
     const timer = setInterval(() => setTick((n) => n + 1), 15_000);
@@ -115,6 +117,15 @@ function Composer({
         </h1>
         <StatusLabel status={status} />
       </header>
+
+      {paused ? (
+        <p
+          className="rounded-[18px] bg-faint px-4 py-3 font-semibold text-[0.9375rem] leading-snug"
+          role="status"
+        >
+          {paused.error}
+        </p>
+      ) : null}
 
       <form className="flex flex-col gap-3" onSubmit={onSubmit}>
         <label className="sr-only" htmlFor="tap-body">
@@ -262,9 +273,15 @@ function OutboxItem({
       </p>
       {item.failed ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="mr-auto font-semibold text-[0.9375rem] text-destructive leading-snug">
-            {item.error ?? "Couldn't send"}
-          </span>
+          {item.paused ? (
+            <span className="mr-auto font-semibold text-[0.9375rem] text-tone leading-snug">
+              Not sent: taps are paused
+            </span>
+          ) : (
+            <span className="mr-auto font-semibold text-[0.9375rem] text-destructive leading-snug">
+              {item.error ?? "Couldn't send"}
+            </span>
+          )}
           <button
             className="pill pill-sm"
             onClick={() => onDiscard(item.requestId)}
