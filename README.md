@@ -68,7 +68,7 @@ cd apps/macos && open "$(scripts/build.sh)"
 
 Debug builds talk to `localhost` (override with `SHOULDERTAP_SERVER_URL` and `SHOULDERTAP_WEB_URL`) and run as a separate app, "Shouldertap Debug" (`app.shouldertap.mac.debug`), with their own pairing in `~/Library/Application Support/Shouldertap Debug`. Release builds use production (`apps/macos/Sources/Shouldertap/App.swift`, `Config`).
 
-iOS sender (simulator only until there is an Apple Developer team). It links `ShouldertapCore` from `apps/macos` as a local package, so `swift test` there covers its sender logic too. Build, install and launch on the booted simulator:
+iOS sender. It links `ShouldertapCore` from `apps/macos` as a local package, so `swift test` there covers its sender logic too. Build, install and launch on the booted simulator:
 
 ```bash
 cd apps/ios && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Shouldertap.xcodeproj -scheme ShouldertapIOS -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build build
@@ -103,6 +103,16 @@ infisical run --env prod -- bun run deploy -- --stage prod --yes
 ```
 
 `dev` is a scratch stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev`, API `https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev`.
+
+## Release the iOS app
+
+Archive, sign for App Store distribution (team `6C46GY4Z38`, automatic signing through the Apple ID in Xcode or an App Store Connect API key; see the script header) and upload to App Store Connect, where the build shows up in TestFlight after processing:
+
+```bash
+scripts/release-ios.sh
+```
+
+The version is `MARKETING_VERSION` and the build number `CURRENT_PROJECT_VERSION` in the Xcode project. Each upload needs a higher build number than the last for that version, so bump it before releasing (a new version starts again at 1). `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
 
 ## Release the Mac app
 
