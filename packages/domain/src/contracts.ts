@@ -124,6 +124,25 @@ export type ConnectTicket = typeof ConnectTicket.Type;
 
 // Reads
 
+/**
+ * Whether the inbox delivers taps: during its free trial, once paid for, or
+ * neither ("expired").
+ */
+export const PlanStatus = Schema.Literals(["trial", "paid", "expired"]);
+export type PlanStatus = typeof PlanStatus.Type;
+
+export const Plan = Schema.Struct({
+  status: PlanStatus,
+  trialEndsAt: Timestamp,
+});
+export type Plan = typeof Plan.Type;
+
+/** Where a paired Mac sends its person to pay. */
+export const Checkout = Schema.Struct({
+  url: Schema.String,
+});
+export type Checkout = typeof Checkout.Type;
+
 /** What a paired Mac sees: every pending tap plus recent history. */
 export const ReceiverSnapshot = Schema.Struct({
   kind: Schema.Literal("device"),
@@ -132,6 +151,7 @@ export const ReceiverSnapshot = Schema.Struct({
   sequence: Schema.Number,
   taps: Schema.Array(Tap),
   credentials: Schema.Array(Credential),
+  plan: Plan,
 });
 export type ReceiverSnapshot = typeof ReceiverSnapshot.Type;
 

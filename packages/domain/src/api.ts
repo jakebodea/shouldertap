@@ -9,6 +9,7 @@ import * as HttpApiSecurity from "effect/unstable/httpapi/HttpApiSecurity";
 
 import {
   AcknowledgeRequest,
+  Checkout,
   ConnectTicket,
   CreateInboxRequest,
   CreateInviteRequest,
@@ -24,8 +25,10 @@ import {
   Expired,
   InvalidRequest,
   NotFound,
+  PaymentRequired,
   TooManyRequests,
   Unauthorized,
+  Unavailable,
 } from "./errors";
 import type { ParsedToken } from "./token";
 
@@ -80,7 +83,7 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
       payload: SendTapRequest,
       success: Tap.pipe(created),
       // TooManyRequests: the sender's hourly tap limit.
-      error: [Conflict, TooManyRequests],
+      error: [Conflict, TooManyRequests, PaymentRequired],
     }),
     HttpApiEndpoint.post("markDisplayed", "/taps/:id/displayed", {
       params: idParams,
@@ -97,6 +100,11 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
       params: idParams,
       success: Schema.Struct({ revoked: Schema.Literal(true) }),
       error: NotFound,
+    }),
+    // A Creem checkout for this inbox; Conflict once it's already paid for.
+    HttpApiEndpoint.post("createCheckout", "/checkout", {
+      success: Checkout.pipe(created),
+      error: [Conflict, Unavailable],
     }),
     HttpApiEndpoint.post("connectTicket", "/connect-tickets", {
       success: ConnectTicket.pipe(created),
