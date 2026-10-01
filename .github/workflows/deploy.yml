@@ -61,6 +61,17 @@ jobs:
           # On PRs github.sha is the temporary merge commit, not the branch head.
           GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Drives the protocol against the preview just deployed. Not run on prod,
+      # where it would leave test inboxes behind.
+      - name: Integration tests
+        if: github.event_name == 'pull_request'
+        run: |
+          STACK_URL=$(bun alchemy state cat shouldertap/${{ env.STAGE }}/output --no-input | jq -re .server)
+          echo "Testing $STACK_URL"
+          cd apps/server && STACK_URL=$STACK_URL bun test
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   cleanup:
     if: >-
