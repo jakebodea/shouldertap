@@ -147,12 +147,12 @@ export function Landing() {
 
   return (
     <div
-      className="paper-light frame-fill fixed inset-0 overflow-hidden text-frame-ink"
+      className="landing-frame paper-light fixed inset-0 overflow-hidden text-frame-ink"
       ref={rootRef}
       style={
         {
-          // Safari 26 tints its toolbars from this full-screen fixed layer and
-          // only notices an inline background-color change, not a variable's.
+          // Give Safari a solid fixed edge surface to sample; draw the
+          // animated gradient on a separate, non-fixed layer.
           backgroundColor: swatches[scene.color].base,
           "--wipe-from": swatches[from].base,
           "--wipe-to": swatches[scene.color].base,
@@ -163,7 +163,11 @@ export function Landing() {
         } as CSSProperties
       }
     >
-      <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-center gap-6 px-5 font-semibold text-[0.9375rem] md:h-24 md:px-[72px] md:text-lg">
+      <div
+        aria-hidden="true"
+        className="frame-fill pointer-events-none absolute inset-0"
+      />
+      <header className="landing-header absolute inset-x-0 z-10 flex h-16 items-center gap-6 px-5 font-semibold text-[0.9375rem] md:h-24 md:px-[72px] md:text-lg">
         <a
           aria-label="Shouldertap home"
           className="mr-auto inline-flex items-center gap-[0.32em] font-extrabold text-xl tracking-[-0.035em] md:text-[1.625rem]"
@@ -197,7 +201,7 @@ export function Landing() {
         )}
       </header>
 
-      <main className="absolute inset-x-2.5 top-16 bottom-2.5 z-10 overflow-y-auto overscroll-contain rounded-[1.5rem] bg-paper text-ink md:inset-x-10 md:top-24 md:bottom-10 md:rounded-[1.75rem]">
+      <main className="landing-page absolute inset-x-2.5 z-10 overflow-y-auto overscroll-contain rounded-[1.5rem] bg-paper text-ink md:inset-x-10 md:rounded-[1.75rem]">
         <section
           aria-label="A tap, live"
           className="flex min-h-full flex-col px-6 pt-10 pb-8 md:px-[72px] md:pt-16 md:pb-14"

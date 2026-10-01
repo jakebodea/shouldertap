@@ -8,7 +8,8 @@
     "check-types": "vite build && tsc --noEmit",
     "dev:bare": "vite dev",
     "serve": "vite preview",
-    "start": "vite"
+    "start": "vite",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",
@@ -26,6 +27,7 @@
     "sonner": "catalog:"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@shouldertap/config": "workspace:*",
     "@tanstack/react-router-devtools": "^1.167.1",
     "@tanstack/router-plugin": "^1.168.35",

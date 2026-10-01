@@ -227,6 +227,22 @@
  * when the next person's color sweeps in from the corner it passes through
  * the frame and the pills, avatars, and illustrations at the same moment.
  */
+.landing-header {
+  top: env(safe-area-inset-top, 0px);
+}
+
+.landing-page {
+  top: calc(4rem + env(safe-area-inset-top, 0px));
+  bottom: calc(0.625rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 48rem) {
+  .landing-page {
+    top: calc(6rem + env(safe-area-inset-top, 0px));
+    bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 @property --wipe {
   syntax: "<length>";
   inherits: true;
