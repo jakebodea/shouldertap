@@ -19,13 +19,13 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Frame } from "@/components/frame";
+import { revokePairing } from "@/lib/api";
 import { isStandalone } from "@/lib/install";
 import {
   loadPairing,
   loadPairings,
   type Pairing,
   removePairing,
-  revokePairing,
   selectPairing,
   updatePairing,
 } from "@/lib/pairing";

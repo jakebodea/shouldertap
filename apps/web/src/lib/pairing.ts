@@ -1,7 +1,5 @@
 import { type PersonColor, parseToken } from "@shouldertap/domain";
 
-import { api } from "@/lib/api";
-
 /**
  * One person this phone can tap. A phone can hold several pairings, each its
  * own sender credential in that person's inbox, like the native apps.
@@ -92,21 +90,11 @@ export const pairingForCode = (code: string): Pairing | null => {
 };
 
 /**
- * Tells the server this phone is done with a pairing, so the recipient's Mac
- * drops the sender. Best effort: the phone forgets the pairing either way.
- */
-export const revokePairing = (pairing: Pairing) => {
-  api
-    .withToken(pairing.token)
-    .revoke(pairing.credentialId)
-    .catch(() => undefined);
-};
-
-/**
  * Adds a new pairing and shows it. Pairing again with the same person
- * replaces (and revokes) the old one, as on the native apps.
+ * replaces the old one, as on the native apps; the replaced pairings are
+ * returned so the caller can revoke them.
  */
-export const addPairing = (pairing: Pairing) => {
+export const addPairing = (pairing: Pairing): Pairing[] => {
   const inboxId = inboxOf(pairing.token);
   const stored = load().pairings;
   const replaced = (p: Pairing) =>
@@ -115,9 +103,7 @@ export const addPairing = (pairing: Pairing) => {
     (p) => p.credentialId !== pairing.credentialId && !replaced(p)
   );
   store({ pairings: [...others, pairing], selected: pairing.credentialId });
-  for (const old of stored.filter(replaced)) {
-    revokePairing(old);
-  }
+  return stored.filter(replaced);
 };
 
 /** Rewrites a pairing in place, e.g. once its color is known. */
