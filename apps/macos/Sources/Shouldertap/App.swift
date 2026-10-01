@@ -224,22 +224,29 @@ enum QRCode {
   }
 }
 
-/// The mark in SwiftUI, in the current foreground color.
+/// The mark in SwiftUI as a vector shape, in the current foreground color.
+/// (A `Canvas` drawing through Core Graphics cost ~60 MB at first draw.)
 struct MarkView: View {
-  @Environment(\.colorScheme) private var colorScheme
-
   var body: some View {
-    Canvas { context, size in
-      context.withCGContext { cg in
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
-        ShouldertapMark.draw(
-          in: CGRect(origin: .zero, size: size),
-          color: colorScheme == .dark ? NSColor(white: 0.96, alpha: 1) : NSColor(white: 0.11, alpha: 1),
-          knocks: KnockAnimator.resting)
-        NSGraphicsContext.restoreGraphicsState()
-      }
+    MarkShape().fill(.primary).accessibilityHidden(true)
+  }
+}
+
+private struct MarkShape: Shape {
+  func path(in rect: CGRect) -> Path {
+    let bounds = ShouldertapMark.bounds
+    let scale = min(rect.width / bounds.width, rect.height / bounds.height)
+    var mark = Path(ShouldertapMark.framePath().cgPath)
+      .strokedPath(StrokeStyle(lineWidth: ShouldertapMark.frameWidth, lineCap: .round, lineJoin: .round))
+    for knock in ShouldertapMark.knocks {
+      var line = Path()
+      line.move(to: knock.from)
+      line.addLine(to: knock.to)
+      mark.addPath(line.strokedPath(StrokeStyle(lineWidth: ShouldertapMark.knockWidth, lineCap: .round)))
     }
-    .accessibilityHidden(true)
+    return mark.applying(
+      CGAffineTransform(translationX: rect.midX, y: rect.midY)
+        .scaledBy(x: scale, y: scale)
+        .translatedBy(x: -bounds.midX, y: -bounds.midY))
   }
 }
