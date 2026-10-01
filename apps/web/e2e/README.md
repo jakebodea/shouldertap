@@ -10,9 +10,31 @@ bun run test:e2e
 The suite builds the production site and tests iPhone-sized WebKit in light and
 dark mode plus Android-sized Chromium. It checks all four scene colors and wrap,
 automatic cycling, the middle of a wipe, rapid replies, reduced motion,
-landscape, a smaller viewport, and navigation. It asserts that the solid fixed
+landscape, a smaller viewport, and navigation. It asserts that the absolute
 frame, both document backgrounds, and both theme-color tags track the current
 scene. The HTML report includes screenshots during and after transitions.
+
+## Native Safari regression
+
+On iOS 26.3, even a minimal fixed solid-color element retains its initial tint
+in Safari's native bars when its background changes. Replacing the fixed element
+also fails. Changing the shell to absolute positioning lets the document
+background repaint those areas. Keep the shell absolute: CSS-only assertions
+passed with the earlier fixed implementation despite this native failure.
+
+With Pillow installed in your Python environment, open the landing page in
+Safari on a booted iPhone simulator in portrait, keep it on screen, then run:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  python3 e2e/check-safari-tint.py --device <simulator-udid> --output /tmp/safari-tint
+```
+
+This captures native screenshots across all four colors and compares the status
+and bottom toolbar areas with the frame. It rejects a blank page and persistent
+stale colors, allowing a single sample within the 700ms wipe. It is a macOS
+simulator check, separate from the Linux Playwright CI job. Single settled
+screenshots can also be checked with `--screenshot <path>`.
 
 Playwright does not render Safari's native status bar or toolbar. Confirm these
 on an actual iPhone against the changed build:

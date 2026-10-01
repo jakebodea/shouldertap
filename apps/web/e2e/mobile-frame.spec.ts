@@ -13,7 +13,8 @@ async function expectFrame(page: Page, scene: (typeof scenes)[number]) {
   await expect(page.locator("h2[aria-live]")).toContainText(scene.message);
   const frame = page.locator(".landing-frame");
   // Safari's native UI is outside Playwright's screenshots. Verify all of its
-  // color sources, including a solid fixed surface without a background image.
+  // color sources. A fixed shell caches its initial tint on iOS Safari 26.
+  await expect(frame).toHaveCSS("position", "absolute");
   await expect(frame).toHaveCSS("background-color", scene.color);
   await expect(frame).toHaveCSS("background-image", "none");
   await expect(page.locator("html")).toHaveCSS("background-color", scene.color);

@@ -147,12 +147,12 @@ export function Landing() {
 
   return (
     <div
-      className="landing-frame paper-light fixed inset-0 overflow-hidden text-frame-ink"
+      className="landing-frame paper-light absolute inset-0 overflow-hidden text-frame-ink"
       ref={rootRef}
       style={
         {
-          // Give Safari a solid fixed edge surface to sample; draw the
-          // animated gradient on a separate, non-fixed layer.
+          // Avoid Safari's cached tint for fixed surfaces. The absolute
+          // shell keeps the inner scroller while the document paints the bars.
           backgroundColor: swatches[scene.color].base,
           "--wipe-from": swatches[from].base,
           "--wipe-to": swatches[scene.color].base,
