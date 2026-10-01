@@ -54,6 +54,7 @@ public final class ReceiverStore {
   @ObservationIgnored private let endpoints: Endpoints
   @ObservationIgnored private let persistence: any ReceiverPersistence
   @ObservationIgnored private let deviceName: @MainActor () -> String
+  @ObservationIgnored private let machine: @MainActor () -> String?
   @ObservationIgnored private var api: APIClient
   @ObservationIgnored private var live: LiveConnection?
   @ObservationIgnored private var ackRetry: Task<Void, Never>?
@@ -65,12 +66,14 @@ public final class ReceiverStore {
     endpoints: Endpoints,
     persistence: any ReceiverPersistence,
     deviceName: @escaping @MainActor () -> String,
+    machine: @escaping @MainActor () -> String? = { nil },
     session: URLSession = .shared,
     ackRetryDelay: Duration = .seconds(10)
   ) {
     self.endpoints = endpoints
     self.persistence = persistence
     self.deviceName = deviceName
+    self.machine = machine
     self.session = session
     self.ackRetryDelay = ackRetryDelay
     api = APIClient(baseURL: endpoints.server, session: session)
@@ -140,8 +143,12 @@ public final class ReceiverStore {
 
   // MARK: Setup
 
+  /// Sends this Mac's fingerprint so its free trial carries over a fresh
+  /// setup. Joining an existing inbox (`join`) doesn't: that inbox's plan
+  /// already applies.
   public func createInbox(recipientName: String) async throws {
-    let grant = try await api.createInbox(recipientName: recipientName, deviceName: safeDeviceName())
+    let grant = try await api.createInbox(
+      recipientName: recipientName, deviceName: safeDeviceName(), machine: machine())
     try persistence.saveCredential(grant.token)
     connect(grant.token)
   }

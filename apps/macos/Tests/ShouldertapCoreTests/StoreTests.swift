@@ -71,12 +71,13 @@ private let ackedTap = #"{"id":"t1","senderId":"s1","senderName":"Rosa","senderC
 
 @MainActor
 private func makeStore(
-  persistence: MemoryPersistence, handler: @escaping StubProtocol.Handler
+  persistence: MemoryPersistence, machine: String? = nil, handler: @escaping StubProtocol.Handler
 ) -> ReceiverStore {
   ReceiverStore(
     endpoints: Endpoints(server: URL(string: "https://api.test")!, web: URL(string: "https://web.test")!),
     persistence: persistence,
     deviceName: { "Test Mac" },
+    machine: { machine },
     session: StubProtocol.session(handler),
     ackRetryDelay: .milliseconds(50))
 }
@@ -201,4 +202,44 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let invite = try await store.createSenderInvite()
     #expect(invite.url.absoluteString == "https://web.test/join#inbox.id.secret")
   }
+
+  @Test(arguments: [String(repeating: "ab", count: 32), nil])
+  func gettingStartedSendsTheMachineFingerprint(machine: String?) async throws {
+    let sent = Sent()
+    let store = makeStore(persistence: MemoryPersistence(), machine: machine) { request in
+      guard request.url!.path == "/v1/inboxes" else { return (503, "") }
+      sent.body = jsonBody(request)
+      return (201, #"{"kind":"device","credentialId":"c1","token":"inbox.c1.secret","recipientName":"Jake"}"#)
+    }
+    store.start()
+    try await store.createInbox(recipientName: "Jake")
+    // Without a fingerprint the key is left out entirely, like older apps.
+    var expected = ["recipientName": "Jake", "deviceName": "Test Mac"]
+    expected["machine"] = machine
+    #expect(sent.body == expected)
+  }
+}
+
+/// The last request body a stub saw.
+final class Sent: @unchecked Sendable {
+  private let lock = NSLock()
+  private var _body: [String: String]?
+  var body: [String: String]? {
+    get { lock.withLock { _body } }
+    set { lock.withLock { _body = newValue } }
+  }
+}
+
+private func jsonBody(_ request: URLRequest) -> [String: String]? {
+  guard let stream = request.httpBodyStream else { return nil }
+  stream.open()
+  defer { stream.close() }
+  var data = Data()
+  var buffer = [UInt8](repeating: 0, count: 4096)
+  while stream.hasBytesAvailable {
+    let count = stream.read(&buffer, maxLength: buffer.count)
+    if count <= 0 { break }
+    data.append(buffer, count: count)
+  }
+  return try? JSONDecoder().decode([String: String].self, from: data)
 }

@@ -332,6 +332,57 @@ test(
   { timeout: 120_000 }
 );
 
+test(
+  "a Mac keeps its first trial when it sets up again",
+  Effect.gen(function* () {
+    const url = (yield* stack).server;
+    const anon = yield* client(url);
+    // Random per run, so reruns against a long-lived stack start fresh.
+    const fingerprint = () =>
+      Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+        byte.toString(16).padStart(2, "0")
+      ).join("");
+    const trialEndsAt = Effect.fn(function* (fromMachine: string) {
+      const grant = yield* anon.pairing.createInbox({
+        payload: {
+          recipientName: "Jake",
+          deviceName: "Studio Mac",
+          machine: fromMachine,
+        },
+      });
+      const snapshot = yield* (yield* client(url, grant.token)).inbox.me();
+      return snapshot.kind === "device" ? snapshot.plan.trialEndsAt : 0;
+    });
+
+    const machine = fingerprint();
+    const first = yield* trialEndsAt(machine);
+    expect((first - Date.now()) / 86_400_000).toBeGreaterThan(6.9);
+    // Unpairing and setting up again inherits the same trial end.
+    expect(yield* trialEndsAt(machine)).toBe(first);
+    // Another Mac gets its own trial.
+    const other = yield* trialEndsAt(fingerprint());
+    expect(other).toBeGreaterThanOrEqual(first);
+    expect((other - Date.now()) / 86_400_000).toBeGreaterThan(6.9);
+
+    // A malformed fingerprint is rejected before anything is created.
+    for (const bad of ["A".repeat(64), "ab".repeat(16), "not hex"]) {
+      const response = yield* Effect.promise(() =>
+        fetch(`${url}/v1/inboxes`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            recipientName: "Jake",
+            deviceName: "Studio Mac",
+            machine: bad,
+          }),
+        })
+      );
+      expect(response.status).toBe(400);
+    }
+  }),
+  { timeout: 60_000 }
+);
+
 // Runs last: it exhausts this IP's inbox-creation budget for the next minute.
 test(
   "rate-limits inbox creation per client",

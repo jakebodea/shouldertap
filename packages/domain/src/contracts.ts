@@ -63,9 +63,20 @@ export type Credential = typeof Credential.Type;
 
 // Commands
 
+/**
+ * A salted SHA-256 of a Mac's hardware UUID, as 64 lowercase hex characters.
+ * It names the Mac for its one free trial without revealing the hardware id.
+ */
+export const MachineFingerprint = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+);
+export type MachineFingerprint = typeof MachineFingerprint.Type;
+
 export const CreateInboxRequest = Schema.Struct({
   recipientName: Name,
   deviceName: Name,
+  /** Which Mac is setting up, so its trial survives a fresh setup. Older apps omit it. */
+  machine: Schema.optionalKey(MachineFingerprint),
 });
 export type CreateInboxRequest = typeof CreateInboxRequest.Type;
 

@@ -9,6 +9,7 @@ export const Route = createFileRoute("/privacy")({
 
 // Keep this in step with what the code stores: apps/server/src/schema.ts,
 // apps/server/src/retention.ts, apps/server/src/Inbox.ts (limits),
+// apps/server/src/TrialLedger.ts (one trial per Mac),
 // apps/web/src/lib/pairing.ts, apps/web/src/lib/use-sender.ts, and the Mac app.
 function PrivacyComponent() {
   return (
@@ -34,6 +35,10 @@ function PrivacyComponent() {
           </li>
           <li>
             Taps and their answers are deleted automatically after 90 days.
+          </li>
+          <li>
+            So each Mac gets one free week, we keep a one-way fingerprint of the
+            Mac's hardware ID, never the ID itself.
           </li>
         </ul>
       </DocSection>
@@ -73,6 +78,18 @@ function PrivacyComponent() {
           </li>
         </ul>
         <p>
+          Separately from any inbox, we keep a <b>trial record</b> for each Mac
+          that has set up an inbox: a fingerprint of that Mac and the date its
+          free week ends. This is what stops removing Shouldertap and setting it
+          up again from starting a new free week. The fingerprint is a one-way
+          hash (SHA-256) of the Mac's hardware ID, salted with a value unique to
+          Shouldertap, so the hardware ID can't be recovered from it and it
+          can't be matched with what other apps see. The record holds nothing
+          else: no names, no inbox, no IP address. Only the Mac app sends a
+          fingerprint, and only when it sets up a new inbox; joining an existing
+          inbox from a second Mac doesn't.
+        </p>
+        <p>
           When you open the site or the app talks to our servers, your IP
           address is used to deliver the connection and to rate-limit inbox
           creation; it isn't stored with your inbox. Our hosting provider also
@@ -96,7 +113,9 @@ function PrivacyComponent() {
             <span className="break-all">
               ~/Library/Application Support/Shouldertap
             </span>
-            , readable only by your macOS user.
+            , readable only by your macOS user. When you set up a new inbox, it
+            reads the Mac's hardware ID to compute the trial fingerprint
+            described above; the hardware ID itself never leaves the Mac.
           </li>
         </ul>
       </DocSection>
@@ -178,6 +197,12 @@ function PrivacyComponent() {
           recipient removes them. Deletion can run up to a day late, and our
           hosting provider keeps recovery copies of stored data for up to 30
           days, so deleted data can remain in those copies for that long.
+        </p>
+        <p>
+          <b>Trial records</b> (a Mac's fingerprint and when its free week ends)
+          are kept for as long as Shouldertap offers one free week per Mac,
+          because deleting one would give that Mac a new free week. Deleting an
+          inbox doesn't delete them; they aren't linked to any inbox.
         </p>
       </DocSection>
 

@@ -4,6 +4,19 @@ import * as Effect from "effect/Effect";
 /** How long a new inbox delivers taps before it needs paying for. */
 export const TRIAL_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * A Mac's trial end when it sets up an inbox at `at`. The first setup starts
+ * a fresh trial; later ones keep the end already recorded, so setting up
+ * again resumes the remaining days, or none if the trial has ended.
+ */
+export const claimTrial = (
+  recorded: number | undefined,
+  at: number
+): { readonly trialEndsAt: number; readonly isNew: boolean } =>
+  recorded === undefined
+    ? { trialEndsAt: at + TRIAL_MS, isNew: true }
+    : { trialEndsAt: recorded, isNew: false };
+
 /** The plan-related columns of the inbox row. */
 export interface PlanRow {
   readonly paidAt: number | null;
