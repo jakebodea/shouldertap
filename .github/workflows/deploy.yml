@@ -74,6 +74,8 @@ jobs:
           # (Actions won't let a step override GITHUB_SHA itself.)
           COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Prod only: the support@ Email Worker (apps/server/src/Support.ts).
+          SUPPORT_FORWARD_TO: ${{ secrets.SUPPORT_FORWARD_TO }}
       # Drives the protocol against the preview just deployed. Not run on prod,
       # where it would leave test inboxes behind.
       - name: Integration tests

@@ -168,6 +168,23 @@ function JoinComponent() {
           >
             {pending ? "Pairing…" : "Pair this phone"}
           </button>
+          <p className="text-center text-[0.8125rem] text-tone">
+            By pairing, you agree to the{" "}
+            <a
+              className="text-ink underline underline-offset-[3px]"
+              href="/terms"
+            >
+              Terms
+            </a>{" "}
+            and{" "}
+            <a
+              className="text-ink underline underline-offset-[3px]"
+              href="/privacy"
+            >
+              Privacy Policy
+            </a>
+            .
+          </p>
         </div>
       </form>
     </Frame>

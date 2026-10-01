@@ -2,6 +2,7 @@ import { Download04Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { createFileRoute } from "@tanstack/react-router";
 
+import { DocLinks } from "@/components/document";
 import { Frame } from "@/components/frame";
 import { Mark } from "@/components/mark";
 
@@ -76,9 +77,12 @@ function DownloadComponent() {
         ))}
       </ol>
 
-      <footer className="mt-auto pt-2 text-center text-[0.8125rem] text-tone">
-        The people who tap you don't install anything. They use Safari on their
-        iPhone.
+      <footer className="mt-auto flex flex-col items-center gap-3 pt-2 text-center text-[0.8125rem] text-tone">
+        <p>
+          The people who tap you don't install anything. They use Safari on
+          their iPhone.
+        </p>
+        <DocLinks className="justify-center" />
       </footer>
     </Frame>
   );
