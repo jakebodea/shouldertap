@@ -25,6 +25,7 @@ import {
   loadPairings,
   type Pairing,
   removePairing,
+  revokePairing,
   selectPairing,
   updatePairing,
 } from "@/lib/pairing";
@@ -86,9 +87,16 @@ function Composer({
   onUnpair: () => void;
 }) {
   const handleRevoked = useCallback(() => {
+    // Unpairing here revokes too; that's not the recipient removing us.
+    const stillPaired = loadPairings().some(
+      (p) => p.credentialId === pairing.credentialId
+    );
+    if (!stillPaired) {
+      return;
+    }
     toast.error(`${pairing.recipientName} removed this pairing`);
     onUnpair();
-  }, [onUnpair, pairing.recipientName]);
+  }, [onUnpair, pairing.credentialId, pairing.recipientName]);
   const { taps, outbox, status, loaded, senderColor, send, discard } =
     useSender(pairing, handleRevoked);
   const [draft, setDraft] = useState("");
@@ -132,6 +140,7 @@ function Composer({
       )
     ) {
       onUnpair();
+      revokePairing(pairing);
     }
   };
 
