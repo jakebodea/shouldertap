@@ -32,6 +32,14 @@ function SupportComponent() {
         </p>
       </DocSection>
 
+      <DocSection title="Can one phone tap more than one person?">
+        <p>
+          Yes. In Shouldertap on your phone, tap the name at the top and choose
+          Add someone, then scan the QR code on their Mac or paste the invite
+          link they sent. Tap the name again to switch between people.
+        </p>
+      </DocSection>
+
       <DocSection title="How do I add another Mac?">
         <p>
           On a Mac that's already set up, open the menu and choose Add another

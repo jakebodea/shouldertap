@@ -3,6 +3,7 @@ import {
   Clock01Icon,
   SentIcon,
   Tick02Icon,
+  UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { LiveStatus } from "@shouldertap/client";
@@ -20,10 +21,12 @@ import { toast } from "sonner";
 import { Frame } from "@/components/frame";
 import { isStandalone } from "@/lib/install";
 import {
-  clearPairing,
   loadPairing,
+  loadPairings,
   type Pairing,
-  savePairing,
+  removePairing,
+  selectPairing,
+  updatePairing,
 } from "@/lib/pairing";
 import { duration, relativeTime } from "@/lib/time";
 import { type OutgoingTap, useSender } from "@/lib/use-sender";
@@ -33,30 +36,53 @@ import { type OutgoingTap, useSender } from "@/lib/use-sender";
 // landing page to show, so it asks for an invite link.
 export const Route = createFileRoute("/tap")({
   beforeLoad: () => {
-    const pairing = loadPairing();
-    if (!pairing) {
+    if (!loadPairing()) {
       throw redirect({ to: isStandalone() ? "/join" : "/", replace: true });
     }
-    return { pairing };
   },
   component: TapComponent,
 });
 
 function TapComponent() {
-  const { pairing } = Route.useRouteContext();
   const navigate = useNavigate();
-  const unpair = useCallback(() => {
-    clearPairing();
-    navigate({ to: "/", replace: true });
-  }, [navigate]);
-  return <Composer onUnpair={unpair} pairing={pairing} />;
+  const [pairing, setPairing] = useState(loadPairing);
+  const select = useCallback((credentialId: string) => {
+    selectPairing(credentialId);
+    setPairing(loadPairing());
+  }, []);
+  const unpair = useCallback(
+    (credentialId: string) => {
+      removePairing(credentialId);
+      const next = loadPairing();
+      if (next) {
+        setPairing(next);
+      } else {
+        navigate({ to: "/", replace: true });
+      }
+    },
+    [navigate]
+  );
+  if (!pairing) {
+    return null;
+  }
+  // Keyed so each person gets their own outbox, socket and draft.
+  return (
+    <Composer
+      key={pairing.credentialId}
+      onSelect={select}
+      onUnpair={() => unpair(pairing.credentialId)}
+      pairing={pairing}
+    />
+  );
 }
 
 function Composer({
   pairing,
+  onSelect,
   onUnpair,
 }: {
   pairing: Pairing;
+  onSelect: (credentialId: string) => void;
   onUnpair: () => void;
 }) {
   const handleRevoked = useCallback(() => {
@@ -80,7 +106,7 @@ function Composer({
   // Pairings made before colors existed learn theirs from the first snapshot.
   useEffect(() => {
     if (!pairing.color && senderColor) {
-      savePairing({ ...pairing, color: senderColor });
+      updatePairing({ ...pairing, color: senderColor });
     }
   }, [pairing, senderColor]);
 
@@ -112,9 +138,7 @@ function Composer({
   return (
     <Frame color={color}>
       <header className="flex items-start justify-between gap-4">
-        <h1 className="text-balance font-extrabold text-[2.125rem] leading-none tracking-[-0.035em]">
-          Tap {pairing.recipientName}
-        </h1>
+        <RecipientPicker onSelect={onSelect} pairing={pairing} />
         <StatusLabel status={status} />
       </header>
 
@@ -185,7 +209,7 @@ function Composer({
           onClick={unpair}
           type="button"
         >
-          Unpair this phone
+          Unpair
         </button>{" "}
         ·{" "}
         <a
@@ -196,6 +220,56 @@ function Composer({
         </a>
       </footer>
     </Frame>
+  );
+}
+
+const ADD_SOMEONE = "add";
+
+/**
+ * The heading doubles as a native picker: everyone this phone can tap, plus
+ * a way to pair with someone new.
+ */
+function RecipientPicker({
+  pairing,
+  onSelect,
+}: {
+  pairing: Pairing;
+  onSelect: (credentialId: string) => void;
+}) {
+  const navigate = useNavigate();
+  const [pairings] = useState(loadPairings);
+  return (
+    <div className="relative min-w-0">
+      <h1 className="text-balance font-extrabold text-[2.125rem] leading-none tracking-[-0.035em]">
+        Tap {pairing.recipientName}
+        <HugeiconsIcon
+          aria-hidden="true"
+          className="ml-1.5 inline size-[0.7em] align-[0.02em] text-tone"
+          icon={UnfoldMoreIcon}
+          strokeWidth={2.5}
+        />
+      </h1>
+      <select
+        aria-label="Who to tap"
+        className="absolute inset-0 cursor-pointer appearance-none opacity-0"
+        onChange={(event) => {
+          const { value } = event.target;
+          if (value === ADD_SOMEONE) {
+            navigate({ to: "/join" });
+          } else {
+            onSelect(value);
+          }
+        }}
+        value={pairing.credentialId}
+      >
+        {pairings.map((p) => (
+          <option key={p.credentialId} value={p.credentialId}>
+            {p.recipientName}
+          </option>
+        ))}
+        <option value={ADD_SOMEONE}>Add someone…</option>
+      </select>
+    </div>
   );
 }
 
