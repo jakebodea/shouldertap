@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged with the generated Info.plist (GENERATE_INFOPLIST_FILE). -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Fonts/BricolageGrotesque-Medium.ttf</string>
+		<string>Fonts/BricolageGrotesque-Bold.ttf</string>
+		<string>Fonts/BricolageGrotesque-ExtraBold.ttf</string>
+	</array>
+	<!-- Invite links: shouldertap://join#<code>. Universal links for
+	     https://shouldertap.app/join need the associated-domains entitlement
+	     and an apple-app-site-association file on shouldertap.app (not set up). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.shouldertap.invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>shouldertap</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Debug builds talk to http://localhost:3000 (ws:// for live updates). -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

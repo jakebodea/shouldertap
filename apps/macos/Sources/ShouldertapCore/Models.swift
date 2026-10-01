@@ -4,6 +4,7 @@ import Foundation
 // server is the source of truth; Tests/ShouldertapCoreTests decode fixtures
 // captured from it so the two can't drift silently.
 
+public let maxTapLength = 280
 public let maxReplyLength = 280
 public let maxNameLength = 40
 
@@ -27,6 +28,21 @@ public enum PersonColor: String, CaseIterable, Sendable, Codable {
       hash = (hash * 31 + Int(scalar.value)) % 2_147_483_647
     }
     return allCases[hash % allCases.count]
+  }
+
+  /// `swatches` from packages/domain/src/colors.ts: `base` is the frame,
+  /// `ink` is text and icons set directly on it (sRGB hex).
+  public var swatch: (label: String, base: UInt32, ink: UInt32) {
+    switch self {
+    case .moss: ("Moss", 0x1f5a3d, 0xf4f1e8)
+    case .cobalt: ("Cobalt", 0x2340c8, 0xf2f3fb)
+    case .plum: ("Plum", 0x6d2657, 0xf8eef3)
+    case .tomato: ("Tomato", 0xd9432b, 0xfff4ef)
+    case .ochre: ("Ochre", 0xe8b022, 0x1f1a0e)
+    case .rose: ("Rose", 0xf2c4bd, 0x3b1219)
+    case .sky: ("Sky", 0x9cc9ec, 0x0d2233)
+    case .graphite: ("Graphite", 0x2b2c30, 0xf1f1ee)
+    }
   }
 }
 
@@ -121,16 +137,28 @@ public struct ReceiverSnapshot: Sendable, Decodable {
   public var credentials: [Credential]
 }
 
-/// `GET /v1/me`. A Mac only cares about the receiver shape.
+/// What a sender sees: only their own recent taps.
+public struct SenderSnapshot: Sendable, Decodable {
+  public var credentialId: String
+  public var senderName: String
+  public var senderColor: PersonColor
+  public var recipientName: String
+  public var sequence: Int
+  public var taps: [Tap]
+}
+
+/// `GET /v1/me`: the shape depends on which kind of credential asked.
 public enum Snapshot: Sendable, Decodable {
   case receiver(ReceiverSnapshot)
-  case sender
+  case sender(SenderSnapshot)
 
   private enum CodingKeys: String, CodingKey { case kind }
 
   public init(from decoder: any Decoder) throws {
     let kind = try decoder.container(keyedBy: CodingKeys.self).decode(String.self, forKey: .kind)
-    self = kind == "device" ? .receiver(try ReceiverSnapshot(from: decoder)) : .sender
+    self =
+      kind == "device"
+      ? .receiver(try ReceiverSnapshot(from: decoder)) : .sender(try SenderSnapshot(from: decoder))
   }
 }
 
