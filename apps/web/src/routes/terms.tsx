@@ -139,10 +139,12 @@ function TermsComponent() {
       </DocSection>
 
       <DocSection title="Governing law">
-        {/* TODO(legal): choose the governing law and venue for disputes before launch. */}
         <p>
-          To be decided. Until then, nothing in these terms limits rights you
-          have under the laws where you live that can't be waived by contract.
+          These terms are governed by the laws of the State of California,
+          without regard to its conflict-of-law rules. Any dispute will be
+          handled in the state or federal courts in Orange County, California.
+          Nothing in these terms limits rights you have under the laws where you
+          live that can't be waived by contract.
         </p>
       </DocSection>
 
