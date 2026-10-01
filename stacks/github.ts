@@ -89,7 +89,7 @@ export default Alchemy.Stack(
         pullRequest: { requiredApprovingReviewCount: 0 },
         requiredStatusChecks: {
           // 15368 is the GitHub Actions app.
-          checks: [{ context: "check", integrationId: 15368 }],
+          checks: [{ context: "check", integrationId: 15_368 }],
         },
       },
     });
