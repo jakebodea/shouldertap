@@ -23,6 +23,9 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Scanning the invite QR code on the recipient's Mac. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Shouldertap uses the camera to scan the invite QR code on the other person's Mac.</string>
 	<!-- Only HTTPS/WSS through the system, which is exempt; skips the export
 	     compliance question on every App Store Connect upload. -->
 	<key>ITSAppUsesNonExemptEncryption</key>

@@ -13,6 +13,7 @@ struct PairView: View {
   @State private var color: PersonColor = .cobalt
   @State private var pending = false
   @State private var error: String?
+  @State private var scanning = false
   @Environment(\.dismiss) private var dismiss
 
   init(store: SenderStore, invite: String, isSheet: Bool = false, onPaired: @escaping (SenderSession) -> Void) {
@@ -45,11 +46,30 @@ struct PairView: View {
           .tracking(-1.2)
         Text(
           code == nil
-            ? "Open the invite link they sent you, or paste it here. Your taps cover their Mac screens until they answer."
+            ? "Scan the invite QR code on their Mac, or paste the invite link they sent you. Your taps cover their Mac screens until they answer."
             : "Pair this phone to send taps. They cover the other person's Mac screens until they answer."
         )
         .font(Bricolage.medium(17))
         .foregroundStyle(Paper.tone)
+      }
+
+      if code == nil {
+        if scanning {
+          VStack(spacing: 12) {
+            QRScanner(onScan: scanned)
+            Button("Cancel") { scanning = false }
+              .buttonStyle(PillStyle())
+              .accessibilityIdentifier("scan-cancel")
+          }
+        } else {
+          Button {
+            scanning = true
+          } label: {
+            Label("Scan QR code", systemImage: "qrcode.viewfinder")
+          }
+          .buttonStyle(PillStyle(color: .graphite))
+          .accessibilityIdentifier("scan-button")
+        }
       }
 
       VStack(alignment: .leading, spacing: 8) {
@@ -128,6 +148,17 @@ struct PairView: View {
       .disabled(!canSubmit)
       .accessibilityIdentifier("pair-button")
     }
+  }
+
+  /// Takes a scanned invite link (https://shouldertap.app/join#… or
+  /// shouldertap://join#…); any other QR code is rejected.
+  private func scanned(_ value: String) -> Bool {
+    guard let url = URL(string: value), url.path == "/join" || url.host == "join",
+      inviteCode(from: value) != nil
+    else { return false }
+    inviteText = value
+    scanning = false
+    return true
   }
 
   private func pair() async {
