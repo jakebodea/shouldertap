@@ -55,7 +55,7 @@ const PAIRING_CAPS: Record<CredentialKind, number> = {
 };
 
 /** How long a new inbox delivers taps before it needs paying for. */
-const TRIAL_MS = 14 * 24 * 60 * 60 * 1000;
+const TRIAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** A purchase reported by Creem's checkout.completed webhook. */
 export interface Purchase {
