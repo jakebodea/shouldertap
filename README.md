@@ -24,6 +24,7 @@ apps/server/src/schema.ts   Drizzle schema; migrations in apps/server/drizzle (d
 apps/server/test/           Alchemy Test harness: deploys the Stack, drives the protocol
 apps/web                    Safari sender (React, TanStack Router, Vite) via Cloudflare.Website.Vite
 apps/macos                  Native Swift menu-bar app (AppKit + SwiftUI), a Swift package
+apps/ios                    Native iOS sender (SwiftUI), an Xcode project linking ShouldertapCore from apps/macos
 packages/domain             Effect Schema contracts, typed errors, the HttpApi spec
 packages/client             HttpApiClient-based client + live WebSocket (tickets, reconnect, resync)
 ```
@@ -65,6 +66,18 @@ cd apps/macos && open "$(scripts/build.sh)"
 ```
 
 Debug builds talk to `localhost` (override with `SHOULDERTAP_SERVER_URL` and `SHOULDERTAP_WEB_URL`) and run as a separate app, "Shouldertap Debug" (`app.shouldertap.mac.debug`), with their own pairing in `~/Library/Application Support/Shouldertap Debug`. Release builds use production (`apps/macos/Sources/Shouldertap/App.swift`, `Config`).
+
+iOS sender (simulator only until there is an Apple Developer team). It links `ShouldertapCore` from `apps/macos` as a local package, so `swift test` there covers its sender logic too. Build, install and launch on the booted simulator:
+
+```bash
+cd apps/ios && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Shouldertap.xcodeproj -scheme ShouldertapIOS -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build build
+```
+
+```bash
+xcrun simctl install booted apps/ios/build/Build/Products/Debug-iphonesimulator/Shouldertap.app && xcrun simctl launch booted app.shouldertap.ios.debug
+```
+
+Debug builds talk to `http://localhost:3000` (override with `SHOULDERTAP_SERVER_URL`). Open an invite with `xcrun simctl openurl booted 'shouldertap://join#<code>'`, or paste the link. The UI test pairs and sends a tap end to end when given an invite (skipped otherwise): `TEST_RUNNER_SHOULDERTAP_INVITE='shouldertap://join#<code>' xcodebuild test …` with the same project, scheme and destination.
 
 ## Deploy
 

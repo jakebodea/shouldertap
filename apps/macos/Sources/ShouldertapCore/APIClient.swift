@@ -61,8 +61,11 @@ public struct APIClient: Sendable {
     try await send("POST", "/v1/inboxes", body: ["recipientName": recipientName, "deviceName": deviceName])
   }
 
-  public func redeemInvite(code: String, name: String) async throws -> CredentialGrant {
-    try await send("POST", "/v1/invites/redeem", body: ["code": code, "name": name])
+  /// `color` is the sender's frame color; the server ignores it for Macs.
+  public func redeemInvite(code: String, name: String, color: PersonColor? = nil) async throws
+    -> CredentialGrant
+  {
+    try await send("POST", "/v1/invites/redeem", body: Redeem(code: code, name: name, color: color))
   }
 
   // Inbox (authorized)
@@ -73,6 +76,12 @@ public struct APIClient: Sendable {
 
   public func createInvite(kind: CredentialKind) async throws -> Invite {
     try await send("POST", "/v1/invites", body: ["kind": kind.rawValue])
+  }
+
+  /// Senders only. `requestId` makes retries idempotent: the same id and body
+  /// always return the same tap; the same id with a different body is a conflict.
+  public func sendTap(requestId: String, body: String) async throws -> Tap {
+    try await send("POST", "/v1/taps", body: ["requestId": requestId, "body": body])
   }
 
   public func markDisplayed(tapId: String) async throws -> Tap {
@@ -104,6 +113,11 @@ public struct APIClient: Sendable {
   // Transport
 
   private struct Acknowledge: Encodable { var response: TapResponse }
+  private struct Redeem: Encodable {
+    var code: String
+    var name: String
+    var color: PersonColor?  // omitted when nil, like the optional key in the contract
+  }
   private struct Revoked: Decodable { var revoked: Bool }
   private struct NoBody: Encodable {}
 

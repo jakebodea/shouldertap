@@ -25,24 +25,10 @@ enum Bricolage {
   static let extraBoldName = "BricolageGrotesque-ExtraBold"
 }
 
-/// Person colors from packages/domain/src/colors.ts: `base` is the frame,
-/// `ink` is text and icons set directly on it.
+/// Person colors from packages/domain/src/colors.ts (`PersonColor.swatch`).
 extension PersonColor {
-  private var hex: (base: UInt32, ink: UInt32) {
-    switch self {
-    case .moss: (0x1f5a3d, 0xf4f1e8)
-    case .cobalt: (0x2340c8, 0xf2f3fb)
-    case .plum: (0x6d2657, 0xf8eef3)
-    case .tomato: (0xd9432b, 0xfff4ef)
-    case .ochre: (0xe8b022, 0x1f1a0e)
-    case .rose: (0xf2c4bd, 0x3b1219)
-    case .sky: (0x9cc9ec, 0x0d2233)
-    case .graphite: (0x2b2c30, 0xf1f1ee)
-    }
-  }
-
-  var base: Color { Color(hex: hex.base) }
-  var ink: Color { Color(hex: hex.ink) }
+  var base: Color { Color(hex: swatch.base) }
+  var ink: Color { Color(hex: swatch.ink) }
 }
 
 extension Color {
