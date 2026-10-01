@@ -5,8 +5,8 @@
 #   scripts/release-mac.sh              build, package, upload
 #   scripts/release-mac.sh --no-upload  build and package only
 #
-# Signing is optional until there's an Apple Developer ID:
-#   SIGN_IDENTITY="Developer ID Application: Name (TEAMID)"  signs with the hardened runtime
+# Signing is optional; releases use the Developer ID:
+#   SIGN_IDENTITY="Developer ID Application: Jake Bodea (6C46GY4Z38)"  signs with the hardened runtime
 #   NOTARY_PROFILE=shouldertap  notarizes and staples (xcrun notarytool store-credentials shouldertap)
 # Without them the build is ad-hoc signed and Gatekeeper asks users to allow it
 # in System Settings on first open.
@@ -33,7 +33,14 @@ lipo -info "$app/Contents/MacOS/Shouldertap"
 
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
   echo "==> Signing with $SIGN_IDENTITY"
-  codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$app"
+  # Inside out, as Sparkle documents for Developer ID apps: notarization
+  # rejects any nested code that isn't signed with the hardened runtime.
+  sign() { codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$@"; }
+  sparkle="$app/Contents/Frameworks/Sparkle.framework"
+  sign "$sparkle/Versions/B/Autoupdate"
+  sign "$sparkle/Versions/B/Updater.app"
+  sign "$sparkle"
+  sign "$app"
 else
   echo "==> No SIGN_IDENTITY: ad-hoc signed (not notarized)"
 fi
