@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import * as Schema from "effect/Schema";
 
-import { SendTapRequest, ServerEvent, Snapshot } from "./contracts";
+import {
+  CreateInboxRequest,
+  SendTapRequest,
+  ServerEvent,
+  Snapshot,
+} from "./contracts";
 import { formatToken, parseBearer, parseToken } from "./token";
 
 describe("token", () => {
@@ -33,6 +38,16 @@ describe("contracts", () => {
     expect(decode({ requestId: "req-12345", body: " padded " })._tag).toBe(
       "Failure"
     );
+  });
+
+  test("create inbox accepts only a 64-char lowercase hex machine", () => {
+    const decode = Schema.decodeUnknownExit(CreateInboxRequest);
+    const names = { recipientName: "Jake", deviceName: "Studio Mac" };
+    expect(decode(names)._tag).toBe("Success");
+    expect(decode({ ...names, machine: "a1".repeat(32) })._tag).toBe("Success");
+    for (const machine of ["A1".repeat(32), "a1".repeat(31), "zz".repeat(32)]) {
+      expect(decode({ ...names, machine })._tag).toBe("Failure");
+    }
   });
 
   test("decodes snapshot union and events", () => {

@@ -145,6 +145,33 @@ private func fixture(_ name: String) throws -> Data {
   }
 }
 
+@Suite struct TrialFingerprint {
+  private let uuid = "00000000-0000-0000-0000-000000000001"
+
+  @Test func isASaltedSHA256InLowercaseHex() {
+    // printf '%s' "shouldertap-trial-v1:<uuid>" | shasum -a 256
+    #expect(
+      MachineFingerprint.make(hardwareUUID: uuid, salt: MachineFingerprint.releaseSalt)
+        == "83b90d91bc723de2adebfb2d1dded3800d545d2035b796293f916e0cf83c8924")
+  }
+
+  @Test func debugBuildsGetTheirOwnFingerprint() {
+    #expect(
+      MachineFingerprint.make(hardwareUUID: uuid, salt: MachineFingerprint.debugSalt)
+        == "e3d40e566b8ccefa7ef227c07c3e5b9940ea072a8c1e6e0fb5db0731c371107e")
+  }
+
+  @Test func neverContainsTheHardwareID() throws {
+    let fingerprint = try #require(MachineFingerprint.make(hardwareUUID: uuid, salt: MachineFingerprint.releaseSalt))
+    #expect(fingerprint.wholeMatch(of: /[0-9a-f]{64}/) != nil)
+    #expect(!fingerprint.contains(uuid))
+  }
+
+  @Test func emptyHardwareIDSendsNothing() {
+    #expect(MachineFingerprint.make(hardwareUUID: "", salt: MachineFingerprint.releaseSalt) == nil)
+  }
+}
+
 @Suite struct Persistence {
   @Test func roundTrips() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

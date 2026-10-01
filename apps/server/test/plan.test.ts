@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 
-import { planOf, requireActivePlan, TRIAL_MS } from "../src/plan";
+import { claimTrial, planOf, requireActivePlan, TRIAL_MS } from "../src/plan";
 
 const NOW = Date.UTC(2026, 9, 1);
 
@@ -30,6 +30,26 @@ describe("planOf", () => {
     expect(planOf({ trialEndsAt: null, paidAt: null }, NOW).status).toBe(
       "trial"
     );
+  });
+});
+
+describe("claimTrial", () => {
+  test("a Mac's first setup starts a fresh trial", () => {
+    expect(claimTrial(undefined, NOW)).toEqual({
+      trialEndsAt: NOW + TRIAL_MS,
+      isNew: true,
+    });
+  });
+
+  test("setting up again keeps the recorded end, even once it has passed", () => {
+    expect(claimTrial(NOW + 1000, NOW + TRIAL_MS)).toEqual({
+      trialEndsAt: NOW + 1000,
+      isNew: false,
+    });
+    const reclaimed = claimTrial(NOW - 1, NOW);
+    expect(
+      planOf({ trialEndsAt: reclaimed.trialEndsAt, paidAt: null }, NOW).status
+    ).toBe("expired");
   });
 });
 

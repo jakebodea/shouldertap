@@ -20,6 +20,7 @@ Alchemy is the source of truth for infrastructure and backend structure: one Sta
 alchemy.run.ts          Composition root: Server Worker + Safari sender site
 apps/server/src/Server.ts   Cloudflare.Worker: Effect HttpApi + WebSocket forwarding
 apps/server/src/Inbox.ts    Cloudflare.DurableObject: one per recipient, Drizzle over its SQLite
+apps/server/src/TrialLedger.ts  Cloudflare.DurableObject: one per Mac fingerprint, remembers when its free trial ends
 apps/server/src/schema.ts   Drizzle schema; migrations in apps/server/drizzle (drizzle-kit, durable-sqlite)
 apps/server/test/           Alchemy Test harness: deploys the Stack, drives the protocol
 apps/web                    Safari sender (React, TanStack Router, Vite) via Cloudflare.Website.Vite
@@ -130,5 +131,6 @@ Builds are ad-hoc signed until there's an Apple Developer ID, so Gatekeeper make
 - The overlay can't be dismissed without answering. If the Mac is offline, answering still dismisses locally and the reply is retried until the server accepts it.
 - Handled in code but not yet tested by hand: Durable Object hibernation, sleep/wake, display hot-plug, full-screen apps/Spaces, and replying while offline. Tested: overlays on two displays, replying from the overlay, cross-Mac dismissal, and the protocol via the Alchemy integration suite.
 - Sender history is capped at 50 recent taps.
+- One free trial per Mac: at "Get started" the Mac app sends `machine`, a salted SHA-256 of its hardware UUID (Debug builds use a different salt). The Server asks that Mac's `TrialLedger` for its trial end (recorded on first setup) and starts the new inbox with it, so unpairing and setting up again resumes the same trial. Mac apps older than this don't send `machine` and still get a fresh trial per setup. If the ledger can't answer, setup falls back to a fresh trial rather than failing.
 - Limits, enforced by the Inbox: 30 taps per sender per rolling hour (`TooManyRequests`, 429; retries of an existing request id still succeed), and 20 active senders and 10 active Macs per inbox (`Conflict`, 409, from `createInvite` and `redeemInvite`).
 - Retention: a daily Durable Object alarm (Alchemy's `scheduleEvent`, armed at inbox creation and on any activation) deletes taps older than 90 days, invites a day after they expire, expired connect tickets, and removed pairings 90 days after removal once none of their taps remain. See `apps/server/src/retention.ts`. On the Workers Free plan each alarm run counts toward the 100,000 Durable Object requests per day, so that's one request per inbox per day.

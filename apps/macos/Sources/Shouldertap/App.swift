@@ -61,7 +61,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let store = ReceiverStore(
     endpoints: Config.endpoints,
     persistence: Config.persistence,
-    deviceName: { Host.current().localizedName ?? "Mac" })
+    deviceName: { Host.current().localizedName ?? "Mac" },
+    machine: HardwareID.trialFingerprint)
   private lazy var overlays = OverlayController(store: store)
   private let updates = Updates()
   private let popover = NSPopover()

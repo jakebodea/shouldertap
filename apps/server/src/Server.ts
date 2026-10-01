@@ -31,6 +31,7 @@ import {
   webhookAction,
 } from "./Creem";
 import { Inbox, InboxLive } from "./Inbox";
+import { TrialLedger, TrialLedgerLive } from "./TrialLedger";
 
 const newInboxId = Effect.sync(() => crypto.randomUUID().replaceAll("-", ""));
 
@@ -72,6 +73,26 @@ export default class Server extends Cloudflare.Worker<Server>()(
         client: creemClient(Redacted.value(config.apiKey)),
       }))
     );
+
+    const trialLedgers = yield* TrialLedger;
+    /**
+     * When this Mac's free trial ends, per its ledger. Fails open: if the
+     * ledger can't answer, the new inbox gets a normal trial (undefined)
+     * rather than the Mac being unable to set up.
+     */
+    const claimTrial = (machine: string) =>
+      trialLedgers
+        .getByName(machine)
+        .claim()
+        .pipe(
+          Effect.map(({ trialEndsAt }): number | undefined => trialEndsAt),
+          Effect.timeout("5 seconds"),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Trial ledger unavailable", cause).pipe(
+              Effect.as(undefined)
+            )
+          )
+        );
 
     const inboxCreation = yield* Cloudflare.RateLimit("INBOX_CREATION", {
       namespaceId: 7201,
@@ -116,11 +137,15 @@ export default class Server extends Cloudflare.Worker<Server>()(
                     "Too many new inboxes from this network. Try again in a minute.",
                 });
               }
+              const { machine, ...names } = payload;
+              const trialEndsAt = machine
+                ? yield* claimTrial(machine)
+                : undefined;
               const inboxId = yield* newInboxId;
               // A fresh random id can't already exist; Conflict would be a bug.
               return yield* inboxes
                 .getByName(inboxId)
-                .initialize(inboxId, payload)
+                .initialize(inboxId, names, trialEndsAt)
                 .pipe(Effect.orDie);
             })
           )
@@ -318,5 +343,11 @@ export default class Server extends Cloudflare.Worker<Server>()(
         return yield* api;
       }),
     };
-  }).pipe(Effect.provide([InboxLive, Cloudflare.Workers.RateLimitBinding]))
+  }).pipe(
+    Effect.provide([
+      InboxLive,
+      TrialLedgerLive,
+      Cloudflare.Workers.RateLimitBinding,
+    ])
+  )
 ) {}

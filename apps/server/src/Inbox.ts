@@ -101,9 +101,14 @@ export interface InboxRpc {
   readonly createTicket: (
     token: ParsedToken
   ) => Rpc<ConnectTicket, Unauthorized>;
+  /**
+   * Creates the inbox. `trialEndsAt` comes from the Mac's trial ledger when
+   * it has one; without it the trial is a fresh one from now.
+   */
   readonly initialize: (
     inboxId: string,
-    request: CreateInboxRequest
+    request: Omit<CreateInboxRequest, "machine">,
+    trialEndsAt?: number
   ) => Rpc<CredentialGrant, Conflict>;
   readonly markDisplayed: (
     token: ParsedToken,
@@ -473,7 +478,11 @@ export const InboxLive = Inbox.make(
       }
 
       const rpc: InboxRpc = {
-        initialize: Effect.fn("Inbox.initialize")(function* (inboxId, request) {
+        initialize: Effect.fn("Inbox.initialize")(function* (
+          inboxId,
+          request,
+          trialEndsAt
+        ) {
           const existing = yield* inboxRow;
           if (existing) {
             return yield* new Conflict({ message: "Inbox already exists" });
@@ -489,7 +498,7 @@ export const InboxLive = Inbox.make(
                 id: 1,
                 inboxId,
                 recipientName: request.recipientName,
-                trialEndsAt: createdAt + TRIAL_MS,
+                trialEndsAt: trialEndsAt ?? createdAt + TRIAL_MS,
               });
               yield* tx.insert(credentials).values(credential.row);
             })

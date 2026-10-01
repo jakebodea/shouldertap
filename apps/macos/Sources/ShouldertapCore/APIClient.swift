@@ -72,8 +72,14 @@ public struct APIClient: Sendable {
 
   // Pairing
 
-  public func createInbox(recipientName: String, deviceName: String) async throws -> CredentialGrant {
-    try await send("POST", "/v1/inboxes", body: ["recipientName": recipientName, "deviceName": deviceName])
+  /// `machine` is this Mac's `MachineFingerprint`, so setting up again keeps
+  /// the Mac's original trial; nil when it couldn't be read.
+  public func createInbox(recipientName: String, deviceName: String, machine: String? = nil) async throws
+    -> CredentialGrant
+  {
+    try await send(
+      "POST", "/v1/inboxes",
+      body: CreateInbox(recipientName: recipientName, deviceName: deviceName, machine: machine))
   }
 
   /// `color` is the sender's frame color; the server ignores it for Macs.
@@ -134,6 +140,11 @@ public struct APIClient: Sendable {
   // Transport
 
   private struct Acknowledge: Encodable { var response: TapResponse }
+  private struct CreateInbox: Encodable {
+    var recipientName: String
+    var deviceName: String
+    var machine: String?  // omitted when nil, like the optional key in the contract
+  }
   private struct Redeem: Encodable {
     var code: String
     var name: String
