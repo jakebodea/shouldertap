@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./api";
 import { newRequestId } from "./ids";
-import type { Pairing } from "./pairing";
+import { outboxKey, type Pairing } from "./pairing";
 
 export interface OutgoingTap {
   readonly body: string;
@@ -24,21 +24,19 @@ export interface OutgoingTap {
   readonly requestId: string;
 }
 
-const OUTBOX_KEY = "shouldertap.outbox.v1";
-
-const loadOutbox = (): OutgoingTap[] => {
+const loadOutbox = (credentialId: string): OutgoingTap[] => {
   try {
     return JSON.parse(
-      localStorage.getItem(OUTBOX_KEY) ?? "[]"
+      localStorage.getItem(outboxKey(credentialId)) ?? "[]"
     ) as OutgoingTap[];
   } catch {
     return [];
   }
 };
 
-const saveOutbox = (outbox: readonly OutgoingTap[]) => {
+const saveOutbox = (credentialId: string, outbox: readonly OutgoingTap[]) => {
   try {
-    localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox));
+    localStorage.setItem(outboxKey(credentialId), JSON.stringify(outbox));
   } catch {
     // Best effort.
   }
@@ -47,7 +45,9 @@ const saveOutbox = (outbox: readonly OutgoingTap[]) => {
 /**
  * Sender state: the authoritative snapshot, live updates, and an outbox of
  * sends that haven't been accepted yet. Each send keeps its request id, so
- * a retry after a dropped connection can't create a duplicate tap.
+ * a retry after a dropped connection can't create a duplicate tap. The
+ * outbox is read once, so render one sender per pairing (key it by the
+ * credential) rather than swapping the pairing underneath it.
  */
 export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   const client = useMemo(() => api.withToken(pairing.token), [pairing.token]);
@@ -55,7 +55,9 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   const [status, setStatus] = useState<LiveStatus>("connecting");
   const [loaded, setLoaded] = useState(false);
   const [senderColor, setSenderColor] = useState<PersonColor | null>(null);
-  const [outbox, setOutbox] = useState<OutgoingTap[]>(loadOutbox);
+  const [outbox, setOutbox] = useState<OutgoingTap[]>(() =>
+    loadOutbox(pairing.credentialId)
+  );
   const outboxRef = useRef(outbox);
   const revokedRef = useRef(onRevoked);
   revokedRef.current = onRevoked;
@@ -64,10 +66,10 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
     (update: (current: OutgoingTap[]) => OutgoingTap[]) => {
       const next = update(outboxRef.current);
       outboxRef.current = next;
-      saveOutbox(next);
+      saveOutbox(pairing.credentialId, next);
       setOutbox(next);
     },
-    []
+    [pairing.credentialId]
   );
 
   const deliver = useCallback(

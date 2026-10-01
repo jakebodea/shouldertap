@@ -7,8 +7,14 @@ import {
   personColors,
   swatches,
 } from "@shouldertap/domain";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  redirect,
+  useNavigate,
+} from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { toast } from "sonner";
 
 import { Frame } from "@/components/frame";
 import { HomeScreenCard } from "@/components/home-screen";
@@ -17,16 +23,30 @@ import { QrScanner } from "@/components/qr-scanner";
 import { api } from "@/lib/api";
 import { frameStyle } from "@/lib/frame";
 import { isIosBrowser } from "@/lib/install";
-import { loadPairing, savePairing } from "@/lib/pairing";
-
-export const Route = createFileRoute("/join")({
-  component: JoinComponent,
-});
+import {
+  addPairing,
+  loadPairings,
+  pairingForCode,
+  selectPairing,
+} from "@/lib/pairing";
 
 // The invite code travels in the URL fragment so it never reaches a server log.
 const LEADING_HASH = /^#/;
 const readCode = () =>
   decodeURIComponent(window.location.hash.replace(LEADING_HASH, "")).trim();
+
+// A Home Screen app keeps launching the page it was saved from, invite code
+// and all. Once that person is paired, launching it opens the composer.
+export const Route = createFileRoute("/join")({
+  beforeLoad: () => {
+    const paired = pairingForCode(readCode());
+    if (paired) {
+      selectPairing(paired.credentialId);
+      throw redirect({ to: "/tap", replace: true });
+    }
+  },
+  component: JoinComponent,
+});
 
 /** A pasted invite: the full link (code after "#") or just the code. */
 const codeFromPaste = (value: string) => {
@@ -55,7 +75,6 @@ function JoinComponent() {
   const [color, setColor] = useState<PersonColor>("cobalt");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const existing = loadPairing();
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -69,7 +88,7 @@ function JoinComponent() {
         );
         return;
       }
-      savePairing({
+      addPairing({
         token: grant.token,
         credentialId: grant.credentialId,
         senderName: name.trim(),
@@ -93,6 +112,13 @@ function JoinComponent() {
     return (
       <PasteInvite
         onCode={(pasted) => {
+          const paired = pairingForCode(pasted);
+          if (paired) {
+            selectPairing(paired.credentialId);
+            toast(`This phone already taps ${paired.recipientName}`);
+            navigate({ to: "/tap", replace: true });
+            return;
+          }
           history.replaceState(null, "", `/join#${encodeURIComponent(pasted)}`);
           setCode(pasted);
         }}
@@ -116,13 +142,6 @@ function JoinComponent() {
       {pairInBrowser ? null : (
         <HomeScreenCard onSkip={() => setPairInBrowser(true)} />
       )}
-
-      {existing ? (
-        <p className="rounded-2xl bg-faint px-4 py-3 text-[0.9375rem] leading-snug">
-          This phone already sends taps to {existing.recipientName}. Pairing
-          again replaces that.
-        </p>
-      ) : null}
 
       <form
         className="flex flex-1 flex-col gap-6"
@@ -217,10 +236,13 @@ function JoinComponent() {
 }
 
 /**
- * Reached without a code: a Home Screen app whose saved page lost it, or a
- * phone whose pairing Safari forgot.
+ * Reached without a code: a Home Screen app whose saved page lost it, a
+ * phone whose pairing Safari forgot, or a paired phone adding someone. An
+ * invite link opens in Safari, not in the Home Screen app, so adding someone
+ * there means scanning or pasting it.
  */
 function PasteInvite({ onCode }: { onCode: (code: string) => void }) {
+  const [adding] = useState(() => loadPairings().length > 0);
   const [value, setValue] = useState("");
   const [scanning, setScanning] = useState(false);
   const onSubmit = (event: FormEvent) => {
@@ -242,12 +264,12 @@ function PasteInvite({ onCode }: { onCode: (code: string) => void }) {
       <Mark className="size-9" />
       <div className="flex flex-col gap-2">
         <h1 className="font-extrabold text-[2.125rem] leading-none tracking-[-0.035em]">
-          Pair this phone
+          {adding ? "Add someone" : "Pair this phone"}
         </h1>
         <p className="text-[1.0625rem] text-tone leading-snug">
-          Scan the invite QR code on their Mac, or paste the invite link you
-          were sent. If this phone used to send taps and stopped, Safari may
-          have forgotten the pairing: ask for a new invite.
+          {adding
+            ? "Scan the invite QR code on their Mac, or paste the invite link they sent you."
+            : "Scan the invite QR code on their Mac, or paste the invite link you were sent. If this phone used to send taps and stopped, Safari may have forgotten the pairing: ask for a new invite."}
         </p>
       </div>
       {scanning ? (
@@ -295,6 +317,15 @@ function PasteInvite({ onCode }: { onCode: (code: string) => void }) {
           Continue
         </button>
       </form>
+      {adding ? (
+        <Link
+          className="self-center text-[0.9375rem] text-tone underline underline-offset-[3px]"
+          replace
+          to="/tap"
+        >
+          Cancel
+        </Link>
+      ) : null}
     </Frame>
   );
 }

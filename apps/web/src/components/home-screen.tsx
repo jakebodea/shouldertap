@@ -31,6 +31,10 @@ export function HomeScreenCard({ onSkip }: { onSkip: () => void }) {
         <li>2. Choose Add to Home Screen, then Add.</li>
         <li>3. Open Shouldertap from your Home Screen to finish pairing.</li>
       </ol>
+      <p className="text-[0.9375rem] text-tone leading-snug">
+        Already tap someone from your Home Screen? Copy this page's link, open
+        Shouldertap there, tap the name at the top, and choose Add someone.
+      </p>
       <button
         className="self-start text-[0.9375rem] text-tone underline underline-offset-[3px]"
         onClick={onSkip}
