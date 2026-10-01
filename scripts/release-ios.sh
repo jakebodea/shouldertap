@@ -11,16 +11,17 @@
 # Connect API key when all three are set:
 #   ASC_KEY_PATH=~/.appstoreconnect/AuthKey_XXXX.p8 ASC_KEY_ID=XXXX ASC_ISSUER_ID=<uuid>
 #
-# The version is MARKETING_VERSION and the build number CURRENT_PROJECT_VERSION
-# in the Xcode project. App Store Connect needs each upload's build number to
-# be higher than the last for that version: bump it (or the version, which
-# starts builds again at 1) before releasing. Override with BUILD_NUMBER.
+# The version is MARKETING_VERSION in the Xcode project. The build number is
+# the commit count, which only goes up on main, so every upload from a newer
+# commit beats the last (App Store Connect rejects repeats). Override with
+# BUILD_NUMBER. .github/workflows/testflight.yml runs this when a PR labeled
+# release:beta merges.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 project="$root/apps/ios/Shouldertap.xcodeproj"
 out="$root/apps/ios/build/release"
-build="${BUILD_NUMBER:-$(sed -n 's/.*CURRENT_PROJECT_VERSION = \([0-9]*\);/\1/p' "$project/project.pbxproj" | head -1)}"
+build="${BUILD_NUMBER:-$(git -C "$root" rev-list --count HEAD)}"
 destination=upload
 [[ "${1:-}" == "--no-upload" ]] && destination=export
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"

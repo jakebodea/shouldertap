@@ -1,0 +1,81 @@
+# Uploads the iOS app to TestFlight when a pull request labeled release:beta
+# lands on main, or on demand (Actions > TestFlight > Run workflow). It runs on
+# the push to main rather than on the PR, so it builds exactly what merged and
+# Infisical (which only trusts main) hands it the App Store Connect key.
+name: TestFlight
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Find the merged pull request
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pr=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '[.[] | select(any(.labels[]; .name == "release:beta"))][0].number // empty')
+          if [ -n "$pr" ]; then
+            echo "Releasing #$pr"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "number=$pr" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release:beta pull request for ${{ github.sha }}; nothing to release."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: steps.pr.outputs.release == 'true'
+        uses: actions/checkout@v5
+        with:
+          # The build number is the commit count, so it needs full history.
+          fetch-depth: 0
+
+      - name: Load the App Store Connect key
+        if: steps.pr.outputs.release == 'true'
+        uses: Infisical/secrets-action@v1.0.12
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          oidc-audience: https://github.com/jakebodea
+          domain: https://app.infisical.com
+          project-slug: shouldertap-qp-dq
+          env-slug: prod
+
+      - name: Archive and upload
+        id: upload
+        if: steps.pr.outputs.release == 'true'
+        run: |
+          export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$ASC_KEY_PATH"
+          export DEVELOPER_DIR="$(xcode-select -p)"
+          xcodebuild -version
+          scripts/release-ios.sh
+          echo "build=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on the pull request
+        if: always() && steps.pr.outputs.number != ''
+        run: |
+          if [ "${{ steps.upload.outcome }}" = success ]; then
+            body="Uploaded build ${{ steps.upload.outputs.build }} to App Store Connect. It shows up in TestFlight after processing (usually 5-15 minutes)."
+          else
+            body="TestFlight upload failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          gh pr comment ${{ steps.pr.outputs.number }} --repo ${{ github.repository }} --body "$body"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
