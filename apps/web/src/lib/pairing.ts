@@ -91,15 +91,19 @@ export const pairingForCode = (code: string): Pairing | null => {
 
 /**
  * Adds a new pairing and shows it. Pairing again with the same person
- * replaces the old one, as on the native apps.
+ * replaces the old one, as on the native apps; the replaced pairings are
+ * returned so the caller can revoke them.
  */
-export const addPairing = (pairing: Pairing) => {
+export const addPairing = (pairing: Pairing): Pairing[] => {
   const inboxId = inboxOf(pairing.token);
-  const others = load().pairings.filter(
-    (p) =>
-      p.credentialId !== pairing.credentialId && inboxOf(p.token) !== inboxId
+  const stored = load().pairings;
+  const replaced = (p: Pairing) =>
+    p.credentialId !== pairing.credentialId && inboxOf(p.token) === inboxId;
+  const others = stored.filter(
+    (p) => p.credentialId !== pairing.credentialId && !replaced(p)
   );
   store({ pairings: [...others, pairing], selected: pairing.credentialId });
+  return stored.filter(replaced);
 };
 
 /** Rewrites a pairing in place, e.g. once its color is known. */

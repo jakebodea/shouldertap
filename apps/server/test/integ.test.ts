@@ -257,6 +257,42 @@ test(
 );
 
 test(
+  "a sender can unpair itself, and only itself",
+  Effect.gen(function* () {
+    const url = (yield* stack).server;
+    const { anon, macA, sender } = yield* pairedInbox(url);
+    const mac = yield* client(url, macA.token);
+    const senderApi = yield* client(url, sender.token);
+
+    // Another sender's credential, or a Mac's, is off limits.
+    const { code } = yield* mac.inbox.createInvite({
+      payload: { kind: "sender" },
+    });
+    const other = yield* anon.pairing.redeemInvite({
+      payload: { code, name: "Other" },
+    });
+    for (const id of [other.credentialId, macA.credentialId]) {
+      const denied = yield* senderApi.inbox
+        .revoke({ params: { id } })
+        .pipe(Effect.flip);
+      expect(denied._tag).toBe("Unauthorized");
+    }
+
+    const a = yield* listen(url, macA.token);
+    yield* senderApi.inbox.revoke({ params: { id: sender.credentialId } });
+    yield* a.next((event) => event.type === "credentials");
+    const snapshot = yield* mac.inbox.me();
+    expect(snapshot.kind).toBe("device");
+    if (snapshot.kind === "device") {
+      const ids = snapshot.credentials.map((c) => c.id);
+      expect(ids).not.toContain(sender.credentialId);
+      expect(ids).toContain(other.credentialId);
+    }
+  }).pipe(Effect.scoped),
+  { timeout: 60_000 }
+);
+
+test(
   "limits each sender to 30 taps an hour, retries still succeed",
   Effect.gen(function* () {
     const url = (yield* stack).server;

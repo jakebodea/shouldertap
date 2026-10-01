@@ -174,6 +174,14 @@ public final class SenderSession: Identifiable {
     status = .offline
   }
 
+  /// Tell the server this phone is done, so the recipient's Mac drops the
+  /// sender. Best effort: the phone forgets the pairing either way.
+  func revokeSelf() {
+    let api = api
+    let id = id
+    Task { try? await api.revoke(credentialId: id) }
+  }
+
   // MARK: Sending
 
   /// Queue a tap and deliver it. Throws only for drafts the server would
@@ -340,9 +348,18 @@ public final class SenderStore {
     return session
   }
 
-  /// Forget a pairing on this phone. The recipient still lists the sender
-  /// until they remove it on their Mac (senders can't revoke credentials).
+  /// Unpair this phone: revoke the credential so the recipient's Mac stops
+  /// listing the sender, then forget the pairing here.
   public func unpair(id: String) {
+    guard let session = session(id: id) else { return }
+    session.stop()
+    session.revokeSelf()
+    forget(id: id)
+  }
+
+  /// Forget a pairing on this phone without telling the server, e.g. once
+  /// the recipient has already removed it.
+  private func forget(id: String) {
     guard let session = session(id: id) else { return }
     session.stop()
     persistence.deletePairing(credentialId: id)
@@ -355,7 +372,7 @@ public final class SenderStore {
       pairing: pairing, server: server, persistence: persistence, session: session,
       onRevoked: { [weak self] session in
         self?.notice = "\(session.pairing.recipientName) removed this pairing"
-        self?.unpair(id: session.id)
+        self?.forget(id: session.id)
       })
   }
 }

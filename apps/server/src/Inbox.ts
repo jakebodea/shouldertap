@@ -788,7 +788,13 @@ export const InboxLive = Inbox.make(
         }, orDieOnStorage),
 
         revoke: Effect.fn("Inbox.revoke")(function* (token, credentialId) {
-          yield* requireDevice(token);
+          // A Mac can remove anyone; a sender can only unpair itself.
+          const actor = yield* authenticate(token);
+          if (actor.kind === "sender" && actor.id !== credentialId) {
+            return yield* new Unauthorized({
+              message: "A sender can only unpair itself",
+            });
+          }
           const [target] = yield* db
             .update(credentials)
             .set({ revokedAt: yield* now })

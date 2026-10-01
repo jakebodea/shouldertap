@@ -20,7 +20,7 @@ import { Frame } from "@/components/frame";
 import { HomeScreenCard } from "@/components/home-screen";
 import { Mark } from "@/components/mark";
 import { QrScanner } from "@/components/qr-scanner";
-import { api } from "@/lib/api";
+import { api, revokePairing } from "@/lib/api";
 import { frameStyle } from "@/lib/frame";
 import { isIosBrowser } from "@/lib/install";
 import {
@@ -88,13 +88,16 @@ function JoinComponent() {
         );
         return;
       }
-      addPairing({
+      const replaced = addPairing({
         token: grant.token,
         credentialId: grant.credentialId,
         senderName: name.trim(),
         recipientName: grant.recipientName,
         color,
       });
+      for (const old of replaced) {
+        revokePairing(old);
+      }
       history.replaceState(null, "", "/join");
       navigate({ to: "/tap" });
     } catch (caught) {
