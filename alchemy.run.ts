@@ -85,7 +85,7 @@ export default Alchemy.Stack(
           **Web:** ${web.url}
           **API:** ${server.url}
 
-          Built from ${process.env.GITHUB_SHA?.slice(0, 7)}. Destroyed when this PR closes.
+          Built from ${process.env.COMMIT_SHA?.slice(0, 7)}. Destroyed when this PR closes.
         `,
       });
     }
