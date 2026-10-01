@@ -255,6 +255,24 @@ private func makeStore(_ persistence: MemorySenderPersistence, handler: @escapin
     #expect(persistence.loadPairings().first?.color == .rose)
   }
 
+  @Test func unpairRevokesTheCredential() async {
+    let persistence = MemorySenderPersistence(pairings: [pairing()])
+    let deletes = Collected<[String]>()
+    let store = makeStore(persistence) { request in
+      if request.httpMethod == "DELETE" {
+        deletes.append(request.url!.path)
+        return (200, #"{"revoked":true}"#)
+      }
+      return (503, "")
+    }
+    store.start()
+    store.unpair(id: "s1s1s1s1")
+    #expect(store.sessions.isEmpty)
+    #expect(persistence.loadPairings().isEmpty)
+    #expect(await eventually { deletes.value == ["/v1/credentials/s1s1s1s1"] })
+    #expect(store.notice == nil)
+  }
+
   @Test func revokedPairingsAreForgotten() async {
     let persistence = MemorySenderPersistence(pairings: [pairing()])
     let store = makeStore(persistence) { request in
