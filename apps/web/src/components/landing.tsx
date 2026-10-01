@@ -8,7 +8,13 @@ import {
   UserAdd01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type PersonColor, swatches } from "@shouldertap/domain";
+import {
+  FULL_PRICE_CENTS,
+  formatPrice,
+  type PersonColor,
+  swatches,
+  TRIAL_PRICE_CENTS,
+} from "@shouldertap/domain";
 import {
   type CSSProperties,
   useCallback,
@@ -594,6 +600,9 @@ function Consent() {
   );
 }
 
+const trialPrice = formatPrice(TRIAL_PRICE_CENTS);
+const fullPrice = formatPrice(FULL_PRICE_CENTS);
+
 /** Creem's review requires the price to be easy to find on the site. */
 function Pricing() {
   const points = [
@@ -610,23 +619,24 @@ function Pricing() {
         className="max-w-[16ch] text-balance font-extrabold text-[2.75rem] leading-[0.98] tracking-[-0.04em] md:text-[4.5rem]"
         id="pricing"
       >
-        Free for a week. Then $5, once.
+        Free for a week. Then {trialPrice}, once.
       </h2>
       <div className="grid gap-10 md:grid-cols-[auto_1fr] md:gap-16">
         <div className="flex flex-col gap-2">
           <p className="font-extrabold text-[4rem] leading-none tracking-[-0.045em] md:text-[5.5rem]">
-            $5
+            {trialPrice}
           </p>
           <p className="text-[1.0625rem] text-tone md:text-lg">
-            One-time purchase, plus tax where it applies.
+            When you unlock during your free week.
             <br />
-            No subscription.
+            {fullPrice} after it. One-time, plus tax where it applies.
           </p>
         </div>
         <ul className="flex max-w-xl flex-col gap-4">
           <li className="text-[1.0625rem] leading-relaxed md:text-lg">
-            Try everything free for 7 days. Then unlock Shouldertap on your Mac
-            for good.
+            Try everything free for 7 days. Unlock Shouldertap on your Mac for
+            good for {trialPrice} any time before the week is up, or {fullPrice}{" "}
+            after. No subscription.
           </li>
           {points.map((point) => (
             <li
@@ -654,7 +664,8 @@ function Close() {
           Download for Mac
         </a>
         <span className="text-[0.9375rem] text-tone">
-          Free for 7 days, then $5 once. Mac app plus any iPhone with Safari.
+          Free for 7 days, then {formatPrice(TRIAL_PRICE_CENTS)} once. Mac app
+          plus any iPhone with Safari.
         </span>
       </div>
       <footer className="mt-16 flex flex-wrap items-center justify-between gap-4 border-line border-t-[1.5px] pt-6 text-sm text-tone">

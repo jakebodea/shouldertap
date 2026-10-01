@@ -1,5 +1,6 @@
 import { Download04Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { formatPrice, TRIAL_PRICE_CENTS } from "@shouldertap/domain";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { DocLinks } from "@/components/document";
@@ -55,8 +56,8 @@ function DownloadComponent() {
           Download for Mac
         </a>
         <p className="text-center text-[0.8125rem] text-tone">
-          Free for 7 days, then $5 once · macOS 14 Sonoma or later · Apple
-          silicon and Intel
+          Free for 7 days, then {formatPrice(TRIAL_PRICE_CENTS)} once · macOS 14
+          Sonoma or later · Apple silicon and Intel
         </p>
       </section>
 

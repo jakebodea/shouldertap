@@ -179,7 +179,7 @@ private struct PlanView: View {
           VStack(alignment: .leading, spacing: 4) {
             Text("Your trial ended — taps are paused")
               .font(.system(size: 13, weight: .semibold))
-            Muted("Unlock Shouldertap for a one-time $5. People who can tap you get through again right away.")
+            Muted("Unlock Shouldertap for a one-time \(price). People who can tap you get through again right away.")
           }
           .frame(maxWidth: .infinity, alignment: .leading)
           unlockButton(kind: .primary)
@@ -194,7 +194,7 @@ private struct PlanView: View {
                 .font(.system(size: 13, weight: .semibold))
             }
             .accessibilityElement(children: .combine)
-            Muted("Taps pause when the trial ends. Unlock for good with a one-time $5.")
+            Muted("Taps pause when the trial ends. Unlock now for \(price); it's \(fullPrice) after the trial.")
           }
           .frame(maxWidth: .infinity, alignment: .leading)
           unlockButton(kind: .secondary)
@@ -206,7 +206,7 @@ private struct PlanView: View {
           VStack(alignment: .leading, spacing: 4) {
             Text("Liking Shouldertap?")
               .font(.system(size: 13, weight: .semibold))
-            Muted("Keep it for good with a one-time $5. Trial · \(days) days left.")
+            Muted("Keep it for good: \(price) during your trial, \(fullPrice) after. Trial · \(days) days left.")
           }
           .frame(maxWidth: .infinity, alignment: .leading)
           unlockButton(kind: .secondary)
@@ -218,7 +218,7 @@ private struct PlanView: View {
             Text("Trial · \(days) days left").font(.system(size: 12)).foregroundStyle(.secondary)
             Spacer(minLength: 0)
             if busy { ProgressView().controlSize(.mini) }
-            MenuButton(title: "Unlock for $5", kind: .plain, action: unlock).disabled(busy)
+            MenuButton(title: "Unlock for \(price)", kind: .plain, action: unlock).disabled(busy)
           }
           messages
         }
@@ -226,12 +226,15 @@ private struct PlanView: View {
     }
   }
 
+  private var price: String { Plan.format(cents: plan.price()) }
+  private var fullPrice: String { Plan.format(cents: Plan.fullPriceCents) }
+
   private var hasAnsweredATap: Bool {
     store.taps.contains { $0.state == .acknowledged }
   }
 
   private func unlockButton(kind: MenuButton.Kind) -> some View {
-    MenuButton(title: busy ? "Opening checkout…" : "Unlock for $5", kind: kind, fullWidth: true, action: unlock)
+    MenuButton(title: busy ? "Opening checkout…" : "Unlock for \(price)", kind: kind, fullWidth: true, action: unlock)
       .disabled(busy)
   }
 

@@ -180,6 +180,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
             const url = yield* createCheckout(creem.value.client, {
               productId: creem.value.productId,
               inboxId: context.inboxId,
+              priceCents: context.priceCents,
             }).pipe(
               Effect.tapError((error) => Effect.logError(error)),
               Effect.mapError(

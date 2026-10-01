@@ -134,6 +134,8 @@ export type PlanStatus = typeof PlanStatus.Type;
 export const Plan = Schema.Struct({
   status: PlanStatus,
   trialEndsAt: Timestamp,
+  /** What unlocking costs right now, in US cents (see pricing.ts). */
+  unlockPrice: Schema.Number,
 });
 export type Plan = typeof Plan.Type;
 

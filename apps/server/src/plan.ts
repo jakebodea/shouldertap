@@ -1,4 +1,9 @@
-import { PaymentRequired, type Plan } from "@shouldertap/domain";
+import {
+  FULL_PRICE_CENTS,
+  PaymentRequired,
+  type Plan,
+  TRIAL_PRICE_CENTS,
+} from "@shouldertap/domain";
 import * as Effect from "effect/Effect";
 
 /** How long a new inbox delivers taps before it needs paying for. */
@@ -18,10 +23,15 @@ export interface PlanRow {
 export const planOf = (row: PlanRow | undefined, at: number): Plan => {
   const trialEndsAt = row?.trialEndsAt ?? at + TRIAL_MS;
   if ((row?.paidAt ?? null) !== null) {
-    return { status: "paid", trialEndsAt };
+    return { status: "paid", trialEndsAt, unlockPrice: FULL_PRICE_CENTS };
   }
-  return { status: at < trialEndsAt ? "trial" : "expired", trialEndsAt };
+  const status = at < trialEndsAt ? "trial" : "expired";
+  return { status, trialEndsAt, unlockPrice: unlockPriceFor(status) };
 };
+
+/** The trial price while the trial runs; the full price once it's over. */
+export const unlockPriceFor = (status: Plan["status"]) =>
+  status === "trial" ? TRIAL_PRICE_CENTS : FULL_PRICE_CENTS;
 
 /** What a sender sees when the recipient's trial has ended. */
 export const pausedMessage = (recipientName: string | undefined) =>

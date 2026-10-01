@@ -82,6 +82,20 @@ private func fixture(_ name: String) throws -> Data {
     #expect(Plan(status: .paid, trialEndsAt: ms - day).currentStatus(now: now) == .paid)
   }
 
+  @Test func priceDropsToTrialPriceOnlyDuringTheTrial() {
+    let now = Date(timeIntervalSince1970: 1_790_000_000)
+    let ms = now.timeIntervalSince1970 * 1000
+    #expect(Plan(status: .trial, trialEndsAt: ms + 1000, unlockPrice: 500).price(now: now) == 500)
+    // Older servers send no price: assume the trial price during the trial.
+    #expect(Plan(status: .trial, trialEndsAt: ms + 1000).price(now: now) == 500)
+    // The trial ran out since the snapshot: full price, whatever it said.
+    #expect(Plan(status: .trial, trialEndsAt: ms - 1, unlockPrice: 500).price(now: now) == 1000)
+    #expect(Plan(status: .expired, trialEndsAt: ms - 1, unlockPrice: 1000).price(now: now) == 1000)
+    #expect(Plan.format(cents: 500) == "$5")
+    #expect(Plan.format(cents: 1000) == "$10")
+    #expect(Plan.format(cents: 499) == "$4.99")
+  }
+
   @Test func decodesEvents() throws {
     let events = try JSONDecoder().decode([ServerEvent].self, from: fixture("events"))
     guard case let .tap(first) = events[0] else { Issue.record("expected a tap"); return }

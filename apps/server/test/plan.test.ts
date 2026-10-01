@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { FULL_PRICE_CENTS, TRIAL_PRICE_CENTS } from "@shouldertap/domain";
 import * as Effect from "effect/Effect";
 
 import { planOf, requireActivePlan, TRIAL_MS } from "../src/plan";
@@ -26,10 +27,21 @@ describe("planOf", () => {
     expect(planOf(undefined, NOW)).toEqual({
       status: "trial",
       trialEndsAt: NOW + TRIAL_MS,
+      unlockPrice: TRIAL_PRICE_CENTS,
     });
     expect(planOf({ trialEndsAt: null, paidAt: null }, NOW).status).toBe(
       "trial"
     );
+  });
+});
+
+describe("unlock price", () => {
+  test("is the trial price during the trial and the full price after", () => {
+    const row = { trialEndsAt: NOW + 1000, paidAt: null };
+    expect(planOf(row, NOW).unlockPrice).toBe(TRIAL_PRICE_CENTS);
+    expect(planOf(row, NOW + 1000).unlockPrice).toBe(FULL_PRICE_CENTS);
+    expect(TRIAL_PRICE_CENTS).toBe(500);
+    expect(FULL_PRICE_CENTS).toBe(1000);
   });
 });
 
