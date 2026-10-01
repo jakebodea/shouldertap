@@ -18,11 +18,9 @@ const STEPS = [
     title: "Install",
     body: "Open Shouldertap.dmg and drag Shouldertap into Applications.",
   },
-  // Builds aren't notarized yet (no Developer ID), so Gatekeeper blocks the
-  // first open. Drop this step once scripts/release-mac.sh ships notarized builds.
   {
-    title: "Allow it once",
-    body: "Open Shouldertap from Applications. When macOS says it can't check it, choose Done, then go to System Settings › Privacy & Security, scroll down, and click Open Anyway.",
+    title: "Open it",
+    body: "Open Shouldertap from Applications and choose Open when macOS asks. It's signed and notarized by Apple, so that's the only prompt.",
   },
   {
     title: "Invite someone",
