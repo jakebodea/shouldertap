@@ -112,7 +112,9 @@ Archive, sign for App Store distribution (team `6C46GY4Z38`, automatic signing t
 scripts/release-ios.sh
 ```
 
-The version is `MARKETING_VERSION` and the build number `CURRENT_PROJECT_VERSION` in the Xcode project. Each upload needs a higher build number than the last for that version, so bump it before releasing (a new version starts again at 1). `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
+Or label a pull request `release:beta`: when it merges, `.github/workflows/testflight.yml` runs the same script on a macOS runner from the merged `main` and comments the build number on the PR. Actions > TestFlight > Run workflow releases `main` on demand. CI signs with an App Store Connect API key (Admin role, so it can create the distribution certificate) from Infisical `prod`: `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (the `.p8` file's contents).
+
+The version is `MARKETING_VERSION` in the Xcode project; bump it for a new version. The build number is the commit count (`git rev-list --count HEAD`), so it rises with every commit on `main` and needs no bumping; set `BUILD_NUMBER` to override. Releasing the same commit twice fails, since App Store Connect rejects a repeated build number. `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
 
 ## Release the Mac app
 
