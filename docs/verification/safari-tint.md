@@ -2,6 +2,16 @@
 
 Tested with Safari in the iPhone 17 Pro simulator running iOS 26.3.1.
 
+The native screenshots below verify revision `f81f7d2`, before the synchronized
+edge animation was added. The new animation passes 24 Playwright checks, but
+its native Safari verification is pending because Simulator UI access is
+blocked by the Mac lock screen.
+
+The animation uses narrow fixed surfaces at each viewport edge. Their solid
+colors blend according to how much of that edge the circle has covered. Both
+read the wipe's actual eased radius, so there is no separate duration or timer.
+The absolute page shell and the reduced-motion behavior remain in place.
+
 The initial PR updated the document backgrounds correctly, but native Safari
 retained the initial moss tint for the fixed page shell. The native screenshot
 checker failed with:

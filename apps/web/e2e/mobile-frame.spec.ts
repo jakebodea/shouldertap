@@ -46,6 +46,14 @@ test("every reply transition updates both document edges and wraps to moss", asy
           )
       )
       .toBe(scene.hex);
+    await expect(page.locator(".wipe-edge-top")).toHaveCSS(
+      "background-color",
+      scene.color
+    );
+    await expect(page.locator(".wipe-edge-bottom")).toHaveCSS(
+      "background-color",
+      scene.color
+    );
     await testInfo.attach(`frame-${scene.hex.slice(1)}`, {
       body: await page.screenshot(),
       contentType: "image/png",
@@ -120,7 +128,7 @@ test("the color sources stay current halfway through the animated wipe", async (
     }
   });
   await expectFrame(page, scenes[1]);
-  const wipe = page.locator('.landing-frame > [aria-hidden="true"]');
+  const wipe = page.locator(".landing-frame > .frame-fill");
   await expect(wipe).toHaveCSS("position", "absolute");
   await expect(wipe).toHaveCSS("background-color", scenes[1].color);
   await expect(wipe).toHaveCSS("background-image", RADIAL_GRADIENT);
@@ -132,6 +140,62 @@ test("the color sources stay current halfway through the animated wipe", async (
     body: await page.screenshot(),
     contentType: "image/png",
   });
+});
+
+test("browser edge tints follow the same paused circle, top before bottom", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expectFrame(page, scenes[0]);
+  await page.keyboard.press("1");
+  await page.locator(".landing-frame").evaluate((frame) => {
+    const [animation] = frame.getAnimations();
+    if (!animation) {
+      throw new Error("Missing wipe animation");
+    }
+    animation.pause();
+    animation.currentTime = 250;
+  });
+  const edges = await page.locator(".landing-frame").evaluate((frame) => {
+    const radius = Number.parseFloat(
+      getComputedStyle(frame).getPropertyValue("--wipe")
+    );
+    const { width, height } = frame.getBoundingClientRect();
+    const colorAt = (y: number) => {
+      const coverage =
+        radius <= y ? 0 : Math.min(1, Math.sqrt(radius ** 2 - y ** 2) / width);
+      const from = [31, 90, 61];
+      const to = [35, 64, 200];
+      return `rgb(${from.map((channel, i) => Math.round(channel + ((to[i] ?? 0) - channel) * coverage)).join(", ")})`;
+    };
+    return { top: colorAt(0), bottom: colorAt(height), radius, height };
+  });
+  expect(edges.radius).toBeGreaterThan(0);
+  expect(edges.radius).toBeLessThan(edges.height);
+  expect(edges.top).not.toBe(scenes[0].color);
+  expect(edges.top).not.toBe(scenes[1].color);
+  expect(edges.bottom).toBe(scenes[0].color);
+  await expect(page.locator(".wipe-edge-top")).toHaveCSS(
+    "background-color",
+    edges.top
+  );
+  await expect(page.locator(".wipe-edge-bottom")).toHaveCSS(
+    "background-color",
+    edges.bottom
+  );
+  // A separate 700ms timer would keep changing even though the wipe is paused.
+  await page.waitForTimeout(800);
+  await expect(page.locator(".wipe-edge-top")).toHaveCSS(
+    "background-color",
+    edges.top
+  );
+  await page.locator(".landing-frame").evaluate((frame) => {
+    frame.getAnimations()[0]?.play();
+  });
+  await expect(page.locator(".wipe-edge-bottom")).toHaveCSS(
+    "background-color",
+    scenes[1].color
+  );
 });
 
 test("rapid replies and viewport changes keep the latest edge color", async ({
@@ -148,6 +212,10 @@ test("rapid replies and viewport changes keep the latest edge color", async ({
   await expectFrame(page, scenes[3]);
   await page.setViewportSize({ width: 390, height: 600 });
   await expectFrame(page, scenes[3]);
+  await expect(page.locator(".wipe-edge-bottom")).toHaveCSS(
+    "background-color",
+    scenes[3].color
+  );
 });
 
 test("reduced motion updates edges immediately and navigation gets the new frame", async ({

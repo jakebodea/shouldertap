@@ -14,6 +14,11 @@ landscape, a smaller viewport, and navigation. It asserts that the absolute
 frame, both document backgrounds, and both theme-color tags track the current
 scene. The HTML report includes screenshots during and after transitions.
 
+The edge animation tests pause the actual wipe at 250ms, verify a blended top
+color and an unchanged bottom color, then wait past the full duration to ensure
+the tints stay paused. Resuming the wipe must finish both edges in the new color.
+Separate circle-intersection tests cover the top/bottom ordering and geometry.
+
 ## Native Safari regression
 
 On iOS 26.3, even a minimal fixed solid-color element retains its initial tint
@@ -41,7 +46,8 @@ on an actual iPhone against the changed build:
 
 1. Reload the landing page. Let it cycle moss → cobalt → rose → ochre → moss
    twice. Both top and bottom areas should follow each color rather than retain
-   moss. Watch the transitions as well as the settled colors.
+   moss. During each wipe, the top should blend first; the bottom should hold
+   the old color until the circle reaches it, then blend to the new color.
 2. Tap **On it** repeatedly, including twice before a wipe finishes. The bars
    should end on the same color as the current scene.
 3. Scroll inside the paper page to show/collapse Safari's toolbar, then rotate

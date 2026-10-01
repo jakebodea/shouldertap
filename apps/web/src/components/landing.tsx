@@ -20,6 +20,7 @@ import {
 import { InkIcon, InkMark, InkText } from "@/components/ink";
 import { Mark, Wordmark } from "@/components/mark";
 import { Swept } from "@/components/swept";
+import { WipeEdges } from "@/components/wipe-edges";
 import { useThemeColor } from "@/lib/frame";
 import { loadPairing } from "@/lib/pairing";
 
@@ -163,6 +164,11 @@ export function Landing() {
         } as CSSProperties
       }
     >
+      <WipeEdges
+        frame={rootRef}
+        from={swatches[from].base}
+        to={swatches[scene.color].base}
+      />
       <div
         aria-hidden="true"
         className="frame-fill pointer-events-none absolute inset-0"
