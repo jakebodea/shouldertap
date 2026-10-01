@@ -17,4 +17,7 @@ enum Config {
       return URL(string: "https://api.shouldertap.app")!
     #endif
   }()
+
+  /// Where the Mac app comes from, for the person being tapped.
+  static let macDownloadPage = URL(string: "https://shouldertap.app/download")!
 }

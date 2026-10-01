@@ -21,19 +21,24 @@ final class DemoTests: XCTestCase {
     let app = XCUIApplication()
     app.launch()
 
-    let inviteField = app.textFields["invite-field"]
-    XCTAssertTrue(inviteField.waitForExistence(timeout: 10), "Expected the pairing screen")
+    XCTAssertTrue(app.buttons["welcome-start"].waitForExistence(timeout: 10), "Expected the welcome screen")
     if let url = URL(string: invite), url.scheme == "shouldertap" {
       // Exercise onOpenURL, confirming the system's "Open in Shouldertap?".
       app.open(url)
       let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
       let open = springboard.buttons["Open"]
       if open.waitForExistence(timeout: 3) { open.tap() }
-      XCTAssertTrue(app.staticTexts["You're invited"].waitForExistence(timeout: 5))
     } else {
+      // Walk the onboarding: welcome, the Mac app, then paste the link.
+      app.buttons["welcome-start"].tap()
+      app.buttons["mac-next"].tap()
+      let inviteField = app.textFields["invite-field"]
+      XCTAssertTrue(inviteField.waitForExistence(timeout: 5))
       inviteField.tap()
       inviteField.typeText(invite)
+      app.buttons["invite-continue"].tap()
     }
+    XCTAssertTrue(app.staticTexts["You're invited"].waitForExistence(timeout: 5))
 
     let nameField = app.textFields["name-field"]
     nameField.tap()
@@ -43,9 +48,10 @@ final class DemoTests: XCTestCase {
     nameField.typeText(name)
     app.buttons["color-\(color)"].tap()
 
-    let pair = app.buttons["pair-button"]
-    if !pair.isHittable { app.swipeUp() }
-    pair.tap()
+    app.buttons["pair-button"].tap()
+    let done = app.buttons["paired-done"]
+    XCTAssertTrue(done.waitForExistence(timeout: 10), "Expected the paired screen")
+    done.tap()
 
     // A vertical-axis TextField surfaces as a text view.
     let field = app.descendants(matching: .any)["tap-field"]

@@ -19,32 +19,46 @@ struct ShouldertapApp: App {
   }
 }
 
-/// Which screen: pairing until there is a recipient, then the composer for
-/// the selected recipient. Invite links open the pairing sheet.
+/// Which screen: the pairing flow until this phone has someone to tap (and
+/// has seen the "paired" screen), then the composer for the selected person.
+/// Both sit in one frame, so its color floods from one to the other. Invite
+/// links open the flow straight at name and color.
 struct RootView: View {
   let store: SenderStore
   @AppStorage("selectedPairing") private var selectedId = ""
-  @State private var invite: InviteRequest?
+  @State private var onboarding: Bool
+  @State private var flowColor = PersonColor.cobalt
   @State private var firstInvite = ""
+  @State private var invite: InviteRequest?
   @Environment(\.scenePhase) private var scenePhase
   @State private var wasBackground = false
 
+  init(store: SenderStore) {
+    self.store = store
+    _onboarding = State(initialValue: store.sessions.isEmpty)
+  }
+
   var body: some View {
-    Group {
-      if let session = selected {
+    Frame(color: composing?.color ?? flowColor) {
+      if let session = composing {
         ComposeView(
           session: session, store: store,
-          onSelect: { selectedId = $0 },
-          onAdd: { invite = InviteRequest(text: "") })
-          .id(session.id)
+          onSelect: { id in withAnimation(.outExpo(0.5)) { selectedId = id } },
+          onAdd: { invite = InviteRequest(text: "") }
+        )
+        .transition(.opacity)
       } else {
-        PairView(store: store, invite: firstInvite) { selectedId = $0.id }
-          .id(firstInvite)
+        PairFlow(store: store, invite: firstInvite, firstRun: true, color: $flowColor) { id in
+          selectedId = id
+          withAnimation(.outExpo(0.6)) { onboarding = false }
+        }
+        .id(firstInvite)
+        .transition(.opacity)
       }
     }
-    .sheet(item: $invite) { request in
-      PairView(store: store, invite: request.text, isSheet: true) { session in
-        selectedId = session.id
+    .fullScreenCover(item: $invite) { request in
+      PairCover(store: store, invite: request.text, onCancel: { invite = nil }) { id in
+        selectedId = id
         invite = nil
       }
     }
@@ -57,11 +71,16 @@ struct RootView: View {
     // once universal links (apple-app-site-association) are set up.
     .onOpenURL { url in
       guard inviteCode(from: url.absoluteString) != nil else { return }
-      if store.sessions.isEmpty {
+      if composing == nil {
         firstInvite = url.absoluteString
       } else {
         invite = InviteRequest(text: url.absoluteString)
       }
+    }
+    .onChange(of: store.sessions.isEmpty) { _, empty in
+      guard empty else { return }
+      firstInvite = ""
+      withAnimation(.outExpo(0.6)) { onboarding = true }
     }
     .onChange(of: scenePhase) { _, phase in
       switch phase {
@@ -74,8 +93,10 @@ struct RootView: View {
     }
   }
 
-  private var selected: SenderSession? {
-    store.session(id: selectedId) ?? store.sessions.last
+  /// The person being tapped, once onboarding is done.
+  private var composing: SenderSession? {
+    guard !onboarding else { return nil }
+    return store.session(id: selectedId) ?? store.sessions.last
   }
 }
 
