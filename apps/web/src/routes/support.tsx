@@ -25,18 +25,19 @@ function SupportComponent() {
       <DocSection title="How do I pair someone's phone?">
         <p>
           On your Mac, click the Shouldertap mark in the menu bar and choose
-          Invite someone. They scan the QR code with their iPhone camera (or you
-          send them the link), it opens in Safari, and they enter their name,
-          pick a color, and tap Pair this phone. Each invite works once and
-          expires after 7 days.
+          Invite someone. In the iPhone app, choose “I have an invite” and scan
+          that QR code or paste the link you send them. They enter a name, pick
+          a color, and pair. They can also open the link in Safari to use the
+          web sender. Each invite works once and expires after 7 days.
         </p>
       </DocSection>
 
       <DocSection title="Can one phone tap more than one person?">
         <p>
-          Yes. In Shouldertap on your phone, tap the name at the top and choose
-          Add someone, then scan the QR code on their Mac or paste the invite
-          link they sent. Tap the name again to switch between people.
+          Yes. In the iPhone app, tap the person-with-plus button at the top to
+          add someone, then scan the QR code on their Mac or paste the invite
+          link they sent. Tap a recipient’s avatar to switch between people. In
+          Safari, tap the name at the top and choose Add someone.
         </p>
       </DocSection>
 
@@ -51,10 +52,11 @@ function SupportComponent() {
 
       <DocSection title="My phone forgot the pairing. How do I re-pair?">
         <p>
-          The pairing lives in Safari's website data, so clearing it, using a
-          Private tab, or switching phones means starting over. Ask the person
-          you tap for a new invite and pair again. They can remove your old
-          entry from their menu bar so it doesn't linger.
+          The iPhone app keeps pairing keys in the iOS Keychain; the web sender
+          keeps its pairing in Safari’s website data. Clearing Safari data or
+          using a Private tab can remove the web pairing. If a pairing is
+          missing or you switch phones, ask for a new invite and pair again. The
+          recipient can remove your old entry from their Mac menu bar.
         </p>
       </DocSection>
 
