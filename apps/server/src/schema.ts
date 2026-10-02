@@ -1,5 +1,6 @@
 import type {
   CredentialKind,
+  DevicePlatform,
   PersonColor,
   TapResponse,
   TapState,
@@ -27,13 +28,15 @@ export const inbox = sqliteTable("inbox", {
   purchaseEmail: text("purchase_email"),
 });
 
-/** Paired Macs ("device") and trusted senders ("sender"). */
+/** Linked Macs and iPhones ("device") and trusted senders ("sender"). */
 export const credentials = sqliteTable("credentials", {
   id: text("id").primaryKey(),
   kind: text("kind").$type<CredentialKind>().notNull(),
   name: text("name").notNull(),
-  /** Senders pick a frame color when they pair; Macs have none. */
+  /** Senders pick a frame color when they pair; devices have none. */
   color: text("color").$type<PersonColor>(),
+  /** Devices only: a Mac or an iPhone. Null for senders. */
+  platform: text("platform").$type<DevicePlatform>(),
   secretHash: text("secret_hash").notNull(),
   createdAt: integer("created_at").notNull(),
   lastSeenAt: integer("last_seen_at"),

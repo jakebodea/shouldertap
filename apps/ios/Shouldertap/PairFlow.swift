@@ -198,6 +198,7 @@ private struct WelcomeStep: View {
 
   @State private var sample = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.inboxActions) private var actions
 
   private static let samples: [(name: String, color: PersonColor, message: String)] = [
     ("Mom", .cobalt, "Dinner's ready"),
@@ -238,6 +239,10 @@ private struct WelcomeStep: View {
         .buttonStyle(PillStyle(color: color))
         .accessibilityIdentifier("welcome-start")
         .arrive(after: 0.56)
+      Button("I use Shouldertap on my Mac", action: actions.link)
+        .buttonStyle(QuietStyle())
+        .accessibilityIdentifier("welcome-link")
+        .arrive(after: 0.62)
     }
     .onAppear { color = current.color }
     .task {
@@ -810,7 +815,7 @@ private struct PairedStep: View {
 
 // MARK: Pieces
 
-private struct StepHeader: View {
+struct StepHeader: View {
   let title: String
   let text: String
 
@@ -829,7 +834,7 @@ private struct StepHeader: View {
 }
 
 /// Numbered instructions, the number in a circle of the sender's color.
-private struct NumberedSteps: View {
+struct NumberedSteps: View {
   let color: PersonColor
   var active: Int?
   let steps: [String]

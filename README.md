@@ -6,7 +6,7 @@ A trusted person can send a message that appears across your connected computer 
 
 ## What v0 does
 
-1. **Pair**: the Mac app creates your inbox on first launch. "Create invite link" shows a QR code and link for a sender's phone; "Add another Mac" gives a one-time code for your other Macs.
+1. **Pair**: the Mac app creates your inbox on first launch. "Create invite link" shows a QR code and link for a sender's phone; "Add a Mac or iPhone" gives a one-time code for your other Macs, and a QR code that links your iPhone to manage the inbox (invite and remove people, see devices and recent taps).
 2. **Send**: the sender opens the link in Safari, enters their name, picks a color, and sends a tap. Unpaired visitors to the site see the landing page.
 3. **Pause**: every paired Mac covers every display with the message, above full-screen apps and on every Space.
 4. **Respond**: On it, In 10 min, or a typed reply. The overlay is framed in the sender's color. Answering on one Mac dismisses it on all of them.

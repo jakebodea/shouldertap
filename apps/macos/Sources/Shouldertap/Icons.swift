@@ -4,7 +4,7 @@ import SwiftUI
 /// drawn from their original 24×24 path data so they match the web exactly
 /// without shipping an icon library.
 enum Icon: CaseIterable {
-  case onIt, in10, reply, send, back, invite, mac, addMac, remove, copy, close
+  case onIt, in10, reply, send, back, invite, mac, phone, addMac, remove, copy, close
 
   fileprivate var svg: [String] {
     switch self {
@@ -31,6 +31,12 @@ enum Icon: CaseIterable {
       [
         "M14 21H16M14 21C13.1716 21 12.5 20.3284 12.5 19.5V17L12 17M14 21H10M10 21H8M10 21C10.8284 21 11.5 20.3284 11.5 19.5V17L12 17M12 17V21",
         "M16 3H8C5.17157 3 3.75736 3 2.87868 3.87868C2 4.75736 2 6.17157 2 9V11C2 13.8284 2 15.2426 2.87868 16.1213C3.75736 17 5.17157 17 8 17H16C18.8284 17 20.2426 17 21.1213 16.1213C22 15.2426 22 13.8284 22 11V9C22 6.17157 22 4.75736 21.1213 3.87868C20.2426 3 18.8284 3 16 3Z",
+      ]
+    case .phone:
+      [
+        "M5 9C5 5.70017 5 4.05025 6.02513 3.02513C7.05025 2 8.70017 2 12 2C15.2998 2 16.9497 2 17.9749 3.02513C19 4.05025 19 5.70017 19 9V15C19 18.2998 19 19.9497 17.9749 20.9749C16.9497 22 15.2998 22 12 22C8.70017 22 7.05025 22 6.02513 20.9749C5 19.9497 5 18.2998 5 15V9Z",
+        "M11 19H13",
+        "M9 2L9.089 2.53402C9.28188 3.69129 9.37832 4.26993 9.77519 4.62204C10.1892 4.98934 10.7761 5 12 5C13.2239 5 13.8108 4.98934 14.2248 4.62204C14.6217 4.26993 14.7181 3.69129 14.911 2.53402L15 2",
       ]
     case .addMac:
       [

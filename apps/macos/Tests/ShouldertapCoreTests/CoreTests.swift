@@ -55,6 +55,9 @@ private func fixture(_ name: String) throws -> Data {
     #expect(snapshot.taps.first?.response == TapResponse(kind: .text, text: "Coming"))
     #expect(snapshot.credentials.contains { $0.kind == .sender && $0.color == .rose })
     #expect(snapshot.credentials.contains { $0.kind == .device && $0.color == nil })
+    // A device without a platform (older server) is a Mac.
+    #expect(snapshot.credentials.first { $0.id == "dev1" }?.devicePlatform == .mac)
+    #expect(snapshot.credentials.first { $0.id == "dev2" }?.devicePlatform == .iphone)
     #expect(snapshot.plan == Plan(status: .trial, trialEndsAt: 1_791_990_000_000))
   }
 

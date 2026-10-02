@@ -71,12 +71,14 @@ private let ackedTap = #"{"id":"t1","senderId":"s1","senderName":"Rosa","senderC
 
 @MainActor
 private func makeStore(
-  persistence: MemoryPersistence, machine: String? = nil, handler: @escaping StubProtocol.Handler
+  persistence: MemoryPersistence, platform: DevicePlatform = .mac, machine: String? = nil,
+  handler: @escaping StubProtocol.Handler
 ) -> ReceiverStore {
   ReceiverStore(
     endpoints: Endpoints(server: URL(string: "https://api.test")!, web: URL(string: "https://web.test")!),
     persistence: persistence,
-    deviceName: { "Test Mac" },
+    deviceName: { platform == .mac ? "Test Mac" : "iPhone" },
+    platform: platform,
     machine: { machine },
     session: StubProtocol.session(handler),
     ackRetryDelay: .milliseconds(50))
@@ -217,6 +219,40 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     var expected = ["recipientName": "Jake", "deviceName": "Test Mac"]
     expected["machine"] = machine
     #expect(sent.body == expected)
+  }
+
+  @Test func anIPhoneLinksAsAnIPhone() async throws {
+    let sent = Sent()
+    let persistence = MemoryPersistence()
+    let store = makeStore(persistence: persistence, platform: .iphone) { request in
+      guard request.url!.path == "/v1/invites/redeem" else { return (503, "") }
+      sent.body = jsonBody(request)
+      return (201, #"{"kind":"device","credentialId":"c2","token":"inbox.c2.secret","recipientName":"Jake"}"#)
+    }
+    store.start()
+    try await store.join(code: " inbox.code1234.secret12 ")
+    #expect(sent.body == ["code": "inbox.code1234.secret12", "name": "iPhone", "platform": "iphone"])
+    #expect(persistence.loadCredential() == "inbox.c2.secret")
+    #expect(store.phase == .ready)
+  }
+
+  /// The server keeps the last Mac while an iPhone is linked; so does the Mac.
+  @Test func refusedSelfRemovalKeepsThePairing() async throws {
+    let persistence = MemoryPersistence(credential: "inbox.dev1.secret")
+    let store = makeStore(persistence: persistence) { request in
+      switch request.url!.path {
+      case "/v1/me": (200, String(decoding: try! fixture("snapshot"), as: UTF8.self))
+      case "/v1/credentials/dev1":
+        (409, #"{"_tag":"Conflict","message":"This is the only Mac on this inbox."}"#)
+      default: (503, "")
+      }
+    }
+    store.start()
+    store.refresh()
+    #expect(await eventually { store.credentialId == "dev1" })
+    await #expect(throws: APIError.self) { try await store.revoke(credentialId: "dev1") }
+    #expect(store.phase == .ready)
+    #expect(persistence.loadCredential() == "inbox.dev1.secret")
   }
 }
 

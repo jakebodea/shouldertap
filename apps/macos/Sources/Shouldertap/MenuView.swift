@@ -113,7 +113,7 @@ private struct ReadyView: View {
 
   var body: some View {
     let senders = store.credentials.filter { $0.kind == .sender }
-    let macs = store.credentials.filter { $0.kind == .device }
+    let devices = store.credentials.filter { $0.kind == .device }
     VStack(alignment: .leading, spacing: 16) {
       Brand(subtitle: subtitle) {
         StatusLabel(status: store.status)
@@ -133,9 +133,9 @@ private struct ReadyView: View {
         }
       }
 
-      Section(title: "Your Macs") {
-        ForEach(macs) { PairingRow(store: store, credential: $0, isSelf: $0.id == store.credentialId) }
-        AddMac(store: store)
+      Section(title: "Your devices") {
+        ForEach(devices) { PairingRow(store: store, credential: $0, isSelf: $0.id == store.credentialId) }
+        AddDevice(store: store)
       }
 
       Section(title: "Recent") {
@@ -352,7 +352,10 @@ private struct InviteSender: View {
   }
 }
 
-private struct AddMac: View {
+/// Another Mac pastes the code; an iPhone scans the QR code, which opens
+/// Shouldertap on it (`shouldertap://link#<code>`, the code in the fragment
+/// like invite links).
+private struct AddDevice: View {
   let store: ReceiverStore
   @State private var code: String?
   @State private var copied = false
@@ -361,8 +364,18 @@ private struct AddMac: View {
   var body: some View {
     if let code {
       Card {
-        Muted("On your other Mac, open Shouldertap and paste this code. It expires in 15 minutes.")
-          .multilineTextAlignment(.center)
+        if let qr = QRCode.image(for: "shouldertap://link#\(code)") {
+          Image(nsImage: qr)
+            .interpolation(.none)
+            .resizable()
+            .frame(width: 148, height: 148)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .accessibilityLabel("QR code to link your iPhone")
+        }
+        Muted(
+          "Scan with your iPhone's camera to link it, or paste the code into Shouldertap on another Mac. It works once and expires in 15 minutes."
+        )
+        .multilineTextAlignment(.center)
         Mono(code, lines: 3)
         HStack(spacing: 8) {
           MenuButton(title: copied ? "Copied" : "Copy code", icon: .copy, kind: .primary) {
@@ -384,7 +397,7 @@ private struct AddMac: View {
         }
       }) { _ in
         Glyph(icon: .addMac)
-        Text("Add another Mac").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+        Text("Add a Mac or iPhone").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
       }
       if let error { ErrorText(error) }
     }
@@ -403,7 +416,7 @@ private struct PairingRow: View {
       if credential.kind == .sender {
         Avatar(name: credential.name, color: credential.swatchColor)
       } else {
-        Glyph(icon: .mac)
+        Glyph(icon: credential.devicePlatform == .iphone ? .phone : .mac)
       }
       VStack(alignment: .leading, spacing: 1) {
         Text(credential.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
@@ -436,7 +449,8 @@ private struct PairingRow: View {
 
   private var status: String {
     if isSelf { return "This Mac" }
-    return credential.lastSeenAt.map { "Active \(ago($0))" } ?? "Paired"
+    let seen = credential.lastSeenAt.map { "Active \(ago($0))" } ?? "Paired"
+    return credential.kind == .device && credential.devicePlatform == .iphone ? "iPhone · \(seen)" : seen
   }
 }
 

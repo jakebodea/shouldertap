@@ -93,7 +93,7 @@ const tapEvent = (id: string, state?: Tap["state"]) => (event: ServerEvent) =>
   (state === undefined || event.tap.state === state);
 
 test(
-  "pairs devices and senders with one-time invites",
+  "pairs devices and senders with one-time invites, and links iPhones",
   Effect.gen(function* () {
     const url = (yield* stack).server;
     yield* Test.getWhenReady(url);
@@ -143,6 +143,57 @@ test(
       .createCheckout()
       .pipe(Effect.flip);
     expect(checkout._tag).toBe("Unavailable");
+
+    // An iPhone links with the same device invite and manages the inbox, but
+    // can't leave it without a Mac. (Shares this inbox: tests stay under the
+    // per-network inbox creation limit.)
+    const mac = yield* client(url, macA.token);
+    const { code } = yield* mac.inbox.createInvite({
+      payload: { kind: "device" },
+    });
+    const phoneGrant = yield* anon.pairing.redeemInvite({
+      payload: { code, name: "iPhone", platform: "iphone" },
+    });
+    expect(phoneGrant.kind).toBe("device");
+    const phone = yield* client(url, phoneGrant.token);
+
+    // Devices carry their platform; Macs that don't say are Macs.
+    const linked = yield* phone.inbox.me();
+    const platforms =
+      linked.kind === "device"
+        ? linked.credentials.map((c) => [c.name, c.platform])
+        : [];
+    expect(platforms).toContainEqual(["Studio Mac", "mac"]);
+    expect(platforms).toContainEqual(["Laptop", "mac"]);
+    expect(platforms).toContainEqual(["iPhone", "iphone"]);
+    expect(platforms).toContainEqual(["Sam", null]);
+
+    // The iPhone manages people like a Mac does.
+    const invite = yield* phone.inbox.createInvite({
+      payload: { kind: "sender" },
+    });
+    const ari = yield* anon.pairing.redeemInvite({
+      payload: { code: invite.code, name: "Ari", color: "plum" },
+    });
+    yield* phone.inbox.revoke({ params: { id: ari.credentialId } });
+    yield* phone.inbox.revoke({ params: { id: macB.credentialId } });
+
+    // One Mac left: neither the iPhone nor the Mac itself can remove it…
+    const fromPhone = yield* phone.inbox
+      .revoke({ params: { id: macA.credentialId } })
+      .pipe(Effect.flip);
+    expect(fromPhone._tag).toBe("Conflict");
+    const fromMac = yield* mac.inbox
+      .revoke({ params: { id: macA.credentialId } })
+      .pipe(Effect.flip);
+    expect(fromMac._tag).toBe("Conflict");
+    expect(fromMac.message).toContain("only Mac");
+
+    // …until the iPhone is gone; then the last device can go as before.
+    yield* phone.inbox.revoke({ params: { id: phoneGrant.credentialId } });
+    const unlinked = yield* phone.inbox.me().pipe(Effect.flip);
+    expect(unlinked._tag).toBe("Unauthorized");
+    yield* mac.inbox.revoke({ params: { id: macA.credentialId } });
   }),
   { timeout: 60_000 }
 );
@@ -319,7 +370,7 @@ test(
 );
 
 test(
-  "caps an inbox at 20 senders and 10 Macs",
+  "caps an inbox at 20 senders and 10 devices",
   Effect.gen(function* () {
     const url = (yield* stack).server;
     const { anon, macA } = yield* pairedInbox(url);
@@ -362,7 +413,7 @@ test(
     );
     const tooManyMacs = yield* invite("device").pipe(Effect.flip);
     expect(tooManyMacs._tag).toBe("Conflict");
-    expect(tooManyMacs.message).toContain("10 Macs");
+    expect(tooManyMacs.message).toContain("10 devices");
     expect(fullInvite.message).toContain("Remove someone");
   }),
   { timeout: 120_000 }
