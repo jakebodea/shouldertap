@@ -32,6 +32,7 @@ struct RootView: View {
   @State private var invite: InviteRequest?
   @Environment(\.scenePhase) private var scenePhase
   @State private var wasBackground = false
+  @State private var incoming = IncomingTaps.shared
 
   init(store: SenderStore) {
     self.store = store
@@ -67,9 +68,17 @@ struct RootView: View {
     ) {
       Button("OK", role: .cancel) {}
     }
+    // An incoming tap covers everything, like the Mac overlay.
+    .overlay {
+      if let tap = incoming.current {
+        TapTakeover(taps: incoming, tap: tap)
+          .transition(.opacity)
+      }
+    }
     // shouldertap://join#<code> now; https://shouldertap.app/join#<code>
     // once universal links (apple-app-site-association) are set up.
     .onOpenURL { url in
+      if incoming.handle(url) { return }
       guard inviteCode(from: url.absoluteString) != nil else { return }
       if composing == nil {
         firstInvite = url.absoluteString
