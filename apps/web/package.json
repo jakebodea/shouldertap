@@ -10,7 +10,6 @@
     "render:share-images": "bun scripts/render-share-images.ts",
     "serve": "vite preview",
     "start": "vite",
-    "test": "bun test src",
     "test:e2e": "playwright test"
   },
   "dependencies": {

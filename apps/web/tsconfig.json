@@ -13,6 +13,5 @@
       "@/*": ["./src/*"],
       "@shouldertap/ui/*": ["../../packages/ui/src/*"]
     }
-  },
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+  }
 }
