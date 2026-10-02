@@ -80,6 +80,8 @@ struct HelpView: View {
         Button("OK", role: .cancel) {}
       } message: { Text(error ?? "") }
     }
+    // Sheets inherit the frame bar's ink; use the sheet's own appearance.
+    .foregroundStyle(Color.primary)
   }
 }
 
@@ -96,6 +98,7 @@ struct SampleTapView: View {
         Label("Sample · no message is sent", systemImage: "sparkles")
           .font(.subheadline).foregroundStyle(.secondary)
         Text("Tap Jamie").font(Bricolage.extraBold(34))
+          .accessibilityIdentifier("sample-title")
         TextField("Your message", text: $message, axis: .vertical)
           .lineLimit(2...4).field()
           .accessibilityIdentifier("sample-message")
