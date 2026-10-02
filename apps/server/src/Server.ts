@@ -193,6 +193,11 @@ export default class Server extends Cloudflare.Worker<Server>()(
             stub.revoke(token, params.id)
           )
         )
+        .handle("deleteSender", () =>
+          Effect.flatMap(forCaller, ({ token, stub }) =>
+            stub.deleteSender(token)
+          )
+        )
         .handle("createCheckout", () =>
           Effect.gen(function* () {
             const { token, stub } = yield* forCaller;

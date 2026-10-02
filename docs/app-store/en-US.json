@@ -1,0 +1,14 @@
+{
+  "name": "Shouldertap for iPhone",
+  "subtitle": "A tap they'll see on their Mac",
+  "promotionalText": "Send a short message to someone you've paired with. See when it reaches their Mac screen, then see their answer in Shouldertap.",
+  "description": "Tap someone on the shoulder from your iPhone.\n\nShouldertap sends a short message to someone who has invited you from their Mac. It appears over their connected Mac displays until they answer. You can see when your message reaches their screen and read their reply in the app.\n\nPAIR WITH PEOPLE YOU KNOW\nScan the invite QR code on their Mac or paste their invite link. Choose your name and color, then you're ready to send a tap. Only invited people can send messages.\n\nCLOSE THE LOOP\nFollow each tap from sent to on screen to answered. They can reply On it, In 10 min, or with a few words. Answering on one Mac dismisses the message across their paired Macs.\n\nKEEP YOUR PEOPLE TOGETHER\nPair with more than one recipient and switch between them. Recent taps and replies stay together for each person.\n\nYOU CONTROL YOUR PAIRINGS\nUnpair to stop contact, report a problem, or delete your sender pairing and message history from Help and privacy.\n\nREQUIRES SHOULDERTAP FOR MAC\nThe person receiving your taps needs Shouldertap for Mac on macOS 14 or later, an internet connection, and an active trial or unlocked inbox. The iPhone app is free for senders. Replies update when you open the app; this version does not send push notifications.\n\nYou can explore a sample tap from Help and privacy before pairing. Shouldertap is intended for everyday communication, not emergencies.",
+  "keywords": "message,mac,attention,reply,acknowledge,family,partner,remote,communication,reminder",
+  "supportUrl": "https://shouldertap.app/support",
+  "marketingUrl": "https://shouldertap.app",
+  "privacyPolicyUrl": "https://shouldertap.app/privacy",
+  "copyright": "2026 Jake Bodea",
+  "releaseType": "MANUAL",
+  "primaryCategory": "UTILITIES",
+  "secondaryCategory": "SOCIAL_NETWORKING"
+}

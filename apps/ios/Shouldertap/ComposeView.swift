@@ -20,7 +20,10 @@ struct ComposeView: View {
         // Knocks each time one of your taps reaches their screen.
         Wordmark(knock: session.taps.filter { $0.displayedAt != nil }.count)
       } trailing: {
-        people
+        HStack(spacing: 6) {
+          people
+          HelpButton(store: store)
+        }
       }
       ZStack {
         ComposerPage(session: session)
@@ -177,7 +180,12 @@ private struct ComposerPage: View {
             row { OutboxRow(item: item, color: session.color, session: session) }
           }
           ForEach(session.taps) { tap in
-            row { TapRow(tap: tap, recipient: recipient, color: session.color, now: context.date) }
+            row {
+              TapRow(tap: tap, recipient: recipient, color: session.color, now: context.date)
+                .contextMenu {
+                  Link("Report this tap or reply", destination: reportURL(tap))
+                }
+            }
           }
         }
       }
@@ -198,10 +206,22 @@ private struct ComposerPage: View {
     .transition(.opacity.combined(with: .move(edge: .top)))
   }
 
+  private func reportURL(_ tap: Tap) -> URL {
+    var url = URLComponents()
+    url.scheme = "mailto"
+    url.path = "support@shouldertap.app"
+    url.queryItems = [
+      URLQueryItem(name: "subject", value: "Shouldertap abuse report"),
+      URLQueryItem(name: "body", value: "Tap ID: \(tap.id)\nPairing ID: \(session.id)\n\nDescribe the problem here. Include only information you want to share with support.")
+    ]
+    return url.url!
+  }
+
   private func send() {
     do {
       try withAnimation(.outExpo(0.5)) { try session.send(draft) }
       draft = ""
+      focused = false
       sent += 1
     } catch {
       // The button is disabled for empty drafts and the field caps length.
@@ -326,7 +346,7 @@ struct OutboxRow: View {
         .tracking(-0.4)
       if item.failed {
         HStack(spacing: 8) {
-          Text("Couldn't send")
+          Text(item.error ?? "Couldn't send")
             .font(Bricolage.bold(15))
             .foregroundStyle(.red)
             .frame(maxWidth: .infinity, alignment: .leading)

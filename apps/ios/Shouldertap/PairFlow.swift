@@ -91,6 +91,7 @@ struct PairFlow: View {
         BackButton { go(forward: false) { path.removeLast() } }
       }
     } trailing: {
+      HelpButton(store: store)
       if let step = current?.track ?? (firstRun ? nil : PairStep.invite.track) {
         StepTrack(step: step)
       }
@@ -298,7 +299,7 @@ private struct MacStep: View {
             .background(Paper.paper, in: .rect(cornerRadius: 12, style: .continuous))
           VStack(alignment: .leading, spacing: 2) {
             Text("Shouldertap for Mac").font(Bricolage.bold(17))
-            Text("Free for 7 days, then $5 once").font(Bricolage.medium(14)).foregroundStyle(Paper.tone)
+            Text("macOS 14 or later").font(Bricolage.medium(14)).foregroundStyle(Paper.tone)
           }
         }
         VStack(alignment: .leading, spacing: 4) {

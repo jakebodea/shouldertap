@@ -273,6 +273,34 @@ private func makeStore(_ persistence: MemorySenderPersistence, handler: @escapin
     #expect(store.notice == nil)
   }
 
+  @Test func deletingDataWaitsForServerConfirmation() async throws {
+    let persistence = MemorySenderPersistence(pairings: [pairing()])
+    let deletes = Collected<[String]>()
+    let store = makeStore(persistence) { request in
+      if request.httpMethod == "DELETE" {
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer inbox123.s1s1s1s1.secret5678")
+        deletes.append(request.url!.path)
+        return (200, #"{"deleted":true}"#)
+      }
+      return (503, "")
+    }
+    store.start()
+    try await store.deleteData(id: "s1s1s1s1")
+    #expect(deletes.value == ["/v1/sender"])
+    #expect(store.sessions.isEmpty)
+    #expect(persistence.loadPairings().isEmpty)
+  }
+
+  @Test func failedDeletionPreservesThePairingForRetry() async {
+    let persistence = MemorySenderPersistence(pairings: [pairing()])
+    let store = makeStore(persistence) { _ in (503, "") }
+    store.start()
+    do { try await store.deleteData(id: "s1s1s1s1"); Issue.record("Expected deletion to fail") }
+    catch { }
+    #expect(store.sessions.count == 1)
+    #expect(persistence.loadPairings().count == 1)
+  }
+
   @Test func revokedPairingsAreForgotten() async {
     let persistence = MemorySenderPersistence(pairings: [pairing()])
     let store = makeStore(persistence) { request in

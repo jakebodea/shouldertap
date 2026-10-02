@@ -1,0 +1,19 @@
+Shouldertap for iPhone is the free native sender companion to Shouldertap for Mac. It is private, invite-only communication with known people; there is no public feed or user discovery, and no username/password signup.
+
+EXPLORE WITHOUT A MAC
+Open the information button (Help and privacy) at the top of the welcome screen, then Try a sample tap. Enter a message, send the sample tap, and choose a reply on the clearly labeled sample Mac screen. This is a local walkthrough, available to every user. It does not send messages or simulate a live backend connection.
+
+LIVE END-TO-END USE
+The recipient installs Shouldertap for Mac from https://shouldertap.app/download (macOS 14 or later). In the Mac menu-bar app, set up an inbox and choose Create invite link. On iPhone, choose I have an invite and scan the QR code or paste the link. Choose a name and color, pair, and send a tap. The Mac shows the message across connected displays. Choose On it, In 10 min, or a text reply on the Mac. The answer appears in the iPhone app while it is open; answering on one Mac dismisses the message on the other paired Macs.
+
+REVIEW ACCESS
+Live review requires a Mac. Please use the public Mac download and create a fresh recipient inbox with the steps above. No pre-issued invite or password is needed; creating an inbox starts a seven-day trial so the complete flow is available without payment. Each invite is generated during setup and redeemed immediately. The local walkthrough is explanatory and does not replace the live Mac flow. If a review lasts beyond the trial or you need assisted pairing, contact us and we will arrange access. The current Mac download is Developer ID signed and notarized by Apple.
+
+PRIVACY, SAFETY AND DELETION
+Help and privacy contains support, privacy, terms and reporting links. Press and hold a recent tap to email an abuse report with its tap ID. Sending the report requires the user's action in their mail app. Sender deletion removes that sender's pairing, name, messages and replies from the live server and this phone; other senders are unaffected. Unpairing blocks contact without deleting old messages. Mac recipients can revoke any sender. The server applies a limited filter to threatening and abusive phrases in taps and text replies; reports are handled by support.
+
+PAYMENT MODEL
+The iPhone sender app is free and has no purchase flow, prices, checkout links, or prompts to buy. Recipient inboxes use the separately supplied Mac/web service. When a recipient's trial ends, sending pauses; the iPhone app reports that status without linking to checkout. We believe this is a free companion under guideline 3.1.3(f), subject to App Review's assessment.
+
+LIMITATIONS
+Replies update when the iPhone app is active. This version does not register for push notifications. The recipient must be running the Mac companion for a tap to appear on screen. Shouldertap is not an emergency service.

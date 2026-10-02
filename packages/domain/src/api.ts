@@ -83,7 +83,7 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
       payload: SendTapRequest,
       success: Tap.pipe(created),
       // TooManyRequests: the sender's hourly tap limit.
-      error: [Conflict, TooManyRequests, PaymentRequired],
+      error: [Conflict, TooManyRequests, PaymentRequired, InvalidRequest],
     }),
     HttpApiEndpoint.post("markDisplayed", "/taps/:id/displayed", {
       params: idParams,
@@ -100,6 +100,9 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
       params: idParams,
       success: Schema.Struct({ revoked: Schema.Literal(true) }),
       error: NotFound,
+    }),
+    HttpApiEndpoint.delete("deleteSender", "/sender", {
+      success: Schema.Struct({ deleted: Schema.Literal(true) }),
     }),
     // A Creem checkout for this inbox; Conflict once it's already paid for.
     HttpApiEndpoint.post("createCheckout", "/checkout", {

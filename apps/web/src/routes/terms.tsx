@@ -11,7 +11,7 @@ function TermsComponent() {
   return (
     <DocPage
       effective="October 1, 2026"
-      intro="These terms cover your use of Shouldertap: the website at shouldertap.app, the Mac app, and the servers behind them. Shouldertap is run by Jake Bodea, an individual (“we”, “us”). By using Shouldertap you agree to these terms."
+      intro="These terms cover your use of Shouldertap: the website at shouldertap.app, the Mac and iPhone apps, and the servers behind them. Shouldertap is run by Jake Bodea, an individual (“we”, “us”). By using Shouldertap you agree to these terms."
       title="Terms of Use"
     >
       <DocSection title="The service">
@@ -78,7 +78,9 @@ function TermsComponent() {
         <p>
           The recipient can remove any sender or Mac from the Mac menu bar at
           any time, and that sender or Mac stops working immediately. A sender
-          can unpair their phone at any time. You can stop using Shouldertap
+          can unpair their phone at any time, or delete their pairing and
+          message history from Help and privacy in the iPhone app. Report abuse
+          through the app or by emailing support. You can stop using Shouldertap
           whenever you like; to have an inbox deleted, email <EmailLink />.
         </p>
         <p>
