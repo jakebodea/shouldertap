@@ -40,6 +40,7 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import migrations from "../drizzle/migrations.js";
 import {
   type ApnsRequest,
+  answeredNotificationPayload,
   endActivityPayload,
   isDeadToken,
   notificationPayload,
@@ -610,6 +611,25 @@ export const InboxLive = Inbox.make(
                       payload: endActivityPayload(tap, at),
                     },
                     Effect.void
+                  );
+                }
+                // A phone that got the notification (no Live Activity):
+                // replace it with a quiet "Answered" under the same id.
+                const gotNotification = !(
+                  target.liveActivities && target.startToken
+                );
+                if (target.deviceToken && gotNotification) {
+                  yield* deliver(
+                    push,
+                    {
+                      ...base,
+                      pushType: "alert",
+                      priority: 10,
+                      token: target.deviceToken,
+                      collapseId: tap.id,
+                      payload: answeredNotificationPayload(tap),
+                    },
+                    clearToken(target.credentialId, "deviceToken")
                   );
                 }
                 if (target.deviceToken) {
@@ -1275,8 +1295,12 @@ export const InboxLive = Inbox.make(
         // Clients send commands over HTTPS; "ping" is handled by the auto-response.
         webSocketMessage: () => Effect.void,
 
+        // 1005 and 1006 (no status, abnormal closure) are reserved and can't
+        // be sent back; answer them with a normal close.
         webSocketClose: (socket, code, reason) =>
-          socket.close(code === 1005 ? 1000 : code, reason),
+          socket
+            .close(code === 1005 || code === 1006 ? 1000 : code, reason)
+            .pipe(Effect.ignore),
       };
     });
   })

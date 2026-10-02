@@ -30,6 +30,10 @@
 	     (TapActivity/, Widgets/). -->
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<!-- Each tap is a high-priority Live Activity push; this raises iOS's
+	     budget for them (the user can turn it off in Settings). -->
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 	<!-- "This tap was answered" pushes clear its notification or Live
 	     Activity in the background (Receiving.swift). -->
 	<key>UIBackgroundModes</key>

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Tap } from "@shouldertap/domain";
 
 import {
+  answeredNotificationPayload,
   answerLabel,
   endActivityPayload,
   isDeadToken,
@@ -105,6 +106,20 @@ describe("payloads", () => {
     expect(payload.aps.event).toBe("end");
     expect(payload.aps["dismissal-date"]).toBe(1_790_790_009);
     expect(payload.aps["content-state"].answer).toBe("On it · Studio Mac");
+  });
+
+  test("an answered notification is replaced quietly", () => {
+    const answered: Tap = {
+      ...tap,
+      state: "acknowledged",
+      acknowledgedBy: "Studio Mac",
+      response: { kind: "in_10" },
+    };
+    const payload = answeredNotificationPayload(answered);
+    expect(payload.aps["interruption-level"]).toBe("passive");
+    expect(payload.aps.alert.body).toBe("Answered: In 10 min · Studio Mac");
+    expect("sound" in payload.aps).toBe(false);
+    expect(payload.tapId).toBe("tap123456");
   });
 
   test("dead tokens are recognized", () => {

@@ -10,8 +10,18 @@ enum Config {
     if let override = ProcessInfo.processInfo.environment["SHOULDERTAP_SERVER_URL"],
       let url = URL(string: override)
     {
+      #if targetEnvironment(simulator)
+        // iOS relaunches the app on its own (a Live Activity token, a push),
+        // without the variable: keep using the same server.
+        UserDefaults.standard.set(override, forKey: "serverOverride")
+      #endif
       return url
     }
+    #if targetEnvironment(simulator)
+      if let saved = UserDefaults.standard.string(forKey: "serverOverride"), let url = URL(string: saved) {
+        return url
+      }
+    #endif
     #if DEBUG
       return URL(string: "http://localhost:3000")!
     #else

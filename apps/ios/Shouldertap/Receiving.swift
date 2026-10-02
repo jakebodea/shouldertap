@@ -27,10 +27,20 @@ final class Receiver {
   var replyingTapId: String?
 
   @ObservationIgnored private var inbox: ReceiverStore?
-  @ObservationIgnored private var deviceToken: String?
-  @ObservationIgnored private var startToken: String?
+  /// The last tokens iOS gave us, kept across launches: after a restart iOS
+  /// can take a while to hand them over again, and a change (Live
+  /// Activities turned off) must reach the server before the next tap.
+  private var deviceToken: String? {
+    get { UserDefaults.standard.string(forKey: "push.deviceToken") }
+    set { UserDefaults.standard.set(newValue, forKey: "push.deviceToken") }
+  }
+  private var startToken: String? {
+    get { UserDefaults.standard.string(forKey: "push.startToken") }
+    set { UserDefaults.standard.set(newValue, forKey: "push.startToken") }
+  }
   @ObservationIgnored private var liveActivities = ActivityAuthorizationInfo().areActivitiesEnabled
-  /// What the server last accepted, per credential, so launches don't repeat it.
+  /// What the server last accepted (or is being sent), per credential, so
+  /// token callbacks arriving together don't repeat it.
   @ObservationIgnored private var registered: (credentialId: String, registration: PushRegistration)?
   @ObservationIgnored private var observing = false
   @ObservationIgnored private var reportedActivities: Set<String> = []
@@ -96,6 +106,10 @@ final class Receiver {
     Task {
       for await data in activity.pushTokenUpdates {
         let token = data.map { String(format: "%02x", $0) }.joined()
+        // iOS wakes the app briefly to hand over the token: ask for the few
+        // seconds the request needs.
+        let background = UIApplication.shared.beginBackgroundTask(withName: "activity-token")
+        defer { UIApplication.shared.endBackgroundTask(background) }
         do {
           try await inbox?.saveActivityToken(tapId: tapId, token: token)
         } catch let error as APIError where error.code == .notFound {
@@ -109,16 +123,24 @@ final class Receiver {
   }
 
   private func upload() async {
-    guard let inbox, inbox.phase == .ready, let credentialId = inbox.credentialId else { return }
+    // The credential id only arrives with the first snapshot, which can be
+    // after the tokens: don't wait for it (it only keys the "already sent" check).
+    guard let inbox, inbox.phase == .ready else { return }
+    let credentialId = inbox.credentialId ?? ""
     let registration = PushRegistration(
       environment: Self.environment, topic: Bundle.main.bundleIdentifier ?? "app.shouldertap.ios",
       deviceToken: deviceToken, startToken: startToken, liveActivities: liveActivities)
     guard registration.deviceToken != nil || registration.startToken != nil else { return }
     if let registered, registered.credentialId == credentialId, registered.registration == registration { return }
+    let previous = registered
+    registered = (credentialId, registration)
     do {
       try await inbox.registerPush(registration)
-      registered = (credentialId, registration)
+      log.notice(
+        "Registered for pushes: device token \(registration.deviceToken != nil), start token \(registration.startToken != nil), Live Activities \(registration.liveActivities)"
+      )
     } catch {
+      registered = previous
       log.error("Couldn't register for pushes: \(error)")
     }
   }
@@ -148,6 +170,7 @@ final class Receiver {
   /// A tap answered (here or elsewhere): end its Live Activity and remove
   /// its notification.
   func clear(tapId: String, answer: String? = nil) async {
+    log.notice("Clearing tap \(tapId, privacy: .public)")
     await TapActivities.end(tapId: tapId, answer: answer)
     let center = UNUserNotificationCenter.current()
     let delivered = await center.deliveredNotifications()

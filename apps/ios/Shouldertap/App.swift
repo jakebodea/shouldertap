@@ -162,12 +162,10 @@ struct RootView: View {
       tapHome
         .tabItem { Label("Tap", systemImage: "paperplane") }
         .tag(HomeTab.tap)
-        .accessibilityIdentifier("tab-tap")
       inboxHome
         .tabItem { Label("Inbox", systemImage: "tray") }
         .tag(HomeTab.inbox)
         .badge(waiting)
-        .accessibilityIdentifier("tab-inbox")
     }
     .tint(Paper.ink)
   }

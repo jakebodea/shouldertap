@@ -15,8 +15,8 @@ import * as Effect from "effect/Effect";
  *   Activity (Lock Screen and Dynamic Island), with an alert.
  * - Otherwise: a Time Sensitive notification with On it / In 10 min / Reply.
  * Once the tap is answered anywhere, its Live Activity is ended (when the
- * phone sent us its token) and a background push tells the app to clear
- * anything left: the notification, or an activity we have no token for.
+ * phone sent us its token), its notification is replaced by a quiet
+ * "Answered", and a background push tells the app to clear anything left.
  */
 
 /** The signed provider token the Inbox sends with every push. */
@@ -211,6 +211,21 @@ export const endActivityPayload = (tap: Tap, at: number) => ({
     "content-state": { body: tap.body, answer: answerLabel(tap) },
     "dismissal-date": seconds(at),
   },
+});
+
+/**
+ * Replaces an answered tap's notification (same collapse id) with a quiet
+ * one saying how it was answered: no sound, no lit screen. Background
+ * pushes that remove it outright are delivered when iOS sees fit; this
+ * lands right away.
+ */
+export const answeredNotificationPayload = (tap: Tap) => ({
+  aps: {
+    alert: { title: tap.senderName, body: `Answered: ${answerLabel(tap)}` },
+    "interruption-level": "passive",
+    "thread-id": tap.senderId,
+  },
+  tapId: tap.id,
 });
 
 /** Wakes the app to clear what's left of an answered tap. */
