@@ -26,9 +26,19 @@ export default defineConfig({
       use: { ...devices["Pixel 7"], defaultBrowserType: "chromium" },
     },
   ],
-  webServer: {
-    command: "bun run build && bun run serve --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: [
+    {
+      command: "bun run build && bun run serve --host 127.0.0.1 --port 4173",
+      env: {
+        VITE_MAC_DOWNLOAD_URL: "http://127.0.0.1:4174/Shouldertap.dmg",
+      },
+      url: "http://127.0.0.1:4173",
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      command: "bun e2e/download-server.ts",
+      url: "http://127.0.0.1:4174/health",
+      reuseExistingServer: !process.env.CI,
+    },
+  ],
 });
