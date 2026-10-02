@@ -58,7 +58,14 @@ function PrivacyComponent() {
           <li>The recipient's name, as shown to senders.</li>
           <li>
             The name of each paired Mac, and of each iPhone the recipient links
-            to manage the inbox, and which of the two it is.
+            to the inbox, and which of the two it is.
+          </li>
+          <li>
+            For each linked iPhone: the push tokens Apple issues so taps can
+            reach it (for notifications and Live Activities), whether Live
+            Activities are on, and, while a tap is waiting, its Live Activity's
+            token. They are deleted when the iPhone is removed or the tap is
+            answered.
           </li>
           <li>Each sender's name and the color they picked.</li>
           <li>
@@ -180,6 +187,11 @@ function PrivacyComponent() {
           <li>
             <b>Cloudflare</b> hosts the website, the servers, and the stored
             data, and serves Mac app downloads and updates.
+          </li>
+          <li>
+            <b>Apple Push Notification service</b> delivers taps to a linked
+            iPhone. Apple receives the sender's name and color and the tap's
+            text to show it on the phone.
           </li>
           <li>
             Support mail is routed through Cloudflare and forwarded to Gmail,

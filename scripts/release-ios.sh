@@ -47,6 +47,16 @@ xcodebuild archive -quiet \
   CURRENT_PROJECT_VERSION="$build" \
   CODE_SIGNING_ALLOWED=NO
 
+# An unsigned archive carries no entitlements, so the export wouldn't know
+# the app needs push. Stamp them on with an ad-hoc signature (inside out);
+# the export re-signs for distribution, keeping these capabilities and
+# switching aps-environment to production.
+app="$out/Shouldertap.xcarchive/Products/Applications/Shouldertap.app"
+for extension in "$app"/PlugIns/*.appex; do
+  codesign --force --sign - "$extension"
+done
+codesign --force --sign - --entitlements "$root/apps/ios/Shouldertap.entitlements" "$app"
+
 cat > "$out/ExportOptions.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

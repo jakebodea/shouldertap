@@ -119,16 +119,19 @@ Before building receiving, the phone links to the recipient's inbox to manage it
 - **The phone never reports a tap as displayed or answers one**, so senders' "On screen" still means a Mac.
 - **Tests.** Server: `integ.test.ts` (platform, management from the phone, the last-Mac rule). Swift: decoding `platform`, the iPhone join body, a refused self-removal keeping the pairing. The iPhone flows (link, invite, the last-Mac refusal, the inbox from the composer, being unlinked by the Mac) were checked once in the simulator against a local stack; the iOS UI test target has since been removed.
 
-## What's left to make it real
+## Step 2, built: taps reach the iPhone (1.1)
 
-1. **Server: deliver to the phone.** The phone is now a device on the inbox (step 1 above), but taps only reach it over the WebSocket while the app is open. Open product question: does a tap go to all of the recipient's devices at once, or to the phone only when the Mac seems idle, and what do the others show when one device answers?
-2. **APNs from the Worker.** This is already sketched in the "PUSH SEAM" comment in `apps/ios/Shouldertap/Push.swift`: the `aps-environment` entitlement, per-pairing device tokens, and an ES256 JWT signed with a `.p8` key, sent over HTTP/2 to `api.push.apple.com`. Live Activities also need:
-   - **Push-to-start**: collect `Activity<TapActivityAttributes>.pushToStartTokenUpdates` (iOS 17.2+) and send it to the server. To start an activity, the server sends a push with `apns-push-type: liveactivity` and topic `<bundle id>.push-type.liveactivity`, whose payload includes `attributes-type`, `attributes`, `content-state` and an `alert`.
-   - **Per-activity update tokens**: collect `activity.pushTokenUpdates` so the server can end the activity on every device once the tap is answered anywhere (`event: end`).
-   - **A fallback**: send the regular Time Sensitive notification when Live Activities are disabled. The server can't tell, so the app should report `ActivityAuthorizationInfo().areActivitiesEnabled`, or the server always sends both. If it sends both, it needs to avoid a double alert.
-3. **Send answers to the server.** `TapActivities.answer` and `IncomingTaps.answer` are marked `RECEIVER SEAM`. They should post the `TapResponse` the way the Mac does, using the phone's credential. `AnswerTapIntent` runs in the app process in the background, so it needs the credential from the keychain, not UI state.
-4. **Time Sensitive entitlement.** Add `com.apple.developer.usernotifications.time-sensitive`. No approval is needed, but check that `scripts/release-ios.sh` (automatic signing on export) still archives with the new capability.
-5. **Notification Content Extension (optional).** Without it, the long-pressed notification is plain iOS. One would give it the frame-color paper look from the mockup.
-6. **Takeover polish.** Add a reduced-motion check, Dynamic Type limits for the message size, and a queue ("N more waiting", as on the Mac) when several taps arrive.
-7. **iPad.** The app is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`). iPad has Lock Screen Live Activities but no Dynamic Island.
-8. **Tests.** There's no iOS UI test target any more. If one comes back, it could drive the takeover via `shouldertap://demo-tap/...` in debug builds; the takeover has the accessibility identifier `tap-takeover`.
+Every tap goes to every device at once: the Macs over their sockets, linked iPhones over APNs.
+
+- **Server** (`apps/server/src/apns.ts`, `Inbox.ts`). Each linked iPhone registers its setup with `PUT /v1/push`: environment (sandbox for debug and simulator builds), topic (bundle id), device token, push-to-start token, and whether Live Activities are on. On a new tap the Inbox, in the background (`state.waitUntil`), starts the tap's Live Activity with a push-to-start push where it can, and otherwise sends a Time Sensitive notification (category `tap`, collapse id = tap id). The app reports each started activity's token (`POST /v1/taps/:id/activity-token`). Once the tap is answered anywhere, the Inbox ends those activities and sends a background push (`resolvedTapId`) so the app clears the notification, or an activity it never got a token for. Dead tokens (410, BadDeviceToken) are dropped. The Worker signs the ES256 provider token (cached 45 min per isolate) from `APNS_KEY`, `APNS_KEY_ID` and `APNS_TEAM_ID`; without them nothing is pushed.
+- **iPhone** (`Receiving.swift`). The `Receiver` asks for notification permission once linked, registers tokens (re-sent when they change), watches Live Activities to report their tokens, answers from the Lock Screen and Dynamic Island (`AnswerTapIntent`, run in the app process) and from notification actions, and reconciles on every snapshot. While the app is open the oldest waiting tap takes over the screen (and is reported displayed, like the Mac overlay).
+- **App layout.** Two tabs: Tap (the composer, or getting an invite) and Inbox (your inbox with a badge for waiting taps, or linking it). A new phone starts at the welcome, which offers both.
+- **Release signing.** The archive is unsigned, so `scripts/release-ios.sh` stamps the entitlements (`apps/ios/Shouldertap.entitlements`) on with an ad-hoc signature before exporting; otherwise the export drops push.
+
+## What's left
+
+1. **Sender notifications.** Senders' phones could get a push when their tap is answered (the old "PUSH SEAM" idea); the APNs plumbing is now there.
+2. **Notification Content Extension (optional).** Without it, the long-pressed notification is plain iOS. One would give it the frame-color paper look from the mockup.
+3. **Takeover polish.** A reduced-motion check and Dynamic Type limits for the message size.
+4. **iPad.** The app is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`). iPad has Lock Screen Live Activities but no Dynamic Island.
+5. **Tests.** There's no iOS UI test target any more; the server's payloads and the Swift registration are unit-tested, and the flows were checked by hand in the simulator.
