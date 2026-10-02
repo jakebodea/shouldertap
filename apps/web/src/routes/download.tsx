@@ -5,13 +5,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { DocLinks } from "@/components/document";
 import { Frame } from "@/components/frame";
 import { Mark } from "@/components/mark";
+import { MAC_DOWNLOAD_URL } from "@/lib/download";
 
 export const Route = createFileRoute("/download")({
   component: DownloadComponent,
   head: () => ({ meta: [{ title: "Download Shouldertap for Mac" }] }),
 });
-
-const DOWNLOAD_URL: string = import.meta.env.VITE_MAC_DOWNLOAD_URL;
 
 const STEPS = [
   {
@@ -50,7 +49,11 @@ function DownloadComponent() {
           A menu bar app. When someone you invited taps you, their message
           covers your screens until you answer.
         </p>
-        <a className="pill pill-frame w-full" download href={DOWNLOAD_URL}>
+        <p className="text-[0.9375rem] text-tone leading-snug">
+          Your download should start automatically. If it didn’t, use the link
+          below, then follow the steps to get set up.
+        </p>
+        <a className="pill pill-frame w-full" download href={MAC_DOWNLOAD_URL}>
           <HugeiconsIcon className="size-5" icon={Download04Icon} />
           Download for Mac
         </a>

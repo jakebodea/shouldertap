@@ -19,6 +19,7 @@ import {
 
 import { DocLinks } from "@/components/document";
 import { InkIcon, InkMark, InkText } from "@/components/ink";
+import { MacDownloadLink } from "@/components/mac-download-link";
 import { Mark, Wordmark } from "@/components/mark";
 import { Swept } from "@/components/swept";
 import { WipeEdges } from "@/components/wipe-edges";
@@ -203,14 +204,11 @@ export function Landing() {
             <span className="frame-fill-text">Tap {pairing.recipientName}</span>
           </a>
         ) : (
-          <a
-            className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
-            href="/download"
-          >
+          <MacDownloadLink className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base">
             <span className="frame-fill-text">
               Download<span className="hidden sm:inline">&nbsp;for Mac</span>
             </span>
-          </a>
+          </MacDownloadLink>
         )}
       </header>
 
@@ -649,10 +647,10 @@ function Close() {
         Dinner's ready. Really.
       </p>
       <div className="flex flex-wrap items-center gap-4">
-        <a className="pill pill-ink" href="/download">
+        <MacDownloadLink className="pill pill-ink">
           <HugeiconsIcon className="size-5" icon={Download04Icon} />
           Download for Mac
-        </a>
+        </MacDownloadLink>
         <span className="text-[0.9375rem] text-tone">
           Free for 7 days, then $5 once. Mac app plus any iPhone with Safari.
         </span>
