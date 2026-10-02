@@ -84,7 +84,7 @@ struct HelpView: View {
           }
         }
         Section {
-          Text("Shouldertap 1.0 · iPhone sender")
+          Text("Shouldertap 1.0 for iPhone")
             .foregroundStyle(.secondary)
         }
       }
