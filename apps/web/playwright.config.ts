@@ -13,18 +13,6 @@ export default defineConfig({
       name: "iphone-webkit",
       use: { ...devices["iPhone 13"], defaultBrowserType: "webkit" },
     },
-    {
-      name: "iphone-webkit-dark",
-      use: {
-        ...devices["iPhone 13"],
-        defaultBrowserType: "webkit",
-        colorScheme: "dark",
-      },
-    },
-    {
-      name: "android-chromium",
-      use: { ...devices["Pixel 7"], defaultBrowserType: "chromium" },
-    },
   ],
   webServer: [
     {

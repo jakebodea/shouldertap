@@ -78,7 +78,7 @@ cd apps/ios && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebui
 xcrun simctl install booted apps/ios/build/Build/Products/Debug-iphonesimulator/Shouldertap.app && xcrun simctl launch booted app.shouldertap.ios.debug
 ```
 
-Debug builds talk to `http://localhost:3000` (override with `SHOULDERTAP_SERVER_URL`). Open an invite with `xcrun simctl openurl booted 'shouldertap://join#<code>'`, or paste the link. The UI test pairs and sends a tap end to end when given an invite (skipped otherwise): `TEST_RUNNER_SHOULDERTAP_INVITE='shouldertap://join#<code>' xcodebuild test …` with the same project, scheme and destination.
+Debug builds talk to `http://localhost:3000` (override with `SHOULDERTAP_SERVER_URL`). Open an invite with `xcrun simctl openurl booted 'shouldertap://join#<code>'`, or paste the link.
 
 ## Deploy
 
