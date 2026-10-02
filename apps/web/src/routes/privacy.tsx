@@ -14,15 +14,16 @@ export const Route = createFileRoute("/privacy")({
 function PrivacyComponent() {
   return (
     <DocPage
-      effective="October 1, 2026"
+      effective="October 2, 2026"
       intro="Shouldertap is run by Jake Bodea, an individual. This page explains what Shouldertap stores, why, and who can see it. It describes how the service works today; if that changes, this page changes first."
       title="Privacy Policy"
     >
       <DocSection title="The short version">
         <ul>
           <li>
-            No accounts or phone numbers. The only email address we keep is the
-            one you give when you buy, so we can restore your purchase.
+            You do not need an account or phone number. We receive your email
+            address when you contact support and when you buy or restore an
+            inbox.
           </li>
           <li>No analytics, advertising, or tracking scripts.</li>
           <li>
@@ -47,7 +48,7 @@ function PrivacyComponent() {
         <p>
           The <b>recipient</b> installs the Mac app. Each recipient has one
           inbox. A <b>sender</b> is someone the recipient invited, who sends
-          taps from Safari on their phone.
+          taps from the iPhone app or Safari on their phone.
         </p>
       </DocSection>
 
@@ -96,6 +97,24 @@ function PrivacyComponent() {
           keeps standard request logs (such as time, address requested, IP
           address, and browser or app version) for a limited period, which we
           use to keep the service running and fix problems.
+        </p>
+      </DocSection>
+
+      <DocSection title="Support and abuse reports">
+        <p>
+          If you send a support request or abuse report, we receive your email
+          address, your message, and any pairing IDs, tap IDs, screenshots or
+          attachments you choose to include. We use these to answer your
+          request, investigate abuse, and protect the service. An in-app draft
+          is not sent automatically; you choose when and how to send it.
+        </p>
+        <p>
+          Support correspondence is held in our email and support tools,
+          separately from your Shouldertap inbox. Deleting a sender pairing does
+          not delete copies you sent to support. To request deletion of that
+          correspondence, email <EmailLink />. We retain it as needed to resolve
+          the request, handle abuse or security issues, or meet legal
+          obligations.
         </p>
       </DocSection>
 
@@ -152,6 +171,11 @@ function PrivacyComponent() {
           <li>
             <b>Cloudflare</b> hosts the website, the servers, and the stored
             data, and serves Mac app downloads and updates.
+          </li>
+          <li>
+            Support mail is routed through Cloudflare and forwarded to Gmail,
+            where we handle your request. Reports are not published or used for
+            advertising.
           </li>
           <li>
             The Mac app checks for updates once a day using Sparkle, which asks
