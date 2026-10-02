@@ -236,6 +236,28 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(store.phase == .ready)
   }
 
+  @Test func registeringPushPutsEveryKey() async throws {
+    let raw = SentRaw()
+    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c"), platform: .iphone) { request in
+      guard request.url!.path == "/v1/push" else { return (503, "") }
+      raw.value = "\(request.httpMethod ?? "") \(rawBody(request))"
+      return (200, #"{"registered":true}"#)
+    }
+    store.start()
+    try await store.registerPush(
+      PushRegistration(
+        environment: .sandbox, topic: "app.shouldertap.ios", deviceToken: "abcd1234abcd1234", startToken: nil,
+        liveActivities: false))
+    let sent = try #require(raw.value)
+    #expect(sent.hasPrefix("PUT "))
+    let json = try #require(
+      JSONSerialization.jsonObject(with: Data(sent.dropFirst(4).utf8)) as? [String: Any])
+    #expect(json["environment"] as? String == "sandbox")
+    #expect(json["deviceToken"] as? String == "abcd1234abcd1234")
+    #expect(json["startToken"] is NSNull)
+    #expect(json["liveActivities"] as? Bool == false)
+  }
+
   /// The server keeps the last Mac while an iPhone is linked; so does the Mac.
   @Test func refusedSelfRemovalKeepsThePairing() async throws {
     let persistence = MemoryPersistence(credential: "inbox.dev1.secret")
@@ -254,6 +276,30 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(store.phase == .ready)
     #expect(persistence.loadCredential() == "inbox.dev1.secret")
   }
+}
+
+/// A raw request line a stub saw.
+final class SentRaw: @unchecked Sendable {
+  private let lock = NSLock()
+  private var _value: String?
+  var value: String? {
+    get { lock.withLock { _value } }
+    set { lock.withLock { _value = newValue } }
+  }
+}
+
+private func rawBody(_ request: URLRequest) -> String {
+  guard let stream = request.httpBodyStream else { return "" }
+  stream.open()
+  defer { stream.close() }
+  var data = Data()
+  var buffer = [UInt8](repeating: 0, count: 4096)
+  while stream.hasBytesAvailable {
+    let count = stream.read(&buffer, maxLength: buffer.count)
+    guard count > 0 else { break }
+    data.append(buffer, count: count)
+  }
+  return String(decoding: data, as: UTF8.self)
 }
 
 /// The last request body a stub saw.

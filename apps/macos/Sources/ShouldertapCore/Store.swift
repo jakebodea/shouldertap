@@ -248,6 +248,14 @@ public final class ReceiverStore {
     flushAcks()
   }
 
+  /// `respond`, then wait for this attempt to reach the server: for answers
+  /// given outside the app (the Lock Screen, a notification), which may
+  /// only have a few seconds to run. A failed attempt stays queued.
+  public func answer(tapId: String, response: TapResponse) async {
+    respond(tapId: tapId, response: response)
+    await ackRetry?.value
+  }
+
   private func setPendingAcks(_ acks: [String: TapResponse]) {
     pendingAcks = acks
     persistence.savePendingAcks(acks)
@@ -309,6 +317,16 @@ public final class ReceiverStore {
     components?.fragment = invite.code
     guard let url = components?.url else { throw URLError(.badURL) }
     return SenderInvite(url: url, expiresAt: invite.expiresAt)
+  }
+
+  // MARK: Push (linked iPhones)
+
+  public func registerPush(_ registration: PushRegistration) async throws {
+    try await api.registerPush(registration)
+  }
+
+  public func saveActivityToken(tapId: String, token: String) async throws {
+    try await api.saveActivityToken(tapId: tapId, token: token)
   }
 
   public func createDeviceCode() async throws -> Invite {

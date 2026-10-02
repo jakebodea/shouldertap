@@ -115,6 +115,17 @@ public struct APIClient: Sendable {
     try await send("POST", "/v1/taps/\(escape(tapId))/acknowledge", body: Acknowledge(response: response))
   }
 
+  /// Linked iPhones only: where and how to push taps to this device.
+  public func registerPush(_ registration: PushRegistration) async throws {
+    let _: Registered = try await send("PUT", "/v1/push", body: registration)
+  }
+
+  /// The push token of the Live Activity `tapId` started here, so answering
+  /// it anywhere ends it. `notFound` once the tap is answered.
+  public func saveActivityToken(tapId: String, token: String) async throws {
+    let _: Saved = try await send("POST", "/v1/taps/\(escape(tapId))/activity-token", body: ["token": token])
+  }
+
   public func revoke(credentialId: String) async throws {
     let _: Revoked = try await send("DELETE", "/v1/credentials/\(escape(credentialId))")
   }
@@ -159,6 +170,8 @@ public struct APIClient: Sendable {
     var platform: DevicePlatform?  // likewise
   }
   private struct Revoked: Decodable { var revoked: Bool }
+  private struct Registered: Decodable { var registered: Bool }
+  private struct Saved: Decodable { var saved: Bool }
   private struct Deleted: Decodable { var deleted: Bool }
   private struct NoBody: Encodable {}
 

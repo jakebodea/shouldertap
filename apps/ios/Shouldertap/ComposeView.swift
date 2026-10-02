@@ -4,14 +4,11 @@ import SwiftUI
 /// The paired screen: everyone you can tap as avatars on the frame (tap one
 /// to switch, and the frame floods to their color), and the composer for the
 /// selected person on the page, which rises into place when it appears.
-/// Once this iPhone is linked to your own Mac, your inbox sits at the end.
 struct ComposeView: View {
   let session: SenderSession
   let store: SenderStore
-  let inbox: ReceiverStore
   let onSelect: (String) -> Void
   let onAdd: () -> Void
-  let onInbox: () -> Void
 
   @State private var unpairing: SenderSession?
   @State private var risen = false
@@ -87,12 +84,6 @@ struct ComposeView: View {
         .buttonStyle(FrameButtonStyle(iconOnly: true))
         .accessibilityLabel("Add someone")
         .accessibilityIdentifier("add-person")
-      if inbox.phase == .ready {
-        Button(action: onInbox) { Image(systemName: "tray").font(.system(size: 17, weight: .medium)) }
-          .buttonStyle(FrameButtonStyle(iconOnly: true))
-          .accessibilityLabel("Your Shouldertap")
-          .accessibilityIdentifier("your-inbox")
-      }
     }
     .sensoryFeedback(.selection, trigger: session.id)
   }
