@@ -3,21 +3,22 @@
 From `apps/web`:
 
 ```sh
-bunx playwright install webkit chromium
+bun test src
+bunx playwright install webkit
 bun run test:e2e
 ```
 
-The suite builds the production site and tests iPhone-sized WebKit in light and
-dark mode plus Android-sized Chromium. It checks all four scene colors and wrap,
-automatic cycling, the middle of a wipe, rapid replies, reduced motion,
-landscape, a smaller viewport, and navigation. It asserts that the absolute
-frame, both document backgrounds, and both theme-color tags track the current
-scene. The HTML report includes screenshots during and after transitions.
+`bun test` covers wipe geometry. That math does not need a browser. The browser
+suite builds the production site and tests one iPhone-sized WebKit project. It
+checks all four scene colors and wrap, automatic cycling, the middle of a wipe,
+rapid replies, reduced motion, landscape, a smaller viewport, and navigation.
+It asserts that the absolute frame, both document backgrounds, and both
+theme-color tags track the current scene. The HTML report includes screenshots
+during and after transitions.
 
 The edge animation tests pause the actual wipe at 250ms, verify a blended top
 color and an unchanged bottom color, then wait past the full duration to ensure
 the tints stay paused. Resuming the wipe must finish both edges in the new color.
-Separate circle-intersection tests cover the top/bottom ordering and geometry.
 
 ## Native Safari regression
 

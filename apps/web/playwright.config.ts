@@ -8,22 +8,12 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4173",
     trace: "retain-on-failure",
   },
+  // One iPhone-sized WebKit project. Dark mode and Android repeated the same
+  // assertions; native Safari bars are checked by e2e/check-safari-tint.py.
   projects: [
     {
       name: "iphone-webkit",
       use: { ...devices["iPhone 13"], defaultBrowserType: "webkit" },
-    },
-    {
-      name: "iphone-webkit-dark",
-      use: {
-        ...devices["iPhone 13"],
-        defaultBrowserType: "webkit",
-        colorScheme: "dark",
-      },
-    },
-    {
-      name: "android-chromium",
-      use: { ...devices["Pixel 7"], defaultBrowserType: "chromium" },
     },
   ],
   webServer: [

@@ -33,9 +33,12 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run check-types
+      - name: Web unit tests
+        working-directory: apps/web
+        run: bun test src
       - name: Install browser test engines
         working-directory: apps/web
-        run: bunx playwright install --with-deps webkit chromium
+        run: bunx playwright install --with-deps webkit
       - name: Mobile frame regression tests
         working-directory: apps/web
         run: bun run test:e2e --workers=3
