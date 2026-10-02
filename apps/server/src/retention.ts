@@ -1,6 +1,6 @@
 import { and, isNotNull, lt, sql } from "drizzle-orm";
 
-import { credentials, invites, taps, tickets } from "./schema";
+import { activityTokens, credentials, invites, taps, tickets } from "./schema";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -29,4 +29,6 @@ export const retentionFilters = (now: number) => ({
     lt(credentials.revokedAt, now - REVOKED_RETENTION_MS),
     sql`NOT EXISTS (SELECT 1 FROM ${taps} WHERE ${taps.senderId} = ${credentials.id})`
   ),
+  /** Live Activity tokens whose tap is gone (answered taps drop theirs at once). */
+  activityTokens: sql`NOT EXISTS (SELECT 1 FROM ${taps} WHERE ${taps.id} = ${activityTokens.tapId})`,
 });

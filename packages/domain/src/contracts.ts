@@ -133,6 +133,39 @@ export const SendTapRequest = Schema.Struct({
 });
 export type SendTapRequest = typeof SendTapRequest.Type;
 
+/** Which APNs a push token belongs to: debug builds use the sandbox. */
+export const PushEnvironment = Schema.Literals(["sandbox", "production"]);
+export type PushEnvironment = typeof PushEnvironment.Type;
+
+/** An APNs token as the device reports it, in hex. */
+const PushToken = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[0-9a-fA-F]{16,512}$/))
+);
+
+/**
+ * A linked iPhone's push setup, sent on every launch and whenever it
+ * changes. Taps reach it as a Live Activity when it has a push-to-start token
+ * and Live Activities are on, otherwise as a Time Sensitive notification.
+ */
+export const RegisterPushRequest = Schema.Struct({
+  environment: PushEnvironment,
+  /** The app's bundle id, the APNs topic. */
+  topic: Schema.String.pipe(
+    Schema.check(Schema.isPattern(/^[A-Za-z0-9.-]{3,155}$/))
+  ),
+  deviceToken: Schema.NullOr(PushToken),
+  /** `Activity.pushToStartToken` (iOS 17.2 and later). */
+  startToken: Schema.NullOr(PushToken),
+  liveActivities: Schema.Boolean,
+});
+export type RegisterPushRequest = typeof RegisterPushRequest.Type;
+
+/** The push token of the Live Activity a tap started on an iPhone. */
+export const ActivityTokenRequest = Schema.Struct({
+  token: PushToken,
+});
+export type ActivityTokenRequest = typeof ActivityTokenRequest.Type;
+
 export const AcknowledgeRequest = Schema.Struct({
   response: TapResponse,
 });

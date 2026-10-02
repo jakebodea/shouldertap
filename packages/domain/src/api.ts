@@ -9,6 +9,7 @@ import * as HttpApiSecurity from "effect/unstable/httpapi/HttpApiSecurity";
 
 import {
   AcknowledgeRequest,
+  ActivityTokenRequest,
   Checkout,
   ConnectTicket,
   CreateInboxRequest,
@@ -16,6 +17,7 @@ import {
   CredentialGrant,
   Invite,
   RedeemInviteRequest,
+  RegisterPushRequest,
   SendTapRequest,
   Snapshot,
   Tap,
@@ -95,6 +97,17 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
       payload: AcknowledgeRequest,
       success: Tap,
       error: [NotFound, InvalidRequest],
+    }),
+    // A linked iPhone's push tokens; devices only.
+    HttpApiEndpoint.put("registerPush", "/push", {
+      payload: RegisterPushRequest,
+      success: Schema.Struct({ registered: Schema.Literal(true) }),
+    }),
+    HttpApiEndpoint.post("activityToken", "/taps/:id/activity-token", {
+      params: idParams,
+      payload: ActivityTokenRequest,
+      success: Schema.Struct({ saved: Schema.Literal(true) }),
+      error: NotFound,
     }),
     HttpApiEndpoint.delete("revoke", "/credentials/:id", {
       params: idParams,

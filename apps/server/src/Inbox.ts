@@ -1,5 +1,6 @@
 import {
   type AcknowledgeRequest,
+  type ActivityTokenRequest,
   Conflict,
   type ConnectTicket,
   type CreateInboxRequest,
@@ -19,6 +20,7 @@ import {
   type PersonColor,
   parseToken,
   type RedeemInviteRequest,
+  type RegisterPushRequest,
   type SendTapRequest,
   type ServerEvent,
   type Snapshot,
@@ -36,10 +38,28 @@ import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 import migrations from "../drizzle/migrations.js";
+import {
+  type ApnsRequest,
+  endActivityPayload,
+  isDeadToken,
+  notificationPayload,
+  type PushContext,
+  resolvedPayload,
+  sendPush,
+  startActivityPayload,
+} from "./apns";
 import { isObjectionable } from "./content";
 import { planOf, requireActivePlan, TRIAL_MS } from "./plan";
 import { retentionFilters } from "./retention";
-import { credentials, inbox, invites, taps, tickets } from "./schema";
+import {
+  activityTokens,
+  credentials,
+  inbox,
+  invites,
+  pushRegistrations,
+  taps,
+  tickets,
+} from "./schema";
 
 const SENDER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEVICE_INVITE_TTL_MS = 15 * 60 * 1000;
@@ -97,11 +117,19 @@ type Rpc<A, E = never> = Effect.Effect<A, E, RuntimeContext>;
 
 /** The Inbox's typed RPC surface, called by the Server Worker. */
 export interface InboxRpc {
+  /** `push` (when APNs is configured) clears the tap from linked iPhones. */
   readonly acknowledge: (
     token: ParsedToken,
     tapId: string,
-    request: AcknowledgeRequest
+    request: AcknowledgeRequest,
+    push?: PushContext
   ) => Rpc<Tap, Unauthorized | NotFound | InvalidRequest>;
+  /** Saves the push token of the Live Activity a tap started on an iPhone. */
+  readonly activityToken: (
+    token: ParsedToken,
+    tapId: string,
+    request: ActivityTokenRequest
+  ) => Rpc<{ saved: true }, Unauthorized | NotFound>;
   /** Authorizes a paired Mac to start a checkout for this inbox. */
   readonly checkoutContext: (
     token: ParsedToken
@@ -138,13 +166,19 @@ export interface InboxRpc {
     code: ParsedToken,
     request: RedeemInviteRequest
   ) => Rpc<CredentialGrant, NotFound | Expired | Conflict>;
+  readonly registerPush: (
+    token: ParsedToken,
+    request: RegisterPushRequest
+  ) => Rpc<{ registered: true }, Unauthorized>;
   readonly revoke: (
     token: ParsedToken,
     credentialId: string
   ) => Rpc<{ revoked: true }, Unauthorized | NotFound | Conflict>;
+  /** `push` (when APNs is configured) delivers the tap to linked iPhones. */
   readonly sendTap: (
     token: ParsedToken,
-    request: SendTapRequest
+    request: SendTapRequest,
+    push?: PushContext
   ) => Rpc<
     Tap,
     Unauthorized | Conflict | TooManyRequests | PaymentRequired | InvalidRequest
@@ -459,6 +493,146 @@ export const InboxLive = Inbox.make(
       const isActive = (kind: CredentialKind) =>
         and(eq(credentials.kind, kind), isNull(credentials.revokedAt));
 
+      // Push: linked iPhones get each tap over APNs, in the background so
+      // the sender's request doesn't wait on Apple.
+
+      /** Linked devices (not revoked) with a push setup. */
+      const pushTargets = db
+        .select({ registration: pushRegistrations })
+        .from(pushRegistrations)
+        .innerJoin(
+          credentials,
+          eq(credentials.id, pushRegistrations.credentialId)
+        )
+        .where(isNull(credentials.revokedAt))
+        .pipe(Effect.map((rows) => rows.map((row) => row.registration)));
+
+      /** Sends one push and forgets the token if APNs says it's dead. */
+      const deliver = Effect.fn("Inbox.push")(function* (
+        push: PushContext,
+        request: ApnsRequest,
+        forget: Effect.Effect<unknown, unknown>
+      ) {
+        const result = yield* sendPush(push, request);
+        if (result.status !== 200) {
+          yield* Effect.logWarning("APNs refused a push", {
+            type: request.pushType,
+            status: result.status,
+            reason: result.reason,
+          });
+        }
+        if (isDeadToken(result)) {
+          yield* forget.pipe(Effect.ignore);
+        }
+      });
+
+      const clearToken = (
+        credentialId: string,
+        column: "deviceToken" | "startToken"
+      ) =>
+        db
+          .update(pushRegistrations)
+          .set({ [column]: null })
+          .where(eq(pushRegistrations.credentialId, credentialId));
+
+      /** A new tap: a Live Activity where we can start one, else a notification. */
+      const notifyArrival = (tap: Tap, push: PushContext) =>
+        Effect.gen(function* () {
+          const at = yield* now;
+          const targets = yield* pushTargets;
+          yield* Effect.forEach(
+            targets,
+            (target) => {
+              const base = {
+                environment: target.environment,
+                topic: target.topic,
+                priority: 10 as const,
+              };
+              if (target.liveActivities && target.startToken) {
+                return deliver(
+                  push,
+                  {
+                    ...base,
+                    pushType: "liveactivity",
+                    token: target.startToken,
+                    payload: startActivityPayload(tap, at),
+                  },
+                  clearToken(target.credentialId, "startToken")
+                );
+              }
+              if (target.deviceToken) {
+                return deliver(
+                  push,
+                  {
+                    ...base,
+                    pushType: "alert",
+                    token: target.deviceToken,
+                    collapseId: tap.id,
+                    payload: notificationPayload(tap),
+                  },
+                  clearToken(target.credentialId, "deviceToken")
+                );
+              }
+              return Effect.void;
+            },
+            { concurrency: "unbounded", discard: true }
+          );
+        }).pipe(Effect.catchCause((cause) => Effect.logError(cause)));
+
+      /** An answered tap: end its Live Activities and clear the rest. */
+      const notifyResolution = (tap: Tap, push: PushContext) =>
+        Effect.gen(function* () {
+          const at = yield* now;
+          const targets = yield* pushTargets;
+          const activities = yield* db
+            .select()
+            .from(activityTokens)
+            .where(eq(activityTokens.tapId, tap.id));
+          yield* Effect.forEach(
+            targets,
+            (target) =>
+              Effect.gen(function* () {
+                const base = {
+                  environment: target.environment,
+                  topic: target.topic,
+                };
+                const activity = activities.find(
+                  (row) => row.credentialId === target.credentialId
+                );
+                if (activity) {
+                  yield* deliver(
+                    push,
+                    {
+                      ...base,
+                      pushType: "liveactivity",
+                      priority: 10,
+                      token: activity.token,
+                      payload: endActivityPayload(tap, at),
+                    },
+                    Effect.void
+                  );
+                }
+                if (target.deviceToken) {
+                  yield* deliver(
+                    push,
+                    {
+                      ...base,
+                      pushType: "background",
+                      priority: 5,
+                      token: target.deviceToken,
+                      payload: resolvedPayload(tap),
+                    },
+                    clearToken(target.credentialId, "deviceToken")
+                  );
+                }
+              }),
+            { concurrency: "unbounded", discard: true }
+          );
+          yield* db
+            .delete(activityTokens)
+            .where(eq(activityTokens.tapId, tap.id));
+        }).pipe(Effect.catchCause((cause) => Effect.logError(cause)));
+
       // Retention: one repeating event in Alchemy's DO scheduler drives the
       // alarm. Armed when the inbox is created, and on every activation of
       // an existing inbox, so inboxes created before retention get one too.
@@ -489,6 +663,7 @@ export const InboxLive = Inbox.make(
             yield* tx.delete(invites).where(filters.invites);
             yield* tx.delete(tickets).where(filters.tickets);
             yield* tx.delete(credentials).where(filters.revokedCredentials);
+            yield* tx.delete(activityTokens).where(filters.activityTokens);
           })
         );
       });
@@ -667,7 +842,7 @@ export const InboxLive = Inbox.make(
           return grant;
         }, orDieOnStorage),
 
-        sendTap: Effect.fn("Inbox.sendTap")(function* (token, request) {
+        sendTap: Effect.fn("Inbox.sendTap")(function* (token, request, push) {
           const actor = yield* requireSender(token);
           if (isObjectionable(request.body)) {
             return yield* new InvalidRequest({
@@ -738,6 +913,9 @@ export const InboxLive = Inbox.make(
           const tap = yield* getTap(tapId.id).pipe(Effect.orDie);
           if (tapId.isNew) {
             yield* broadcastTap(tap);
+            if (push) {
+              yield* state.waitUntil(notifyArrival(tap, push));
+            }
           }
           return tap;
         }, orDieOnStorage),
@@ -765,7 +943,8 @@ export const InboxLive = Inbox.make(
         acknowledge: Effect.fn("Inbox.acknowledge")(function* (
           token,
           tapId,
-          request
+          request,
+          push
         ) {
           const actor = yield* requireDevice(token);
           if (request.response.text && isObjectionable(request.response.text)) {
@@ -818,8 +997,56 @@ export const InboxLive = Inbox.make(
           const tap = yield* getTap(tapId);
           if (changed) {
             yield* broadcastTap(tap);
+            if (push) {
+              yield* state.waitUntil(notifyResolution(tap, push));
+            }
           }
           return tap;
+        }, orDieOnStorage),
+
+        registerPush: Effect.fn("Inbox.registerPush")(function* (
+          token,
+          request
+        ) {
+          const actor = yield* requireDevice(token);
+          const row = {
+            environment: request.environment,
+            topic: request.topic,
+            deviceToken: request.deviceToken,
+            startToken: request.startToken,
+            liveActivities: request.liveActivities,
+            updatedAt: yield* now,
+          };
+          yield* db
+            .insert(pushRegistrations)
+            .values({ credentialId: actor.id, ...row })
+            .onConflictDoUpdate({
+              target: pushRegistrations.credentialId,
+              set: row,
+            });
+          return { registered: true as const };
+        }, orDieOnStorage),
+
+        activityToken: Effect.fn("Inbox.activityToken")(function* (
+          token,
+          tapId,
+          request
+        ) {
+          const actor = yield* requireDevice(token);
+          const tap = yield* getTap(tapId);
+          if (tap.state !== "pending") {
+            // Answered meanwhile: nothing will end it from here, so say so
+            // and let the phone end it itself.
+            return yield* new NotFound({ message: "This tap was answered" });
+          }
+          yield* db
+            .insert(activityTokens)
+            .values({ tapId, credentialId: actor.id, token: request.token })
+            .onConflictDoUpdate({
+              target: [activityTokens.tapId, activityTokens.credentialId],
+              set: { token: request.token },
+            });
+          return { saved: true as const };
         }, orDieOnStorage),
 
         revoke: Effect.fn("Inbox.revoke")(function* (token, credentialId) {
@@ -874,6 +1101,13 @@ export const InboxLive = Inbox.make(
           if (revoked.length === 0) {
             return yield* new NotFound({ message: "No such pairing" });
           }
+          // A removed iPhone gets no more taps.
+          yield* db
+            .delete(pushRegistrations)
+            .where(eq(pushRegistrations.credentialId, credentialId));
+          yield* db
+            .delete(activityTokens)
+            .where(eq(activityTokens.credentialId, credentialId));
           for (const { socket, session } of yield* sessions) {
             if (session.credentialId === credentialId) {
               yield* send(socket, { v: 1, type: "revoked" });
