@@ -44,4 +44,4 @@ Provider request logs are included as Other Diagnostic Data; the privacy policy 
 
 - Shared Swift tests: 50 passed. Server unit tests: 18 passed. Server integration tests: 9 passed, including deletion isolation and content rejection.
 - Native UI tests passed for help/sample flow and a real local pairing, send, delivery and reply flow. The Help regression additionally measures rendered text contrast in light and dark appearance after a green pairing, including Privacy Policy, Done, Report and the sample; see `validation/` for before/after evidence. Screenshots are 1320 × 2868 from iPhone 17 Pro Max (iOS 26.3), with fictional people and messages.
-- Type checking and lint passed. PR CI additionally runs browser regressions and deployed-preview integration tests.
+- Type checking and lint passed. PR CI additionally runs the Mac download flow and deployed-preview integration tests.

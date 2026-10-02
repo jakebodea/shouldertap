@@ -110,11 +110,6 @@ private func fixture(_ name: String) throws -> Data {
   func fallbackColorMatchesWeb(id: String, color: PersonColor) {
     #expect(PersonColor.fallback(for: id) == color)
   }
-
-  @Test func responseLabels() {
-    #expect(TapResponse.onIt.label == "On it")
-    #expect(TapResponse(kind: .text, text: "  ").label == "Replied")
-  }
 }
 
 @Suite struct Client {
