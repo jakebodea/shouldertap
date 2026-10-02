@@ -20,6 +20,13 @@ export const Timestamp = Schema.Number;
 export const CredentialKind = Schema.Literals(["device", "sender"]);
 export type CredentialKind = typeof CredentialKind.Type;
 
+/**
+ * What kind of device a "device" credential is. Macs receive taps; an iPhone
+ * linked to the inbox manages it (people, devices, history) alongside them.
+ */
+export const DevicePlatform = Schema.Literals(["mac", "iphone"]);
+export type DevicePlatform = typeof DevicePlatform.Type;
+
 export const ResponseKind = Schema.Literals(["on_it", "in_10", "text"]);
 export type ResponseKind = typeof ResponseKind.Type;
 
@@ -54,8 +61,10 @@ export const Credential = Schema.Struct({
   id: Schema.String,
   kind: CredentialKind,
   name: Schema.String,
-  /** Senders only; Macs have no color. */
+  /** Senders only; devices have no color. */
   color: Schema.NullOr(PersonColor),
+  /** Devices only; senders have none. */
+  platform: Schema.NullOr(DevicePlatform),
   createdAt: Timestamp,
   lastSeenAt: Schema.NullOr(Timestamp),
 });
@@ -103,8 +112,10 @@ export type Invite = typeof Invite.Type;
 export const RedeemInviteRequest = Schema.Struct({
   code: Schema.String,
   name: Name,
-  /** The sender's frame color. Ignored when pairing a Mac. */
+  /** The sender's frame color. Ignored when pairing a device. */
   color: Schema.optionalKey(PersonColor),
+  /** Which device is joining. Ignored for senders; older Macs omit it. */
+  platform: Schema.optionalKey(DevicePlatform),
 });
 export type RedeemInviteRequest = typeof RedeemInviteRequest.Type;
 

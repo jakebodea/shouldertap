@@ -33,7 +33,7 @@ The closest equivalent is three layers, used by what the phone is doing when the
 - iOS shows a one-time "Allow Live Activities from Shouldertap?" prompt the first time the user interacts with one. "Don't Allow" ends all of the app's activities and turns the feature off until changed in Settings.
 - The user can turn off Live Activities per app, so the notification has to stand on its own.
 
-## Prototype (uncommitted, in this worktree)
+## Prototype: receiving surfaces
 
 The prototype covers only the receiving surfaces. The iPhone app is still a sender only: there's no inbox for the phone, answers aren't sent to the server, and there's no APNs. Debug builds fake an arriving tap with a URL.
 
@@ -109,9 +109,19 @@ The notification path takes a payload sent with `xcrun simctl push booted app.sh
   - `Activity.update` is called from a `nonisolated` static helper, to avoid "sending risks data races" errors.
 - When driving the simulator, the panel's screenshots lagged the device, and a tap aimed at "Allow" on the Live Activities prompt landed on "Don't Allow". `xcrun simctl io booted screenshot` is reliable. Reinstalling the app resets the choice.
 
+## Step 1, built: the iPhone as a companion
+
+Before building receiving, the phone links to the recipient's inbox to manage it, so we can see whether people link their phone at all. Receiving is the next step, behind the same link.
+
+- **Linking.** On the Mac, Your devices → Add a Mac or iPhone shows the one-time device code as a QR code (`shouldertap://link#<code>`) and as text. The iPhone scans it from the camera (opens the app at the link screen), from its own scanner, or takes the pasted code. Entry points: "I use Shouldertap on my Mac" on the welcome screen, and Help → Your own Shouldertap.
+- **Server.** A linked iPhone is a `device` credential, so it can do everything a Mac can over the API. Credentials now carry `platform` (`mac` | `iphone`; a migration backfills existing devices as `mac`), sent when redeeming a device code. The inbox refuses to remove its last Mac while other devices remain (`Conflict`), so an inbox can't be left with only iPhones that don't display taps; removing the very last device still works. Caps now say 10 devices.
+- **iPhone app.** A second store, `ReceiverStore(platform: .iphone)`, with its credential in the Keychain (`app.shouldertap.ios.inbox`). `InboxView.swift` is the Mac menu's ready view on a graphite page: plan status (read-only; buying stays on the Mac), Invite someone (QR plus share sheet), Can tap you, Your devices (with Add a Mac, a code to AirDrop), Recent. With no one to tap yet, the inbox is the home screen ("Tap someone" on the frame); once you tap people too, a tray button on the composer's frame opens it. If the Mac removes the phone, it says so once and the inbox goes away.
+- **The phone never reports a tap as displayed or answers one**, so senders' "On screen" still means a Mac.
+- **Tests.** Server: `integ.test.ts` (platform, management from the phone, the last-Mac rule). Swift: decoding `platform`, the iPhone join body, a refused self-removal keeping the pairing. UI: `LinkTests` links, invites, hits the last-Mac rule, pairs to tap someone, opens the inbox from the composer, and is unlinked by the Mac (set `TEST_RUNNER_SHOULDERTAP_LINK_CODE`, `…_MAC_TOKEN`, `…_INVITE`).
+
 ## What's left to make it real
 
-1. **Server: give the phone an inbox role.** Today the iPhone pairs only as a sender (`SenderStore`) and only the Mac receives. The phone would register as a receiver device on the recipient's Inbox Durable Object (see `docs/architecture.md`). That raises a product question: does a tap go to all of the recipient's devices, and what happens on the others when one device answers?
+1. **Server: deliver to the phone.** The phone is now a device on the inbox (step 1 above), but taps only reach it over the WebSocket while the app is open. Open product question: does a tap go to all of the recipient's devices at once, or to the phone only when the Mac seems idle, and what do the others show when one device answers?
 2. **APNs from the Worker.** This is already sketched in the "PUSH SEAM" comment in `apps/ios/Shouldertap/Push.swift`: the `aps-environment` entitlement, per-pairing device tokens, and an ES256 JWT signed with a `.p8` key, sent over HTTP/2 to `api.push.apple.com`. Live Activities also need:
    - **Push-to-start**: collect `Activity<TapActivityAttributes>.pushToStartTokenUpdates` (iOS 17.2+) and send it to the server. To start an activity, the server sends a push with `apns-push-type: liveactivity` and topic `<bundle id>.push-type.liveactivity`, whose payload includes `attributes-type`, `attributes`, `content-state` and an `alert`.
    - **Per-activity update tokens**: collect `activity.pushTokenUpdates` so the server can end the activity on every device once the tap is answered anywhere (`event: end`).

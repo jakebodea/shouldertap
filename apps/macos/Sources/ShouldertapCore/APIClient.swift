@@ -82,11 +82,13 @@ public struct APIClient: Sendable {
       body: CreateInbox(recipientName: recipientName, deviceName: deviceName, machine: machine))
   }
 
-  /// `color` is the sender's frame color; the server ignores it for Macs.
-  public func redeemInvite(code: String, name: String, color: PersonColor? = nil) async throws
-    -> CredentialGrant
-  {
-    try await send("POST", "/v1/invites/redeem", body: Redeem(code: code, name: name, color: color))
+  /// `color` is the sender's frame color and `platform` the joining
+  /// device's; the server ignores whichever doesn't apply to the invite.
+  public func redeemInvite(
+    code: String, name: String, color: PersonColor? = nil, platform: DevicePlatform? = nil
+  ) async throws -> CredentialGrant {
+    try await send(
+      "POST", "/v1/invites/redeem", body: Redeem(code: code, name: name, color: color, platform: platform))
   }
 
   // Inbox (authorized)
@@ -154,6 +156,7 @@ public struct APIClient: Sendable {
     var code: String
     var name: String
     var color: PersonColor?  // omitted when nil, like the optional key in the contract
+    var platform: DevicePlatform?  // likewise
   }
   private struct Revoked: Decodable { var revoked: Bool }
   private struct Deleted: Decodable { var deleted: Bool }

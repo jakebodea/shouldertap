@@ -34,7 +34,9 @@ public struct SenderInvite: Sendable {
 
 /// All Mac client behavior in one place: the device credential, the live
 /// connection, which tap the overlay shows, and acknowledgements that must
-/// survive being offline. The UI only draws what this decides.
+/// survive being offline. The UI only draws what this decides. A linked
+/// iPhone uses it too, to manage the inbox (`platform: .iphone`); it never
+/// reports taps as displayed.
 @MainActor @Observable
 public final class ReceiverStore {
   public enum Phase: Sendable { case loading, setup, ready }
@@ -54,6 +56,7 @@ public final class ReceiverStore {
   @ObservationIgnored private let endpoints: Endpoints
   @ObservationIgnored private let persistence: any ReceiverPersistence
   @ObservationIgnored private let deviceName: @MainActor () -> String
+  @ObservationIgnored private let platform: DevicePlatform
   @ObservationIgnored private let machine: @MainActor () -> String?
   @ObservationIgnored private var api: APIClient
   @ObservationIgnored private var live: LiveConnection?
@@ -66,6 +69,7 @@ public final class ReceiverStore {
     endpoints: Endpoints,
     persistence: any ReceiverPersistence,
     deviceName: @escaping @MainActor () -> String,
+    platform: DevicePlatform = .mac,
     machine: @escaping @MainActor () -> String? = { nil },
     session: URLSession = .shared,
     ackRetryDelay: Duration = .seconds(10)
@@ -73,6 +77,7 @@ public final class ReceiverStore {
     self.endpoints = endpoints
     self.persistence = persistence
     self.deviceName = deviceName
+    self.platform = platform
     self.machine = machine
     self.session = session
     self.ackRetryDelay = ackRetryDelay
@@ -153,20 +158,26 @@ public final class ReceiverStore {
     connect(grant.token)
   }
 
+  /// `code` is the bare code, or the link an iPhone scans
+  /// (`shouldertap://link#<code>`).
   public func join(code: String) async throws {
-    let grant = try await api.redeemInvite(
-      code: code.trimmingCharacters(in: .whitespacesAndNewlines), name: safeDeviceName())
+    let code = inviteCode(from: code) ?? code.trimmingCharacters(in: .whitespacesAndNewlines)
+    let grant = try await api.redeemInvite(code: code, name: safeDeviceName(), platform: platform)
     guard grant.kind == .device else {
       throw APIError(
         code: .invalidRequest,
-        message: "That's a sender invite. Open it on the phone that will send taps.", status: 400)
+        message: platform == .mac
+          ? "That's a sender invite. Open it on the phone that will send taps."
+          : "That's an invite to tap someone. To link your Mac, use the code under Your devices.",
+        status: 400)
     }
     try persistence.saveCredential(grant.token)
     connect(grant.token)
   }
 
   private func safeDeviceName() -> String {
-    String(deviceName().prefix(maxNameLength)).trimmingCharacters(in: .whitespaces).nilIfEmpty ?? "Mac"
+    String(deviceName().prefix(maxNameLength)).trimmingCharacters(in: .whitespaces).nilIfEmpty
+      ?? (platform == .mac ? "Mac" : "iPhone")
   }
 
   // MARK: Connection
@@ -304,9 +315,16 @@ public final class ReceiverStore {
     try await api.createInvite(kind: .device)
   }
 
+  /// Removing this device forgets it here even if the server can't be
+  /// reached, except when the server refuses (the inbox's last Mac while an
+  /// iPhone is still linked): then it stays, and the error says why.
   public func revoke(credentialId id: String) async throws {
     if id == credentialId {
-      try? await api.revoke(credentialId: id)
+      do {
+        try await api.revoke(credentialId: id)
+      } catch let error as APIError where error.code == .conflict {
+        throw error
+      } catch {}
       forget()
       return
     }

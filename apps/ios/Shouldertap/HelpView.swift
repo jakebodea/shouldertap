@@ -4,6 +4,8 @@ import SwiftUI
 struct HelpButton: View {
   let store: SenderStore
   @State private var showing = false
+  /// Run once the sheet is gone, so a cover can present after it.
+  @State private var then: (() -> Void)?
 
   var body: some View {
     Button { showing = true } label: {
@@ -12,13 +14,22 @@ struct HelpButton: View {
     .buttonStyle(FrameButtonStyle(iconOnly: true))
     .accessibilityLabel("Help and privacy")
     .accessibilityIdentifier("help-button")
-    .sheet(isPresented: $showing) { HelpView(store: store) }
+    .sheet(
+      isPresented: $showing,
+      onDismiss: {
+        then?()
+        then = nil
+      }
+    ) { HelpView(store: store, then: $then) }
   }
 }
 
 struct HelpView: View {
   let store: SenderStore
+  @Binding var then: (() -> Void)?
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.inboxActions) private var inboxActions
+  @Environment(ReceiverStore.self) private var inbox
   @State private var deleting: SenderSession?
   @State private var busy = false
   @State private var error: String?
@@ -32,6 +43,25 @@ struct HelpView: View {
             .accessibilityIdentifier("sample-tap")
           Text("The recipient needs Shouldertap for Mac and an active trial or unlocked inbox. This iPhone app is free for senders. Replies do not send push notifications.")
             .font(.footnote).foregroundStyle(.secondary)
+        }
+        Section {
+          if inbox.phase == .ready {
+            Button("Open your Shouldertap") {
+              then = inboxActions.open
+              dismiss()
+            }
+            .accessibilityIdentifier("help-open-inbox")
+          } else {
+            Button("Link this iPhone to your Mac") {
+              then = inboxActions.link
+              dismiss()
+            }
+            .accessibilityIdentifier("help-link")
+          }
+        } header: {
+          Text("Your own Shouldertap")
+        } footer: {
+          Text("If people tap you on your Mac, link this iPhone to invite and remove them, see your devices, and see what's come in. Taps keep showing up on your Mac.")
         }
         Section("Support and privacy") {
           Link("Support", destination: URL(string: "https://shouldertap.app/support")!)

@@ -56,17 +56,20 @@ function PrivacyComponent() {
         <p>Each inbox is kept separately and holds:</p>
         <ul>
           <li>The recipient's name, as shown to senders.</li>
-          <li>The name of each paired Mac.</li>
+          <li>
+            The name of each paired Mac, and of each iPhone the recipient links
+            to manage the inbox, and which of the two it is.
+          </li>
           <li>Each sender's name and the color they picked.</li>
           <li>
             When the inbox's free week ends, and if it was bought: the date,
             Creem's order number and the buyer's email address.
           </li>
           <li>
-            For each paired Mac and sender: a hashed (SHA-256) copy of its
-            access key, when it was paired, when it was last active, and when it
-            was removed, if it was. We can't recover the key itself from the
-            hash.
+            For each paired Mac, linked iPhone and sender: a hashed (SHA-256)
+            copy of its access key, when it was paired, when it was last active,
+            and when it was removed, if it was. We can't recover the key itself
+            from the hash.
           </li>
           <li>
             Invites: a hashed secret, who created it, and when it was created,
@@ -137,14 +140,20 @@ function PrivacyComponent() {
             reads the Mac's hardware ID to compute the trial fingerprint
             described above; the hardware ID itself never leaves the Mac.
           </li>
+          <li>
+            <b>Recipient's iPhone, if linked:</b> the iPhone app keeps the
+            inbox's access key in the iOS Keychain, on that phone only.
+            Unlinking it, or removing it from the Mac, deletes the key from the
+            phone.
+          </li>
         </ul>
       </DocSection>
 
       <DocSection title="Who can see what">
         <ul>
           <li>
-            The recipient's paired Macs see the inbox: its senders, Macs, and
-            taps with their answers.
+            The recipient's paired Macs, and iPhones they link to the inbox, see
+            the inbox: its senders, devices, and taps with their answers.
           </li>
           <li>
             A sender sees the taps they sent and the answers to them, and the
@@ -249,12 +258,12 @@ function PrivacyComponent() {
         <p>
           To keep the service fair and to limit abuse, each sender can send up
           to 30 taps in any hour, and each inbox can have up to 20 senders and
-          10 Macs paired at once. Inbox creation is rate-limited per network.
-          Messages and text replies are checked against a small set of
-          threatening and abusive phrases before being stored. This happens on
-          our servers; no message is sent to an external moderation service.
-          These limits are enforced by counting what the inbox already stores;
-          they don't need any extra data about you.
+          10 devices (Macs and linked iPhones) at once. Inbox creation is
+          rate-limited per network. Messages and text replies are checked
+          against a small set of threatening and abusive phrases before being
+          stored. This happens on our servers; no message is sent to an external
+          moderation service. These limits are enforced by counting what the
+          inbox already stores; they don't need any extra data about you.
         </p>
       </DocSection>
 

@@ -99,7 +99,8 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
     HttpApiEndpoint.delete("revoke", "/credentials/:id", {
       params: idParams,
       success: Schema.Struct({ revoked: Schema.Literal(true) }),
-      error: NotFound,
+      // Conflict: removing the last Mac while other devices remain.
+      error: [NotFound, Conflict],
     }),
     HttpApiEndpoint.delete("deleteSender", "/sender", {
       success: Schema.Struct({ deleted: Schema.Literal(true) }),

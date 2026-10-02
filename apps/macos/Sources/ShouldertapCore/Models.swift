@@ -50,6 +50,18 @@ public enum CredentialKind: String, Sendable, Codable {
   case device, sender
 }
 
+/// What kind of device a `device` credential is: Macs show taps; a linked
+/// iPhone manages the inbox alongside them.
+public enum DevicePlatform: String, Sendable, Codable {
+  case mac, iphone
+
+  /// Unknown platforms (a newer server) read as a Mac instead of failing the decode.
+  public init(from decoder: any Decoder) throws {
+    let raw = try decoder.singleValueContainer().decode(String.self)
+    self = DevicePlatform(rawValue: raw) ?? .mac
+  }
+}
+
 public struct TapResponse: Sendable, Codable, Hashable {
   public enum Kind: String, Sendable, Codable {
     case onIt = "on_it"
@@ -102,12 +114,16 @@ public struct Credential: Sendable, Codable, Identifiable, Hashable {
   public var id: String
   public var kind: CredentialKind
   public var name: String
-  /// Senders only; Macs have no color.
+  /// Senders only; devices have no color.
   public var color: PersonColor?
+  /// Devices only. Missing from servers older than iPhone linking: a Mac.
+  public var platform: DevicePlatform?
   public var createdAt: Timestamp
   public var lastSeenAt: Timestamp?
 
   public var swatchColor: PersonColor { color ?? .fallback(for: id) }
+  /// For devices: a Mac unless it says otherwise.
+  public var devicePlatform: DevicePlatform { platform ?? .mac }
 }
 
 public struct CredentialGrant: Sendable, Codable {

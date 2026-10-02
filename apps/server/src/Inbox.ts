@@ -7,6 +7,7 @@ import {
   type Credential,
   type CredentialGrant,
   type CredentialKind,
+  type DevicePlatform,
   Expired,
   fallbackColor,
   formatToken,
@@ -70,17 +71,27 @@ const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const fullInboxMessage = (kind: CredentialKind, recipientName: string) =>
   kind === "sender"
     ? `${recipientName || "This inbox"} already has ${PAIRING_CAPS.sender} people who can send taps. Ask them to remove someone in the Mac app, then try this link again.`
-    : `This inbox already has ${PAIRING_CAPS.device} Macs. Remove one in the Mac app, then try again.`;
+    : `This inbox already has ${PAIRING_CAPS.device} devices. Remove one in the Mac app, then try again.`;
 
 /** Shown to the recipient's Mac when it asks for an invite it can't use. */
 const fullInviteMessage = (kind: CredentialKind) =>
   kind === "sender"
     ? `You already have ${PAIRING_CAPS.sender} people who can tap you. Remove someone before inviting someone new.`
-    : `You already have ${PAIRING_CAPS.device} Macs paired. Remove one before adding another.`;
+    : `You already have ${PAIRING_CAPS.device} devices linked. Remove one before adding another.`;
 
-/** Only senders carry a frame color; Macs never do. */
+/** Only senders carry a frame color; devices never do. */
 const colorFor = (kind: CredentialKind, color: PersonColor | undefined) =>
   kind === "sender" ? (color ?? null) : null;
+
+/** Only devices have a platform; one that doesn't say is a Mac (older apps). */
+const platformFor = (
+  kind: CredentialKind,
+  platform: DevicePlatform | undefined
+): DevicePlatform | null => (kind === "device" ? (platform ?? "mac") : null);
+
+/** Why the last Mac can't go while an iPhone is still linked. */
+const lastMacMessage =
+  "This is the only Mac on this inbox, and taps show up on Macs. Add another Mac, or remove the linked iPhones first.";
 
 type Rpc<A, E = never> = Effect.Effect<A, E, RuntimeContext>;
 
@@ -130,7 +141,7 @@ export interface InboxRpc {
   readonly revoke: (
     token: ParsedToken,
     credentialId: string
-  ) => Rpc<{ revoked: true }, Unauthorized | NotFound>;
+  ) => Rpc<{ revoked: true }, Unauthorized | NotFound | Conflict>;
   readonly sendTap: (
     token: ParsedToken,
     request: SendTapRequest
@@ -332,6 +343,7 @@ export const InboxLive = Inbox.make(
                   row.kind === "sender"
                     ? (row.color ?? fallbackColor(row.id))
                     : null,
+                platform: platformFor(row.kind, row.platform ?? undefined),
                 createdAt: row.createdAt,
                 lastSeenAt: row.lastSeenAt,
               })
@@ -374,7 +386,7 @@ export const InboxLive = Inbox.make(
         });
       const requireDevice = requireKind(
         "device",
-        "Only a paired Mac can do that"
+        "Only your linked devices can do that"
       );
       const requireSender = requireKind(
         "sender",
@@ -508,7 +520,9 @@ export const InboxLive = Inbox.make(
                 recipientName: request.recipientName,
                 trialEndsAt: trialEndsAt ?? createdAt + TRIAL_MS,
               });
-              yield* tx.insert(credentials).values(credential.row);
+              yield* tx
+                .insert(credentials)
+                .values({ ...credential.row, platform: "mac" });
             })
           );
           yield* ensureRetention;
@@ -635,6 +649,7 @@ export const InboxLive = Inbox.make(
                 ...credential.row,
                 kind,
                 color: colorFor(kind, request.color),
+                platform: platformFor(kind, request.platform),
               });
               return {
                 kind,
@@ -808,24 +823,55 @@ export const InboxLive = Inbox.make(
         }, orDieOnStorage),
 
         revoke: Effect.fn("Inbox.revoke")(function* (token, credentialId) {
-          // A Mac can remove anyone; a sender can only unpair itself.
+          // A device can remove anyone; a sender can only unpair itself.
           const actor = yield* authenticate(token);
           if (actor.kind === "sender" && actor.id !== credentialId) {
             return yield* new Unauthorized({
               message: "A sender can only unpair itself",
             });
           }
-          const [target] = yield* db
-            .update(credentials)
-            .set({ revokedAt: yield* now })
-            .where(
-              and(
-                eq(credentials.id, credentialId),
-                isNull(credentials.revokedAt)
-              )
-            )
-            .returning({ id: credentials.id });
-          if (!target) {
+          const at = yield* now;
+          const revoked = yield* db.transaction((tx) =>
+            Effect.gen(function* () {
+              const devices = yield* tx
+                .select({ id: credentials.id, platform: credentials.platform })
+                .from(credentials)
+                .where(isActive("device"));
+              const target = devices.find(
+                (device) => device.id === credentialId
+              );
+              // Macs are where taps show up: an inbox left with only iPhones
+              // would take taps that nothing displays. Removing the very last
+              // device (resetting the inbox) is still allowed.
+              if (
+                target &&
+                platformFor("device", target.platform ?? undefined) === "mac"
+              ) {
+                const rest = devices.filter(
+                  (device) => device.id !== credentialId
+                );
+                const macsLeft = rest.filter(
+                  (device) =>
+                    platformFor("device", device.platform ?? undefined) ===
+                    "mac"
+                );
+                if (rest.length > 0 && macsLeft.length === 0) {
+                  return yield* new Conflict({ message: lastMacMessage });
+                }
+              }
+              return yield* tx
+                .update(credentials)
+                .set({ revokedAt: at })
+                .where(
+                  and(
+                    eq(credentials.id, credentialId),
+                    isNull(credentials.revokedAt)
+                  )
+                )
+                .returning({ id: credentials.id });
+            })
+          );
+          if (revoked.length === 0) {
             return yield* new NotFound({ message: "No such pairing" });
           }
           for (const { socket, session } of yield* sessions) {
