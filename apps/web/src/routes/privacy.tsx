@@ -102,11 +102,12 @@ function PrivacyComponent() {
       <DocSection title="What stays on your devices">
         <ul>
           <li>
-            <b>Sender's phone:</b> Safari's local storage holds the pairing
-            (your name, color, the recipient's name, and your access key) and
-            any taps that haven't reached the server yet. Unpairing removes the
-            pairing from the phone; clearing Safari's website data removes
-            everything stored there.
+            <b>Sender's phone:</b> The iPhone app stores access keys in the iOS
+            Keychain and unsent taps in its app storage. Safari's local storage
+            holds the pairing (your name, color, the recipient's name, and your
+            access key) and any taps that haven't reached the server yet.
+            Unpairing removes the pairing from the phone; clearing Safari's
+            website data removes everything stored there.
           </li>
           <li>
             <b>Recipient's Mac:</b> the app keeps its access key in{" "}
@@ -209,11 +210,14 @@ function PrivacyComponent() {
 
       <DocSection title="Deleting your data">
         <p>
-          There is no delete button yet. To delete an inbox and everything in
-          it, or to ask what we hold about you, email <EmailLink />. If you're
-          the recipient, include your name as senders see it and the name of one
-          of your Macs so we can find the right inbox. Senders can ask too, and
-          we'll work with the recipient to remove their taps.
+          In the iPhone app, open Help and privacy and choose “Delete my data”
+          for each person you are paired with. This deletes your sender name,
+          pairing, messages, and their replies from the server and this phone.
+          Unpairing alone stops contact but does not delete past messages. To
+          delete an entire Mac inbox, ask about a pairing you already removed,
+          or ask what we hold about you, email <EmailLink />. Include your name
+          as senders see it and the name of one of your Macs so we can find the
+          right inbox. Recovery copies may remain for up to 30 days.
         </p>
       </DocSection>
 
@@ -222,6 +226,9 @@ function PrivacyComponent() {
           To keep the service fair and to limit abuse, each sender can send up
           to 30 taps in any hour, and each inbox can have up to 20 senders and
           10 Macs paired at once. Inbox creation is rate-limited per network.
+          Messages and text replies are checked against a small set of
+          threatening and abusive phrases before being stored. This happens on
+          our servers; no message is sent to an external moderation service.
           These limits are enforced by counting what the inbox already stores;
           they don't need any extra data about you.
         </p>

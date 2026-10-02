@@ -70,9 +70,9 @@ function SupportComponent() {
 
       <DocSection title="The Mac app won't open">
         <p>
-          The app isn't notarized by Apple yet, so macOS blocks the first
-          launch. Choose Done, then open System Settings › Privacy & Security,
-          scroll down, and click Open Anyway. The{" "}
+          Download the latest version from our site. It is signed and notarized
+          by Apple. Open the disk image, drag Shouldertap to Applications, and
+          choose Open when macOS asks about the downloaded app. The{" "}
           <a className={link} href="/download">
             download page
           </a>{" "}
@@ -88,11 +88,23 @@ function SupportComponent() {
         </p>
       </DocSection>
 
+      <DocSection title="Report abuse">
+        <p>
+          In the iPhone app, open Help and privacy, then “Report a problem or
+          abuse”. You can also press and hold a recent tap to email a report
+          with its tap ID. Email <EmailLink /> with the details you want to
+          share. We review reports and can remove content or revoke access. To
+          stop contact immediately, unpair on iPhone or remove a sender under
+          “Can tap you” in the Mac app. A new invite is required to reconnect.
+        </p>
+      </DocSection>
       <DocSection title="How do I delete my data?">
         <p>
-          There's no delete button yet. Email <EmailLink /> with your name as
-          senders see it and the name of one of your Macs, and we'll delete your
-          inbox and everything in it. The{" "}
+          In the iPhone app, open Help and privacy and choose “Delete my data”
+          for each person you are paired with. This deletes your sender pairing,
+          messages and replies. For an entire Mac inbox or an old pairing you
+          already removed, email <EmailLink /> with your name as senders see it
+          and the name of one of your Macs. The{" "}
           <a className={link} href="/privacy">
             Privacy Policy
           </a>{" "}

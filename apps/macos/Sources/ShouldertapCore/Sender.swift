@@ -357,6 +357,15 @@ public final class SenderStore {
     forget(id: id)
   }
 
+  /// Keep the credential until the server confirms deletion so a failed
+  /// connection can be retried without losing access to the stored data.
+  public func deleteData(id: String) async throws {
+    guard let pairing = session(id: id)?.pairing else { return }
+    let api = APIClient(baseURL: server, token: pairing.token, session: session)
+    try await api.deleteSender()
+    forget(id: id)
+  }
+
   /// Forget a pairing on this phone without telling the server, e.g. once
   /// the recipient has already removed it.
   private func forget(id: String) {

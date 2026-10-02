@@ -421,6 +421,65 @@ test(
 
 // Runs last: it exhausts this IP's inbox-creation budget for the next minute.
 test(
+  "sender deletion removes messages, invalidates access and preserves other senders",
+  Effect.gen(function* () {
+    const url = (yield* stack).server;
+    const { anon, macA, sender } = yield* pairedInbox(url);
+    const mac = yield* client(url, macA.token);
+    const first = yield* client(url, sender.token);
+    const invite = yield* mac.inbox.createInvite({
+      payload: { kind: "sender" },
+    });
+    const other = yield* anon.pairing.redeemInvite({
+      payload: { code: invite.code, name: "Other" },
+    });
+    const second = yield* client(url, other.token);
+    const mine = yield* first.inbox.sendTap({
+      payload: { requestId: crypto.randomUUID(), body: "Delete this message" },
+    });
+    yield* mac.inbox.acknowledge({
+      params: { id: mine.id },
+      payload: { response: { kind: "text", text: "Delete this reply too" } },
+    });
+    const keep = yield* second.inbox.sendTap({
+      payload: { requestId: crypto.randomUUID(), body: "Keep this message" },
+    });
+    const macCannotDeleteSender = yield* mac.inbox
+      .deleteSender()
+      .pipe(Effect.flip);
+    expect(macCannotDeleteSender._tag).toBe("Unauthorized");
+    yield* first.inbox.deleteSender();
+    const snapshot = yield* mac.inbox.me();
+    expect(snapshot.taps.map((tap) => tap.id)).toContain(keep.id);
+    expect(snapshot.taps.map((tap) => tap.id)).not.toContain(mine.id);
+    expect(
+      snapshot.kind === "device" &&
+        snapshot.credentials.some(
+          (credential) => credential.id === sender.credentialId
+        )
+    ).toBe(false);
+    const access = yield* first.inbox.me().pipe(Effect.flip);
+    expect(access._tag).toBe("Unauthorized");
+    const blocked = yield* second.inbox
+      .sendTap({
+        payload: { requestId: crypto.randomUUID(), body: "I will kill you" },
+      })
+      .pipe(Effect.flip);
+    expect(blocked._tag).toBe("InvalidRequest");
+    const blockedReply = yield* mac.inbox
+      .acknowledge({
+        params: { id: keep.id },
+        payload: { response: { kind: "text", text: "kill yourself" } },
+      })
+      .pipe(Effect.flip);
+    expect(blockedReply._tag).toBe("InvalidRequest");
+    const own = yield* second.inbox.me();
+    expect(own.taps).toHaveLength(1);
+    expect(own.taps[0]?.state).toBe("pending");
+  })
+);
+
+test(
   "rate-limits inbox creation per client",
   Effect.gen(function* () {
     const url = (yield* stack).server;

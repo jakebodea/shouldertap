@@ -35,6 +35,7 @@ import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 import migrations from "../drizzle/migrations.js";
+import { isObjectionable } from "./content";
 import { planOf, requireActivePlan, TRIAL_MS } from "./plan";
 import { retentionFilters } from "./retention";
 import { credentials, inbox, invites, taps, tickets } from "./schema";
@@ -101,6 +102,10 @@ export interface InboxRpc {
   readonly createTicket: (
     token: ParsedToken
   ) => Rpc<ConnectTicket, Unauthorized>;
+  /** Deletes only the authenticated sender and all of their taps/replies. */
+  readonly deleteSender: (
+    token: ParsedToken
+  ) => Rpc<{ deleted: true }, Unauthorized>;
   /**
    * Creates the inbox. `trialEndsAt` comes from the Mac's trial ledger when
    * it has one; without it the trial is a fresh one from now.
@@ -129,7 +134,10 @@ export interface InboxRpc {
   readonly sendTap: (
     token: ParsedToken,
     request: SendTapRequest
-  ) => Rpc<Tap, Unauthorized | Conflict | TooManyRequests | PaymentRequired>;
+  ) => Rpc<
+    Tap,
+    Unauthorized | Conflict | TooManyRequests | PaymentRequired | InvalidRequest
+  >;
   readonly snapshot: (token: ParsedToken) => Rpc<Snapshot, Unauthorized>;
 }
 
@@ -646,6 +654,12 @@ export const InboxLive = Inbox.make(
 
         sendTap: Effect.fn("Inbox.sendTap")(function* (token, request) {
           const actor = yield* requireSender(token);
+          if (isObjectionable(request.body)) {
+            return yield* new InvalidRequest({
+              message:
+                "This message contains threatening or abusive language. Please rewrite it.",
+            });
+          }
           const id = yield* randomId();
           const createdAt = yield* now;
           const tapId = yield* db.transaction((tx) =>
@@ -739,6 +753,12 @@ export const InboxLive = Inbox.make(
           request
         ) {
           const actor = yield* requireDevice(token);
+          if (request.response.text && isObjectionable(request.response.text)) {
+            return yield* new InvalidRequest({
+              message:
+                "This reply contains threatening or abusive language. Please rewrite it.",
+            });
+          }
           if (
             request.response.kind === "text" &&
             !request.response.text?.trim()
@@ -816,6 +836,28 @@ export const InboxLive = Inbox.make(
           }
           yield* broadcastCredentials;
           return { revoked: true as const };
+        }, orDieOnStorage),
+
+        deleteSender: Effect.fn("Inbox.deleteSender")(function* (token) {
+          const actor = yield* requireSender(token);
+          yield* db.transaction((tx) =>
+            Effect.gen(function* () {
+              yield* tx.delete(taps).where(eq(taps.senderId, actor.id));
+              yield* tx
+                .delete(tickets)
+                .where(eq(tickets.credentialId, actor.id));
+              yield* tx.delete(invites).where(eq(invites.createdBy, actor.id));
+              yield* tx.delete(credentials).where(eq(credentials.id, actor.id));
+            })
+          );
+          for (const { socket, session } of yield* sessions) {
+            if (session.credentialId === actor.id) {
+              yield* send(socket, { v: 1, type: "revoked" });
+              yield* socket.close(4001, "deleted");
+            }
+          }
+          yield* broadcastCredentials;
+          return { deleted: true as const };
         }, orDieOnStorage),
 
         checkoutContext: Effect.fn("Inbox.checkoutContext")(function* (token) {

@@ -117,6 +117,11 @@ public struct APIClient: Sendable {
     let _: Revoked = try await send("DELETE", "/v1/credentials/\(escape(credentialId))")
   }
 
+  /// Permanently removes this sender's pairing, messages and replies.
+  public func deleteSender() async throws {
+    let _: Deleted = try await send("DELETE", "/v1/sender")
+  }
+
   /// Macs only: where to pay for this inbox. `conflict` once it's already
   /// paid for; `unavailable` when the server has no payments set up.
   public func createCheckout() async throws -> Checkout {
@@ -151,6 +156,7 @@ public struct APIClient: Sendable {
     var color: PersonColor?  // omitted when nil, like the optional key in the contract
   }
   private struct Revoked: Decodable { var revoked: Bool }
+  private struct Deleted: Decodable { var deleted: Bool }
   private struct NoBody: Encodable {}
 
   private func send<Response: Decodable>(_ method: String, _ path: String) async throws -> Response {
