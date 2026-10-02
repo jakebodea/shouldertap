@@ -8,8 +8,6 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4173",
     trace: "retain-on-failure",
   },
-  // One iPhone-sized WebKit project. Dark mode and Android repeated the same
-  // assertions; native Safari bars are checked by e2e/check-safari-tint.py.
   projects: [
     {
       name: "iphone-webkit",
