@@ -24,11 +24,11 @@ Provider request logs are included as Other Diagnostic Data; the privacy policy 
 
 ## Remaining release gates
 
-- Confirm a signed version 1.0 build is processed and selected.
-- Confirm the new backend deletion endpoint/filter and updated support/privacy pages are deployed.
+- Version 1.0 build 47 is processed, selected and available to the existing internal “Me” TestFlight group.
+- Backend deletion endpoint/filter deployed from PR #31; support/privacy wording corrected in PR #32.
 - Test the actual TestFlight build on a physical iPhone, including camera permission denial and QR scanning.
 - Age-rating questionnaire saved: private messaging and user-generated content present; no public social feed.
-- Confirm free pricing and U.S.-only availability. Apple agreements remain developer-owned; EU trader verification is outside this U.S. launch.
+- Free pricing and U.S.-only availability saved; Mac App Store and Vision Pro distribution disabled. Privacy declaration published with developer confirmation. Content-rights answer saved as no third-party content, as confirmed by the developer. Apple agreements remain developer-owned; EU trader verification is outside this U.S. launch.
 - Reviewer setup uses the public Mac companion and a fresh inbox, with no pre-issued invite/password. Confirm they have a Mac available; offer assisted access if requested. The public sample is an explanation, not evidence a real Mac received a message.
 - Mac download checked October 2: Developer ID signature accepted by Gatekeeper; downloaded DMG's stapled notarization validated. Older README/support claims of ad-hoc signing were stale.
 - User's final TestFlight verification precedes Submit for Review.
