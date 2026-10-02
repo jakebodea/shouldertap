@@ -535,26 +535,24 @@ const jobs = {
 
 const [, , only] = process.argv;
 const browser = await chromium.launch();
-// One page per pixel density; jobs render one at a time on them.
-const pages = {
-  1: await browser.newPage({ deviceScaleFactor: 1 }),
-  2: await browser.newPage({ deviceScaleFactor: 2 }),
-};
-// biome-ignore lint/performance/noAwaitInLoops: jobs share a page, so they render in order.
-for (const [name, [w, h, html, scale = 2]] of Object.entries(jobs)) {
-  if (only && !name.includes(only)) {
-    continue;
-  }
-  const page = pages[scale];
-  await page.setViewportSize({ width: w, height: h });
-  await page.setContent(html);
-  await page.evaluate(() => document.fonts.ready);
-  const out = join(here, `${name}.png`);
-  mkdirSync(dirname(out), { recursive: true });
-  await page.screenshot({
-    path: out,
-    omitBackground: name.startsWith("logo/") || name.includes("-logo"),
-  });
-  console.log(name);
-}
+await Promise.all(
+  Object.entries(jobs)
+    .filter(([name]) => !only || name.includes(only))
+    .map(async ([name, [w, h, html, scale = 2]]) => {
+      const page = await browser.newPage({
+        deviceScaleFactor: scale,
+        viewport: { width: w, height: h },
+      });
+      await page.setContent(html);
+      await page.evaluate(() => document.fonts.ready);
+      const out = join(here, `${name}.png`);
+      mkdirSync(dirname(out), { recursive: true });
+      await page.screenshot({
+        path: out,
+        omitBackground: name.startsWith("logo/") || name.includes("-logo"),
+      });
+      await page.close();
+      console.log(name);
+    })
+);
 await browser.close();
