@@ -2,11 +2,11 @@ import CoreImage.CIFilterBuiltins
 import ShouldertapCore
 import SwiftUI
 
-// Your own Shouldertap, on this iPhone. Linked to the inbox with a device
-// code from the Mac (`ReceiverStore`, `platform: .iphone`), the phone manages
-// it like the Mac menu does: invite people, remove them, see your devices and
-// what has come in. Taps still show up on the Mac; this phone never reports
-// one as displayed or answers it.
+// Your own Shouldertap, on this iPhone: the Inbox tab. Linked to the inbox
+// with a device code from the Mac (`ReceiverStore`, `platform: .iphone`), the
+// phone gets your taps too (Receiving.swift) and manages the inbox like the
+// Mac menu does: invite people, remove them, see your devices and what has
+// come in.
 
 /// What screens elsewhere can ask the root for: open your inbox, link this
 /// iPhone, or note that an unlink is this phone's own doing.
@@ -45,13 +45,10 @@ private func isSenderInvite(_ input: String) -> Bool {
 // MARK: The inbox
 
 /// The Mac menu's ready view, on a page: plan, invite, people, devices,
-/// recent taps. As the root (no one to tap yet) the frame offers tapping
-/// someone; over the composer it closes.
+/// recent taps.
 struct InboxScreen: View {
   let inbox: ReceiverStore
   let senders: SenderStore
-  var onTapSomeone: (() -> Void)?
-  var onClose: (() -> Void)?
 
   @State private var removing: Credential?
   @State private var error: String?
@@ -62,30 +59,14 @@ struct InboxScreen: View {
       FrameBar {
         Wordmark()
       } trailing: {
-        if let onTapSomeone {
-          Button(action: onTapSomeone) {
-            Label { Text("Tap someone") } icon: { IconView(icon: .send, size: 17) }
-          }
-          .buttonStyle(FrameButtonStyle())
-          .accessibilityIdentifier("tap-someone")
-          HelpButton(store: senders)
-        }
-        if let onClose {
-          Button(action: onClose) { IconView(icon: .close, size: 18) }
-            .buttonStyle(FrameButtonStyle(iconOnly: true))
-            .accessibilityLabel("Close")
-            .accessibilityIdentifier("inbox-close")
-        }
+        HelpButton(store: senders)
       }
       Page {
         header
         InviteCard(inbox: inbox)
+        recent
         people
         devices
-        recent
-        Text("Taps show up on your Mac. Getting them on this iPhone too is coming.")
-          .font(Bricolage.medium(14))
-          .foregroundStyle(Paper.tone)
       }
       .onPaper()
     }
@@ -203,19 +184,6 @@ struct InboxScreen: View {
       } catch {
         self.error = (error as? APIError)?.message ?? error.localizedDescription
       }
-    }
-  }
-}
-
-/// Your inbox over the composer, in its own frame.
-struct InboxCover: View {
-  let inbox: ReceiverStore
-  let senders: SenderStore
-  let onClose: () -> Void
-
-  var body: some View {
-    Frame(color: inboxColor) {
-      InboxScreen(inbox: inbox, senders: senders, onClose: onClose)
     }
   }
 }
@@ -496,7 +464,8 @@ private func qrImage(_ text: String) -> UIImage? {
 struct LinkCover: View {
   let inbox: ReceiverStore
   var code: String = ""
-  let onClose: () -> Void
+  /// nil in the Inbox tab, where there's nothing to close.
+  var onClose: (() -> Void)?
   let onLinked: () -> Void
 
   @State private var text: String
@@ -505,7 +474,7 @@ struct LinkCover: View {
   @State private var pending = false
   @State private var error: String?
 
-  init(inbox: ReceiverStore, code: String = "", onClose: @escaping () -> Void, onLinked: @escaping () -> Void) {
+  init(inbox: ReceiverStore, code: String = "", onClose: (() -> Void)? = nil, onLinked: @escaping () -> Void) {
     self.inbox = inbox
     self.code = code
     self.onClose = onClose
@@ -521,20 +490,22 @@ struct LinkCover: View {
         FrameBar {
           Wordmark()
         } trailing: {
-          Button(action: onClose) { IconView(icon: .close, size: 18) }
-            .buttonStyle(FrameButtonStyle(iconOnly: true))
-            .accessibilityLabel("Close")
-            .accessibilityIdentifier("link-close")
+          if let onClose {
+            Button(action: onClose) { IconView(icon: .close, size: 18) }
+              .buttonStyle(FrameButtonStyle(iconOnly: true))
+              .accessibilityLabel("Close")
+              .accessibilityIdentifier("link-close")
+          }
         }
         Page {
           StepHeader(
-            title: "Link your Mac",
-            text: "Manage your Shouldertap from this iPhone: invite people, remove them, and see what's come in. Taps keep showing up on your Mac.")
+            title: "Get your taps here too",
+            text: "Link this iPhone to Shouldertap on your Mac. Taps then reach both, and you can answer on either. From here you can also invite people and remove them.")
 
           NumberedSteps(color: inboxColor, steps: [
             "Click the Shouldertap mark in your Mac's menu bar.",
-            "Under Your devices, click Add a Mac or iPhone. A QR code appears.",
-            "Scan it with this iPhone.",
+            "Under Your Macs or Your devices, click Add another Mac (or Add a Mac or iPhone). A code appears.",
+            "Scan its QR code with this iPhone, or copy the code and paste it below.",
           ])
 
           VStack(alignment: .leading, spacing: 8) {

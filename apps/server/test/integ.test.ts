@@ -168,6 +168,47 @@ test(
     expect(platforms).toContainEqual(["iPhone", "iphone"]);
     expect(platforms).toContainEqual(["Sam", null]);
 
+    // The iPhone registers for pushes, and saves the token of the Live
+    // Activity a pending tap started (no APNs key here, so nothing is sent).
+    const registered = yield* phone.inbox.registerPush({
+      payload: {
+        environment: "sandbox",
+        topic: "app.shouldertap.ios.debug",
+        deviceToken: "ab".repeat(32),
+        startToken: "cd".repeat(40),
+        liveActivities: true,
+      },
+    });
+    expect(registered.registered).toBe(true);
+    const senderCannotRegister = yield* (yield* client(url, sender.token)).inbox
+      .registerPush({
+        payload: {
+          environment: "sandbox",
+          topic: "app.shouldertap.ios",
+          deviceToken: null,
+          startToken: null,
+          liveActivities: false,
+        },
+      })
+      .pipe(Effect.flip);
+    expect(senderCannotRegister._tag).toBe("Unauthorized");
+    const saved = yield* phone.inbox.activityToken({
+      params: { id: trialTap.id },
+      payload: { token: "ef".repeat(40) },
+    });
+    expect(saved.saved).toBe(true);
+    yield* phone.inbox.acknowledge({
+      params: { id: trialTap.id },
+      payload: { response: { kind: "on_it" } },
+    });
+    const late = yield* phone.inbox
+      .activityToken({
+        params: { id: trialTap.id },
+        payload: { token: "ef".repeat(40) },
+      })
+      .pipe(Effect.flip);
+    expect(late._tag).toBe("NotFound");
+
     // The iPhone manages people like a Mac does.
     const invite = yield* phone.inbox.createInvite({
       payload: { kind: "sender" },

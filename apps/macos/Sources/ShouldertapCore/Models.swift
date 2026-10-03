@@ -174,6 +174,44 @@ public struct Plan: Sendable, Codable, Hashable {
   }
 }
 
+/// Which APNs a push token belongs to: debug and simulator builds use the
+/// sandbox.
+public enum PushEnvironment: String, Sendable, Codable {
+  case sandbox, production
+}
+
+/// A linked iPhone's push setup (`PUT /v1/push`): a tap reaches it as a Live
+/// Activity when it has a start token and Live Activities are on, otherwise
+/// as a notification.
+public struct PushRegistration: Sendable, Codable, Hashable {
+  public var environment: PushEnvironment
+  /// The app's bundle id.
+  public var topic: String
+  public var deviceToken: String?
+  public var startToken: String?
+  public var liveActivities: Bool
+
+  public init(
+    environment: PushEnvironment, topic: String, deviceToken: String?, startToken: String?, liveActivities: Bool
+  ) {
+    self.environment = environment
+    self.topic = topic
+    self.deviceToken = deviceToken
+    self.startToken = startToken
+    self.liveActivities = liveActivities
+  }
+
+  // Tokens are sent as null rather than left out: the contract requires them.
+  public func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(environment, forKey: .environment)
+    try container.encode(topic, forKey: .topic)
+    try container.encode(deviceToken, forKey: .deviceToken)
+    try container.encode(startToken, forKey: .startToken)
+    try container.encode(liveActivities, forKey: .liveActivities)
+  }
+}
+
 /// Where a paired Mac sends its person to pay.
 public struct Checkout: Sendable, Codable {
   public var url: URL

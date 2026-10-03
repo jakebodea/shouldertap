@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Taps for a linked iPhone arrive over APNs. App Store exports switch
+	     this to production. -->
+	<key>aps-environment</key>
+	<string>development</string>
+	<!-- Tap notifications break through Focus (no Apple approval needed). -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+</dict>
+</plist>

@@ -4,25 +4,30 @@ import Foundation
 import ShouldertapCore
 
 // Compiled into both the app and the ShouldertapWidgets extension: the
-// extension draws the activity, the app starts it and runs the intents.
+// extension draws the activity, the app answers it.
 
 /// A tap shown as a Live Activity: on the Lock Screen and in the Dynamic
-/// Island until it's answered.
+/// Island until it's answered. The server starts it with a push-to-start
+/// push whose `attributes` and `content-state` must decode as these
+/// (`startActivityPayload` in apps/server/src/apns.ts).
 nonisolated struct TapActivityAttributes: ActivityAttributes {
   struct ContentState: Codable, Hashable {
     var body: String
-    /// Set once answered; the activity shows it briefly, then leaves.
+    /// Set once answered, e.g. "On it · Studio Mac".
     var answer: String?
   }
 
   var tapId: String
   var senderName: String
   var senderColor: PersonColor
-  var createdAt: Date
+  /// Epoch milliseconds, as the server sends them.
+  var createdAt: Timestamp
+
+  var createdDate: Date { Date(timeIntervalSince1970: createdAt / 1000) }
 }
 
 /// "On it" / "In 10 min" from the Lock Screen or the Dynamic Island,
-/// without opening the app. Runs in the app's process.
+/// without opening the app. The system runs it in the app's process.
 struct AnswerTapIntent: LiveActivityIntent {
   static let title: LocalizedStringResource = "Answer tap"
   static let isDiscoverable = false
@@ -39,33 +44,32 @@ struct AnswerTapIntent: LiveActivityIntent {
 
   func perform() async throws -> some IntentResult {
     let response = TapResponse(kind: TapResponse.Kind(rawValue: kind) ?? .onIt)
-    await TapActivities.answer(tapId: tapId, with: response)
+    await TapAnswers.answer(tapId: tapId, response: response)
     return .result()
   }
 }
 
-enum TapActivities {
-  /// Show the answer for a moment, then dismiss. RECEIVER SEAM: also send
-  /// `response` to the server for `tapId`, as the Mac does.
-  static func answer(tapId: String, with response: TapResponse) async {
-    for activity in Activity<TapActivityAttributes>.activities where activity.attributes.tapId == tapId {
-      var state = activity.content.state
-      state.answer = response.label
-      await activity.end(
-        ActivityContent(state: state, staleDate: nil),
-        dismissalPolicy: .after(.now.addingTimeInterval(4)))
+/// Where answers from outside the app go. The app sets `handler` at launch
+/// (it sends the answer and clears the tap); the extension never runs one.
+enum TapAnswers {
+  @MainActor static var handler: ((String, TapResponse) async -> Void)?
+
+  @MainActor static func answer(tapId: String, response: TapResponse) async {
+    if let handler {
+      await handler(tapId, response)
+    } else {
+      await TapActivities.end(tapId: tapId, answer: response.label)
     }
   }
+}
 
-  /// Re-announce a tap the way a pushed update with an alert would: lights
-  /// the Lock Screen, or expands the Dynamic Island over the current app.
-  static func alert(tapId: String) async {
+enum TapActivities {
+  /// End the tap's Live Activity, showing `answer` until it's dismissed.
+  static func end(tapId: String, answer: String?) async {
     for activity in Activity<TapActivityAttributes>.activities where activity.attributes.tapId == tapId {
-      let content = activity.content
-      await activity.update(
-        content,
-        alertConfiguration: AlertConfiguration(
-          title: "\(activity.attributes.senderName)", body: "\(content.state.body)", sound: .default))
+      var state = activity.content.state
+      state.answer = answer ?? state.answer
+      await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .immediate)
     }
   }
 }

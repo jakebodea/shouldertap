@@ -23,6 +23,7 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import { domains, isProduction } from "../../../domains.ts";
+import { makeProviderTokens, type PushContext } from "./apns";
 import {
   checkoutInboxId,
   createCheckout,
@@ -73,6 +74,31 @@ export default class Server extends Cloudflare.Worker<Server>()(
         client: creemClient(Redacted.value(config.apiKey)),
       }))
     );
+
+    // APNs is optional too: without the key, linked iPhones simply get no
+    // pushes (previews, dev). The .p8 file's contents go in APNS_KEY.
+    const apns = Option.all({
+      p8: yield* Config.option(Config.Redacted("APNS_KEY")),
+      keyId: yield* Config.option(Config.String("APNS_KEY_ID")),
+      teamId: yield* Config.option(Config.String("APNS_TEAM_ID")),
+    }).pipe(
+      Option.map(({ p8, ...rest }) =>
+        makeProviderTokens({ p8: Redacted.value(p8), ...rest })
+      )
+    );
+    /** A signed provider token for the Inbox, or nothing without APNs. */
+    const pushContext = Option.match(apns, {
+      onNone: () => Effect.succeed(undefined),
+      onSome: (tokens) =>
+        tokens.pipe(
+          Effect.map((context): PushContext | undefined => context),
+          Effect.catchCause((cause) =>
+            Effect.logError("Couldn't sign an APNs token", cause).pipe(
+              Effect.as(undefined)
+            )
+          )
+        ),
+    });
 
     const trialLedgers = yield* TrialLedger;
     /**
@@ -174,9 +200,10 @@ export default class Server extends Cloudflare.Worker<Server>()(
           )
         )
         .handle("sendTap", ({ payload }) =>
-          Effect.flatMap(forCaller, ({ token, stub }) =>
-            stub.sendTap(token, payload)
-          )
+          Effect.gen(function* () {
+            const { token, stub } = yield* forCaller;
+            return yield* stub.sendTap(token, payload, yield* pushContext);
+          })
         )
         .handle("markDisplayed", ({ params }) =>
           Effect.flatMap(forCaller, ({ token, stub }) =>
@@ -184,8 +211,24 @@ export default class Server extends Cloudflare.Worker<Server>()(
           )
         )
         .handle("acknowledge", ({ params, payload }) =>
+          Effect.gen(function* () {
+            const { token, stub } = yield* forCaller;
+            return yield* stub.acknowledge(
+              token,
+              params.id,
+              payload,
+              yield* pushContext
+            );
+          })
+        )
+        .handle("registerPush", ({ payload }) =>
           Effect.flatMap(forCaller, ({ token, stub }) =>
-            stub.acknowledge(token, params.id, payload)
+            stub.registerPush(token, payload)
+          )
+        )
+        .handle("activityToken", ({ params, payload }) =>
+          Effect.flatMap(forCaller, ({ token, stub }) =>
+            stub.activityToken(token, params.id, payload)
           )
         )
         .handle("revoke", ({ params }) =>
@@ -238,7 +281,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
         Layer.provide(
           HttpRouter.cors({
             allowedOrigins: ["*"],
-            allowedMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+            allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             // Effect clients propagate W3C trace context alongside the credential.
             allowedHeaders: [
               "authorization",

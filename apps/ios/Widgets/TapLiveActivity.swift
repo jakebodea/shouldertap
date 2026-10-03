@@ -32,7 +32,7 @@ struct TapLiveActivity: Widget {
           .padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          Text(tap.createdAt, style: .relative)
+          Text(tap.createdDate, style: .relative)
             .font(Bricolage.medium(13))
             .foregroundStyle(.white.opacity(0.6))
             .multilineTextAlignment(.trailing)
@@ -83,7 +83,7 @@ private struct LockScreenTap: View {
         Text(attributes.senderName)
           .font(Bricolage.bold(17))
         Spacer()
-        Text(attributes.createdAt, style: .relative)
+        Text(attributes.createdDate, style: .relative)
           .font(Bricolage.medium(13))
           .opacity(0.75)
           .multilineTextAlignment(.trailing)
@@ -118,7 +118,7 @@ private struct Answers: View {
     if let answer {
       HStack(spacing: 6) {
         IconView(icon: .onIt, size: 16)
-        Text("You answered: \(answer)")
+        Text(answer)
       }
       .font(Bricolage.bold(14))
       .foregroundStyle(onDark ? color.accent : color.ink)

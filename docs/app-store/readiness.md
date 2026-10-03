@@ -24,7 +24,7 @@ Provider request logs are included as Other Diagnostic Data; the privacy policy 
 
 ## Remaining release gates
 
-- Builds from PR #35 on add the inbox companion (a linked iPhone manages the recipient's inbox: senders' names and colors, device names, and received taps with their answers) and a Live Activity widget extension that release builds never start. Before submitting one of those builds, update the reviewer notes (how to link, with a test Mac code) and recheck the privacy answers, which describe a sender-only app.
+- Version 1.1 receives taps: a linked iPhone gets the recipient's taps as a Live Activity (Lock Screen, Dynamic Island) or a Time Sensitive notification, answers them, and manages the inbox (senders' names and colors, device names, received taps and answers). It adds push notifications (aps-environment, Time Sensitive) and the Live Activity widget extension. Before submitting 1.1: update the reviewer notes (how to link, with a test Mac or a pre-linked demo inbox, and how to trigger a tap) and recheck the privacy answers, which describe a sender-only app (now also: received messages, push tokens).
 - Version 1.0 is available to the existing internal “Me” TestFlight group. Physical testing of build 47 found inherited cream text on the Help sheet when using a green frame. Use the replacement containing the explicit system text-color fix for the final device check.
 - Backend deletion endpoint/filter deployed from PR #31; support/privacy wording corrected in PR #32.
 - Test the actual TestFlight build on a physical iPhone, including camera permission denial and QR scanning.

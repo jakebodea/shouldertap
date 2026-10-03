@@ -152,11 +152,12 @@ struct PaperPage: ViewModifier {
       .foregroundStyle(Paper.ink)
       .tint(Paper.ink)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(Paper.paper, in: page)
-      .clipShape(page)
+      // The paper runs off the bottom of the screen, under the home indicator
+      // and the tab bar; the content stays above them, so actions pinned to
+      // the bottom of a page are never covered.
+      .mask { page.ignoresSafeArea(.container, edges: .bottom) }
+      .background { page.fill(Paper.paper).ignoresSafeArea(.container, edges: .bottom) }
       .padding(.horizontal, 9)
-      // Scroll views inside still inset their content above the home indicator.
-      .ignoresSafeArea(.container, edges: .bottom)
   }
 }
 

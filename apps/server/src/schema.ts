@@ -2,6 +2,7 @@ import type {
   CredentialKind,
   DevicePlatform,
   PersonColor,
+  PushEnvironment,
   TapResponse,
   TapState,
 } from "@shouldertap/domain";
@@ -79,5 +80,32 @@ export const taps = sqliteTable(
   (table) => [
     uniqueIndex("taps_sender_request").on(table.senderId, table.requestId),
     index("taps_created_at").on(table.createdAt),
+  ]
+);
+
+/** A linked iPhone's push setup: one row per device credential. */
+export const pushRegistrations = sqliteTable("push_registrations", {
+  credentialId: text("credential_id").primaryKey(),
+  environment: text("environment").$type<PushEnvironment>().notNull(),
+  topic: text("topic").notNull(),
+  deviceToken: text("device_token"),
+  startToken: text("start_token"),
+  liveActivities: integer("live_activities", { mode: "boolean" }).notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** The Live Activity a tap started on each iPhone, so answering ends it. */
+export const activityTokens = sqliteTable(
+  "activity_tokens",
+  {
+    tapId: text("tap_id").notNull(),
+    credentialId: text("credential_id").notNull(),
+    token: text("token").notNull(),
+  },
+  (table) => [
+    uniqueIndex("activity_tokens_tap_device").on(
+      table.tapId,
+      table.credentialId
+    ),
   ]
 );
