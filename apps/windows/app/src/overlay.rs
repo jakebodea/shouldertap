@@ -198,8 +198,11 @@ impl Render for OverlayView {
             .flex_1()
             .min_h_0()
             .w_full()
+            // A column, so the message's width limit (not its text) sets its
+            // width and it wraps, centered vertically like the Mac's.
             .flex()
-            .items_center()
+            .flex_col()
+            .justify_center()
             .child(
                 div()
                     .max_w(px(message_size * 12.))
@@ -478,7 +481,7 @@ impl Overlays {
             .unwrap_or(0);
         for (index, (handle, _, _)) in self.windows.iter().enumerate() {
             let focus = index == target;
-            let _ = handle.update(cx, |_, window, _| platform::present_overlay(window, focus));
+            let _ = handle.update(cx, |_, window, cx| platform::present_overlay(window, focus, cx));
         }
     }
 

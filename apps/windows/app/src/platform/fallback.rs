@@ -68,7 +68,7 @@ pub fn window_has_pointer(_: &Window) -> bool {
     false
 }
 
-pub fn present_overlay(window: &mut Window, focus: bool) {
+pub fn present_overlay(window: &mut Window, focus: bool, _: &mut App) {
     if focus {
         window.activate_window();
     }
@@ -84,11 +84,11 @@ pub fn menu_bounds(_: Option<TrayAnchor>, cx: &App) -> Bounds<Pixels> {
     )
 }
 
-pub fn prepare_menu(_: &mut Window, _: Option<TrayAnchor>) {}
+pub fn prepare_menu(_: &mut Window, _: Option<TrayAnchor>, _: &mut App) {}
 
 pub fn focus_menu(_: &mut Window) {}
 
-pub fn resize_menu(window: &mut Window, height: f32, _: Option<TrayAnchor>) {
+pub fn resize_menu(window: &mut Window, height: f32, _: Option<TrayAnchor>, _: &mut App) {
     window.resize(size(px(MENU_WIDTH), px(height)));
 }
 

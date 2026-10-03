@@ -12,7 +12,7 @@ use futures::channel::mpsc::UnboundedSender;
 use gpui::{App, Bounds, Pixels, Window, WindowAppearance, point, px, size};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use shouldertap_core::CredentialVault;
-use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, POINT, RECT, SIZE, WPARAM};
+use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
@@ -34,11 +34,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_MENU,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CalculatePopupWindowPosition, FindWindowW, GWL_STYLE, GetCursorPos, GetForegroundWindow, GetWindowRect,
-    HWND_TOPMOST, PostMessageW, SPI_GETCLIENTAREAANIMATION, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOSIZE,
-    SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetForegroundWindow, SetPropW, SetWindowLongPtrW,
-    SetWindowPos, SystemParametersInfoW, TPM_BOTTOMALIGN, TPM_CENTERALIGN, TPM_RIGHTALIGN, TPM_VERTICAL, TPM_WORKAREA,
-    WS_POPUP, WS_VISIBLE,
+    CalculatePopupWindowPosition, FindWindowW, GetCursorPos, GetForegroundWindow, GetWindowRect, HWND_TOPMOST,
+    PostMessageW, SPI_GETCLIENTAREAANIMATION, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetForegroundWindow, SetWindowPos, SystemParametersInfoW, TPM_BOTTOMALIGN,
+    TPM_CENTERALIGN, TPM_RIGHTALIGN, TPM_VERTICAL, TPM_WORKAREA,
 };
 use windows::core::{BOOL, HSTRING, PCWSTR, PWSTR, w};
 
@@ -265,39 +264,33 @@ pub fn window_has_pointer(window: &Window) -> bool {
 
 /// Covers the window's whole display, taskbar included, above every other
 /// window (full-screen ones too), and takes the keyboard when `focus`.
-pub fn present_overlay(window: &mut Window, focus: bool) {
+///
+/// GPUI's own full-screen mode does the covering: it drops the frame insets
+/// GPUI gives other borderless windows and sizes the window to the monitor,
+/// which also makes the taskbar step aside. GPUI applies window changes on
+/// its executor, so z-order and focus follow on it too, after them.
+pub fn present_overlay(window: &mut Window, focus: bool, cx: &mut App) {
     let Some(hwnd) = hwnd(window) else { return };
-    unsafe {
-        let mut info = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return;
-        }
-        let area = info.rcMonitor;
-        SetWindowLongPtrW(hwnd, GWL_STYLE, (WS_POPUP | WS_VISIBLE).0 as isize);
-        // Keeps the taskbar from treating it as a full-screen app it should
-        // step aside for.
-        let _ = SetPropW(hwnd, w!("NonRudeHWND"), Some(HANDLE(1 as *mut c_void)));
-        let mut flags = SWP_FRAMECHANGED | SWP_SHOWWINDOW;
-        if !focus {
-            flags |= SWP_NOACTIVATE;
-        }
+    if !window.is_fullscreen() {
+        window.toggle_fullscreen();
+    }
+    let hwnd = hwnd.0 as isize;
+    cx.spawn(async move |_| unsafe {
+        let hwnd = HWND(hwnd as *mut c_void);
         let _ = SetWindowPos(
             hwnd,
             Some(HWND_TOPMOST),
-            area.left,
-            area.top,
-            area.right - area.left,
-            area.bottom - area.top,
-            flags,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         );
         if focus {
             force_foreground(hwnd);
         }
-    }
+    })
+    .detach();
 }
 
 /// Windows lets an app take the foreground only right after input it got.
@@ -340,7 +333,7 @@ pub fn menu_bounds(_: Option<TrayAnchor>, cx: &App) -> Bounds<Pixels> {
 }
 
 /// A flyout: rounded corners on Windows 11, above other windows, by the tray.
-pub fn prepare_menu(window: &mut Window, anchor: Option<TrayAnchor>) {
+pub fn prepare_menu(window: &mut Window, anchor: Option<TrayAnchor>, cx: &mut App) {
     let Some(hwnd) = hwnd(window) else { return };
     unsafe {
         let round = DWMWCP_ROUND;
@@ -351,7 +344,9 @@ pub fn prepare_menu(window: &mut Window, anchor: Option<TrayAnchor>) {
             size_of_val(&round) as u32,
         );
     }
-    place_menu(hwnd, anchor, None);
+    let hwnd = hwnd.0 as isize;
+    cx.spawn(async move |_| place_menu(HWND(hwnd as *mut c_void), anchor, None))
+        .detach();
 }
 
 pub fn focus_menu(window: &mut Window) {
@@ -360,19 +355,20 @@ pub fn focus_menu(window: &mut Window) {
     }
 }
 
-/// Resizes and re-anchors in one move: a GPUI resize lands later, so placing
-/// by the window's current size would put a growing menu off the screen.
-pub fn resize_menu(window: &mut Window, height: f32, anchor: Option<TrayAnchor>) {
-    match hwnd(window) {
-        Some(hwnd) => place_menu(hwnd, anchor, Some(height)),
-        None => window.resize(size(px(MENU_WIDTH), px(height))),
-    }
+/// Resizes through GPUI (so it redraws at the new size), then re-anchors by
+/// the new size once GPUI has applied it.
+pub fn resize_menu(window: &mut Window, height: f32, anchor: Option<TrayAnchor>, cx: &mut App) {
+    window.resize(size(px(MENU_WIDTH), px(height)));
+    let Some(hwnd) = hwnd(window) else { return };
+    let hwnd = hwnd.0 as isize;
+    cx.spawn(async move |_| place_menu(HWND(hwnd as *mut c_void), anchor, Some(height)))
+        .detach();
 }
 
 /// Above the tray icon (or beside it, for a taskbar on another edge), kept
 /// inside the work area; bottom right when the icon can't be found, as when
 /// it's in the overflow.
-/// `height` (logical pixels) resizes it too; None keeps its size.
+/// `height` is the size it's becoming (logical pixels); None uses its current size.
 fn place_menu(hwnd: HWND, anchor: Option<TrayAnchor>, height: Option<f32>) {
     unsafe {
         let dpi = windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd).max(96) as f32;
@@ -438,19 +434,14 @@ fn place_menu(hwnd: HWND, anchor: Option<TrayAnchor>, height: Option<f32>) {
             }
         };
         if ok {
-            let flags = if height.is_some() {
-                SWP_NOACTIVATE
-            } else {
-                SWP_NOSIZE | SWP_NOACTIVATE
-            };
             let _ = SetWindowPos(
                 hwnd,
                 Some(HWND_TOPMOST),
                 placed.left,
                 placed.top,
-                size.cx,
-                size.cy,
-                flags,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOACTIVATE,
             );
         }
     }

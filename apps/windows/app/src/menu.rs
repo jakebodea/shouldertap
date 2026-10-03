@@ -253,7 +253,7 @@ impl MenuView {
         }
         self.height = height;
         let anchor = self.anchor;
-        window.on_next_frame(move |window, _| platform::resize_menu(window, height, anchor));
+        window.on_next_frame(move |window, cx| platform::resize_menu(window, height, anchor, cx));
         cx.notify();
     }
 }

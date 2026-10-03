@@ -247,7 +247,7 @@ impl Shell {
                 ..Default::default()
             },
             move |window, cx| {
-                platform::prepare_menu(window, anchor);
+                platform::prepare_menu(window, anchor, cx);
                 cx.new(|cx| MenuView::new(model, anchor, window, cx))
             },
         );

@@ -75,11 +75,20 @@ Check "the overlay reports it displayed" { (TapState $tap.id).displayedAt } 20
 Start-Sleep -Seconds 1
 Shot "02-overlay"
 $foreground = Add-Type -PassThru -Name Fg -Namespace Smoke -MemberDefinition @'
+public struct RECT { public int Left, Top, Right, Bottom; }
 [DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
 [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(System.IntPtr hWnd, out int pid);
+[DllImport("user32.dll")] public static extern bool GetWindowRect(System.IntPtr hWnd, out RECT rect);
 '@
 $fgPid = 0; [void] $foreground::GetWindowThreadProcessId($foreground::GetForegroundWindow(), [ref] $fgPid)
 Check "the overlay took keyboard focus" { $fgPid -eq $app.Id } 1
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$rect = New-Object Smoke.Fg+RECT
+[void] $foreground::GetWindowRect($foreground::GetForegroundWindow(), [ref] $rect)
+Write-Host "  overlay $($rect.Left),$($rect.Top) to $($rect.Right),$($rect.Bottom); screen $($screen.Width)x$($screen.Height)"
+Check "the overlay covers the whole screen, taskbar included" {
+  $rect.Left -le 0 -and $rect.Top -le 0 -and $rect.Right -ge $screen.Width -and $rect.Bottom -ge $screen.Height
+} 1
 
 Write-Host "==> Answering with the 1 key (On it)"
 [System.Windows.Forms.SendKeys]::SendWait("1")
@@ -111,6 +120,13 @@ Start-Process -FilePath $Exe | Out-Null
 Start-Sleep -Seconds 4
 Check "the second copy handed off and quit" { @(Get-Process -Name Shouldertap -ErrorAction SilentlyContinue).Count -eq 1 } 10
 Shot "06-menu"
+$menu = New-Object Smoke.Fg+RECT
+[void] $foreground::GetWindowRect($foreground::GetForegroundWindow(), [ref] $menu)
+$work = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+Write-Host "  menu $($menu.Left),$($menu.Top) to $($menu.Right),$($menu.Bottom); work area to $($work.Right),$($work.Bottom)"
+Check "the menu sits inside the work area, above the taskbar" {
+  $menu.Bottom -le $work.Bottom -and $menu.Right -le $work.Right -and ($menu.Bottom - $menu.Top) -gt 300
+} 1
 
 $app.Refresh()
 $memory = [math]::Round($app.WorkingSet64 / 1MB, 1)
