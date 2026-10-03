@@ -50,10 +50,13 @@ public enum CredentialKind: String, Sendable, Codable {
   case device, sender
 }
 
-/// What kind of device a `device` credential is: Macs show taps; a linked
-/// iPhone manages the inbox alongside them.
+/// What kind of device a `device` credential is: computers (Macs and
+/// Windows PCs) show taps; a linked iPhone manages the inbox alongside them.
 public enum DevicePlatform: String, Sendable, Codable {
-  case mac, iphone
+  case mac, windows, iphone
+
+  /// Macs and Windows PCs put taps on screen; an iPhone only manages.
+  public var showsTaps: Bool { self != .iphone }
 
   /// Unknown platforms (a newer server) read as a Mac instead of failing the decode.
   public init(from decoder: any Decoder) throws {

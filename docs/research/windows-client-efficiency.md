@@ -1,5 +1,7 @@
 # Windows client: the efficient option
 
+> **Decision (October 2, 2026):** built in Rust with [GPUI](https://gpui.rs) 0.2.2 (Zed's UI framework) on windows-rs for the platform parts, rather than hand-drawn Direct2D. GPUI is cross-platform, so the overlay and menu run and are checked on a Mac during development, and it saves most of the hand-drawn UI work (M2–M3 below). The cost: a 5.9 MB exe instead of about 2 MB (measured, cross-built, imports only in-box DLLs), higher RAM (a GPUI window on macOS measured 86 MB footprint; Windows unmeasured), and no screen reader support. The core is the standalone crate recommended in §4 (`apps/windows/core`); it isn't shared with the Mac via UniFFI. Everything below about Windows itself (z-order, focus, SmartScreen, signing, R2 layout) still applies; see the README for what's been verified.
+
 Checked September 30, 2026. This is research and a plan only. No repo code was changed and nothing was deployed. Windows behavior has not been observed on hardware, because none was available. Numbers marked **(measured)** come from executables I cross-compiled on this Mac (details in [Measurements](#measurements)). All other numbers are cited.
 
 This replaces the Electron recommendation in [windows-client.md](windows-client.md). That document is still right about the parts Windows decides for every framework: z-order, exclusive full-screen games, focus stealing, Focus Assist, SmartScreen and Artifact Signing, and R2 layout. Those sections are summarized here, not repeated.

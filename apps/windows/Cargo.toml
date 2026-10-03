@@ -1,0 +1,26 @@
+# The native Windows receiver: `core` is the protocol, API client, live socket
+# and state (no UI, fully tested, mirrors apps/macos/Sources/ShouldertapCore);
+# `app` is the tray app (GPUI). Outside the Bun workspace, like apps/macos.
+[workspace]
+resolver = "3"
+members = ["core", "app"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+license = "UNLICENSED"
+publish = false
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Cross-builds from a Mac (scripts/build.sh): GPUI precompiles its Direct3D
+# shaders only when the build host is Windows, so these compile them at
+# launch instead (d3dcompiler_47.dll ships with Windows 10 and 11).
+[profile.cross]
+inherits = "release"
+debug-assertions = true

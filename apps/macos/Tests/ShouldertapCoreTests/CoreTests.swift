@@ -100,6 +100,18 @@ private func fixture(_ name: String) throws -> Data {
     #expect(try JSONDecoder().decode(Credential.self, from: Data(json.utf8)).color == .cobalt)
   }
 
+  /// Windows PCs pair as computers; a platform newer than this app reads as a Mac.
+  @Test func decodesDevicePlatforms() throws {
+    let device = { (platform: String) in
+      #"{"id":"d","kind":"device","name":"N","color":null,"platform":"\#(platform)","createdAt":1,"lastSeenAt":null}"#
+    }
+    let windows = try JSONDecoder().decode(Credential.self, from: Data(device("windows").utf8))
+    #expect(windows.devicePlatform == .windows)
+    #expect(windows.devicePlatform.showsTaps)
+    #expect(try JSONDecoder().decode(Credential.self, from: Data(device("vision").utf8)).devicePlatform == .mac)
+    #expect(!DevicePlatform.iphone.showsTaps)
+  }
+
   @Test func responseOmitsMissingText() throws {
     let json = String(decoding: try JSONEncoder().encode(TapResponse.onIt), as: UTF8.self)
     #expect(json == #"{"kind":"on_it"}"#)

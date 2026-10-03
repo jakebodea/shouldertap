@@ -74,8 +74,8 @@ private struct SetupView: View {
           .disabled(busy || trimmed(name).isEmpty)
       }
 
-      Section(title: "Already set up on another Mac?") {
-        TextField("Paste the pairing code from your other Mac", text: $code)
+      Section(title: "Already set up on another computer?") {
+        TextField("Paste the pairing code from your other computer", text: $code)
           .textFieldStyle(.roundedBorder)
         MenuButton(title: "Pair this Mac", icon: .addMac, action: join)
           .disabled(busy || trimmed(code).isEmpty)
@@ -352,7 +352,7 @@ private struct InviteSender: View {
   }
 }
 
-/// Another Mac pastes the code; an iPhone scans the QR code, which opens
+/// Another Mac or PC pastes the code; an iPhone scans the QR code, which opens
 /// Shouldertap on it (`shouldertap://link#<code>`, the code in the fragment
 /// like invite links).
 private struct AddDevice: View {
@@ -373,7 +373,7 @@ private struct AddDevice: View {
             .accessibilityLabel("QR code to link your iPhone")
         }
         Muted(
-          "Scan with your iPhone's camera to link it, or paste the code into Shouldertap on another Mac. It works once and expires in 15 minutes."
+          "Scan with your iPhone's camera to link it, or paste the code into Shouldertap on another Mac or PC. It works once and expires in 15 minutes."
         )
         .multilineTextAlignment(.center)
         Mono(code, lines: 3)
@@ -397,7 +397,7 @@ private struct AddDevice: View {
         }
       }) { _ in
         Glyph(icon: .addMac)
-        Text("Add a Mac or iPhone").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+        Text("Add a Mac, PC or iPhone").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
       }
       if let error { ErrorText(error) }
     }
@@ -416,6 +416,7 @@ private struct PairingRow: View {
       if credential.kind == .sender {
         Avatar(name: credential.name, color: credential.swatchColor)
       } else {
+        // Hugeicons' computer stands for a Windows PC too.
         Glyph(icon: credential.devicePlatform == .iphone ? .phone : .mac)
       }
       VStack(alignment: .leading, spacing: 1) {
@@ -450,7 +451,12 @@ private struct PairingRow: View {
   private var status: String {
     if isSelf { return "This Mac" }
     let seen = credential.lastSeenAt.map { "Active \(ago($0))" } ?? "Paired"
-    return credential.kind == .device && credential.devicePlatform == .iphone ? "iPhone · \(seen)" : seen
+    guard credential.kind == .device else { return seen }
+    switch credential.devicePlatform {
+    case .iphone: return "iPhone · \(seen)"
+    case .windows: return "Windows PC · \(seen)"
+    case .mac: return seen
+    }
   }
 }
 

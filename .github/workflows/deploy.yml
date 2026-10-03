@@ -91,17 +91,70 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Drives the protocol against the preview just deployed. Not run on prod,
       # where it would leave test inboxes behind.
-      - name: Integration tests
+      - name: Preview URL
+        id: preview
         if: github.event_name == 'pull_request'
         run: |
           # In CI the CLI logs to stdout too, so keep only the JSON record.
           STACK_URL=$(bun alchemy state cat shouldertap/${{ env.STAGE }}/output --no-input \
             | sed -n '/^{/,/^}/p' | jq -re .server)
-          echo "Testing $STACK_URL"
-          cd apps/server && STACK_URL=$STACK_URL bun test
+          echo "server=$STACK_URL" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Integration tests
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "Testing $STACK_URL"
+          cd apps/server && bun test
+        env:
+          STACK_URL: ${{ steps.preview.outputs.server }}
+    outputs:
+      server: ${{ steps.preview.outputs.server }}
+
+  # The Windows app on a real Windows desktop against the preview: pairs it,
+  # sends taps, answers with the keyboard, and keeps screenshots. Only when
+  # something it depends on changed.
+  windows-smoke:
+    needs: deploy
+    if: github.event_name == 'pull_request' && needs.deploy.outputs.server != ''
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Changed?
+        id: changed
+        shell: bash
+        run: |
+          if git diff --quiet "origin/${{ github.base_ref }}...HEAD" -- apps/windows apps/server packages/domain \
+            apps/macos/Tests/ShouldertapCoreTests/Fixtures .github/workflows/deploy.yml; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changed.outputs.run == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changed.outputs.run == 'true'
+        with:
+          workspaces: apps/windows
+      - name: Build (dev build, so it can point at the preview)
+        if: steps.changed.outputs.run == 'true'
+        working-directory: apps/windows
+        run: cargo build -p shouldertap
+      - name: Smoke test
+        if: steps.changed.outputs.run == 'true'
+        working-directory: apps/windows
+        run: ./scripts/smoke.ps1 -Server "${{ needs.deploy.outputs.server }}" -Exe target\debug\Shouldertap.exe -Out smoke
+      - name: Screenshots and logs
+        if: always() && steps.changed.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-smoke
+          path: apps/windows/smoke/
 
   cleanup:
     if: >-

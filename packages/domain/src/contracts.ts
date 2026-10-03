@@ -21,10 +21,11 @@ export const CredentialKind = Schema.Literals(["device", "sender"]);
 export type CredentialKind = typeof CredentialKind.Type;
 
 /**
- * What kind of device a "device" credential is. Macs receive taps; an iPhone
- * linked to the inbox manages it (people, devices, history) alongside them.
+ * What kind of device a "device" credential is. Computers (Macs and Windows
+ * PCs) receive taps; an iPhone linked to the inbox manages it (people,
+ * devices, history) alongside them.
  */
-export const DevicePlatform = Schema.Literals(["mac", "iphone"]);
+export const DevicePlatform = Schema.Literals(["mac", "windows", "iphone"]);
 export type DevicePlatform = typeof DevicePlatform.Type;
 
 export const ResponseKind = Schema.Literals(["on_it", "in_10", "text"]);
@@ -73,8 +74,9 @@ export type Credential = typeof Credential.Type;
 // Commands
 
 /**
- * A salted SHA-256 of a Mac's hardware UUID, as 64 lowercase hex characters.
- * It names the Mac for its one free trial without revealing the hardware id.
+ * A salted SHA-256 of a computer's hardware UUID, as 64 lowercase hex
+ * characters. It names the computer for its one free trial without revealing
+ * the hardware id.
  */
 export const MachineFingerprint = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/))
@@ -84,8 +86,10 @@ export type MachineFingerprint = typeof MachineFingerprint.Type;
 export const CreateInboxRequest = Schema.Struct({
   recipientName: Name,
   deviceName: Name,
-  /** Which Mac is setting up, so its trial survives a fresh setup. Older apps omit it. */
+  /** Which computer is setting up, so its trial survives a fresh setup. Older apps omit it. */
   machine: Schema.optionalKey(MachineFingerprint),
+  /** Which kind of computer is setting up. Macs omit it. */
+  platform: Schema.optionalKey(DevicePlatform),
 });
 export type CreateInboxRequest = typeof CreateInboxRequest.Type;
 

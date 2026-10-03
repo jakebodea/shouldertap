@@ -26,11 +26,12 @@ apps/server/test/           Alchemy Test harness: deploys the Stack, drives the 
 apps/web                    Safari sender (React, TanStack Router, Vite) via Cloudflare.Website.Vite
 apps/macos                  Native Swift menu-bar app (AppKit + SwiftUI), a Swift package
 apps/ios                    Native iOS sender (SwiftUI), an Xcode project linking ShouldertapCore from apps/macos
+apps/windows                Native Windows tray app (Rust + GPUI), a Cargo workspace: core/ (protocol, no UI) and app/
 packages/domain             Effect Schema contracts, typed errors, the HttpApi spec
 packages/client             HttpApiClient-based client + live WebSocket (tickets, reconnect, resync)
 ```
 
-`apps/macos` is outside the Bun workspace. `ShouldertapCore` mirrors `packages/domain` and `packages/client` in Swift (contracts, API client, live socket, store); its tests decode fixtures in the server's JSON shapes. Change the protocol in both places. [Mac client research](docs/research/mac-client-efficiency.md) explains the move from React Native.
+`apps/macos` is outside the Bun workspace. `ShouldertapCore` mirrors `packages/domain` and `packages/client` in Swift (contracts, API client, live socket, store); its tests decode fixtures in the server's JSON shapes. `apps/windows/core` (`shouldertap-core`) is the same in Rust, and its tests decode the same fixtures from `apps/macos/Tests/ShouldertapCoreTests/Fixtures`. Change the protocol in all three places. [Mac client research](docs/research/mac-client-efficiency.md) explains the move from React Native.
 
 ## Develop
 
@@ -79,6 +80,22 @@ xcrun simctl install booted apps/ios/build/Build/Products/Debug-iphonesimulator/
 ```
 
 Debug builds talk to `http://localhost:3000` (override with `SHOULDERTAP_SERVER_URL`). Open an invite with `xcrun simctl openurl booted 'shouldertap://join#<code>'`, or paste the link.
+
+Windows app (Rust; see [Windows client research](docs/research/windows-client-efficiency.md)). The UI is [GPUI](https://gpui.rs), so it also runs on a Mac for development: no tray there, the menu opens as a window. Tests, then run it against the local stack:
+
+```bash
+cd apps/windows && cargo test --workspace
+```
+
+```bash
+cd apps/windows && cargo run
+```
+
+Dev builds (`cargo build`/`run`) talk to `localhost` (override with `SHOULDERTAP_SERVER_URL` and `SHOULDERTAP_WEB_URL`), run as "Shouldertap Debug" with an orange tray icon, keep their own pairing, and don't install themselves. To build the exe from a Mac, install `cargo install cargo-xwin` and `brew install llvm lld`, then:
+
+```bash
+cd apps/windows && scripts/build.sh            # dev build, prints the .exe path
+```
 
 ## Deploy
 
@@ -136,13 +153,28 @@ Debug builds can rehearse an update against a local feed with `SHOULDERTAP_FEED_
 
 Builds are ad-hoc signed until there's an Apple Developer ID, so Gatekeeper makes people click Open Anyway on first launch (the download page explains it). With a Developer ID, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the script header) and drop the "Allow it once" step from `apps/web/src/routes/download.tsx`.
 
+## Release the Windows app
+
+Bump `version` in `apps/windows/Cargo.toml`, then build `Shouldertap-Setup-<version>.exe` and upload it to the `shouldertap-releases` R2 bucket under `windows/`, with `windows/latest.json` (`{version, url, sha256}`), the feed installed apps check every 6 hours:
+
+```bash
+scripts/release-windows.sh
+```
+
+Prefer the exe `.github/workflows/windows.yml` builds on a Windows runner (download the `Shouldertap-windows-x64` artifact, then `EXE=<path> scripts/release-windows.sh`): GPUI precompiles its Direct3D shaders only on a Windows host, so exes cross-built on a Mac compile them at launch. `--no-upload` builds only.
+
+The exe installs itself: run from Downloads, it copies itself to `%LocalAppData%\Programs\Shouldertap`, adds a Start menu entry, an entry in Settings › Apps (which runs `--uninstall`) and the login item, and starts from there. `--install --silent` and `--uninstall --silent` are there for winget. Updates download the new exe, check its SHA-256 (and, once releases are signed, its Authenticode signature), swap it in and restart.
+
+Releases are unsigned until Azure Artifact Signing is set up, so SmartScreen warns on first run; set `SIGN_COMMAND` (see the script header) to sign. The site doesn't link Windows downloads yet: add them to `domains.ts`, `alchemy.run.ts` and `apps/web/src/routes/download.tsx` once a signed build is up, and update the privacy policy (the Windows app sends a salted hash of the PC's `MachineGuid` for its trial, and checks `download.shouldertap.app` for updates).
+
 ## Known gaps in v0
 
 - No accounts: trust is invite links plus revocable bearer credentials. Anyone can create a new (empty) inbox, rate-limited to 10 per client IP per minute (Cloudflare's approximate, per-location limiter). Running the integration suite uses up that budget for a minute.
 - The Mac credential lives in an owner-only file in `~/Library/Application Support/Shouldertap`, not the Keychain, because builds are ad-hoc signed (no Developer ID), so the Keychain would prompt after every rebuild.
 - The overlay can't be dismissed without answering. If the Mac is offline, answering still dismisses locally and the reply is retried until the server accepts it.
+- The Windows app has been built and run only on a Mac (the shared UI and protocol, against the local stack). Its Windows-only parts (tray, overlays above full-screen apps, keyboard focus, Credential Manager, install and update) compile but haven't run on Windows yet. GPUI has no screen reader support yet, unlike the Mac app's SwiftUI.
 - Handled in code but not yet tested by hand: Durable Object hibernation, sleep/wake, display hot-plug, full-screen apps/Spaces, and replying while offline. Tested: overlays on two displays, replying from the overlay, cross-Mac dismissal, and the protocol via the Alchemy integration suite.
 - Sender history is capped at 50 recent taps.
 - One free trial per Mac: at "Get started" the Mac app sends `machine`, a salted SHA-256 of its hardware UUID (Debug builds use a different salt). The Server asks that Mac's `TrialLedger` for its trial end (recorded on first setup) and starts the new inbox with it, so unpairing and setting up again resumes the same trial. Mac apps older than this don't send `machine` and still get a fresh trial per setup. If the ledger can't answer, setup falls back to a fresh trial rather than failing.
-- Limits, enforced by the Inbox: 30 taps per sender per rolling hour (`TooManyRequests`, 429; retries of an existing request id still succeed), and 20 active senders and 10 active Macs per inbox (`Conflict`, 409, from `createInvite` and `redeemInvite`).
+- Limits, enforced by the Inbox: 30 taps per sender per rolling hour (`TooManyRequests`, 429; retries of an existing request id still succeed), and 20 active senders and 10 active devices per inbox (`Conflict`, 409, from `createInvite` and `redeemInvite`).
 - Retention: a daily Durable Object alarm (Alchemy's `scheduleEvent`, armed at inbox creation and on any activation) deletes taps older than 90 days, invites a day after they expire, expired connect tickets, and removed pairings 90 days after removal once none of their taps remain. See `apps/server/src/retention.ts`. On the Workers Free plan each alarm run counts toward the 100,000 Durable Object requests per day, so that's one request per inbox per day.

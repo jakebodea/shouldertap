@@ -187,13 +187,33 @@ test(
       .revoke({ params: { id: macA.credentialId } })
       .pipe(Effect.flip);
     expect(fromMac._tag).toBe("Conflict");
-    expect(fromMac.message).toContain("only Mac");
+    expect(fromMac.message).toContain("only computer");
+
+    // A Windows PC shows taps too: once one links, the Mac can go…
+    const { code: pcCode } = yield* mac.inbox.createInvite({
+      payload: { kind: "device" },
+    });
+    const pcGrant = yield* anon.pairing.redeemInvite({
+      payload: { code: pcCode, name: "Desk PC", platform: "windows" },
+    });
+    const withPc = yield* phone.inbox.me();
+    expect(
+      withPc.kind === "device" &&
+        withPc.credentials.find((c) => c.id === pcGrant.credentialId)?.platform
+    ).toBe("windows");
+    yield* phone.inbox.revoke({ params: { id: macA.credentialId } });
+    // …and then the PC is the computer that can't go.
+    const lastPc = yield* phone.inbox
+      .revoke({ params: { id: pcGrant.credentialId } })
+      .pipe(Effect.flip);
+    expect(lastPc._tag).toBe("Conflict");
 
     // …until the iPhone is gone; then the last device can go as before.
     yield* phone.inbox.revoke({ params: { id: phoneGrant.credentialId } });
     const unlinked = yield* phone.inbox.me().pipe(Effect.flip);
     expect(unlinked._tag).toBe("Unauthorized");
-    yield* mac.inbox.revoke({ params: { id: macA.credentialId } });
+    const pc = yield* client(url, pcGrant.token);
+    yield* pc.inbox.revoke({ params: { id: pcGrant.credentialId } });
   }),
   { timeout: 60_000 }
 );
@@ -429,16 +449,28 @@ test(
       Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
         byte.toString(16).padStart(2, "0")
       ).join("");
-    const trialEndsAt = Effect.fn(function* (fromMachine: string) {
+    const trialEndsAt = Effect.fn(function* (
+      fromMachine: string,
+      platform?: "windows"
+    ) {
       const grant = yield* anon.pairing.createInbox({
         payload: {
           recipientName: "Jake",
-          deviceName: "Studio Mac",
+          deviceName: platform ? "Desk PC" : "Studio Mac",
           machine: fromMachine,
+          ...(platform ? { platform } : {}),
         },
       });
       const snapshot = yield* (yield* client(url, grant.token)).inbox.me();
-      return snapshot.kind === "device" ? snapshot.plan.trialEndsAt : 0;
+      if (snapshot.kind !== "device") {
+        return 0;
+      }
+      // The computer that set up the inbox is listed as what it is.
+      const self = snapshot.credentials.find(
+        (c) => c.id === snapshot.credentialId
+      );
+      expect(self?.platform).toBe(platform ?? "mac");
+      return snapshot.plan.trialEndsAt;
     });
 
     const machine = fingerprint();
@@ -446,8 +478,8 @@ test(
     expect((first - Date.now()) / 86_400_000).toBeGreaterThan(6.9);
     // Unpairing and setting up again inherits the same trial end.
     expect(yield* trialEndsAt(machine)).toBe(first);
-    // Another Mac gets its own trial.
-    const other = yield* trialEndsAt(fingerprint());
+    // Another computer (a Windows PC, set up as one) gets its own trial.
+    const other = yield* trialEndsAt(fingerprint(), "windows");
     expect(other).toBeGreaterThanOrEqual(first);
     expect((other - Date.now()) / 86_400_000).toBeGreaterThan(6.9);
 
