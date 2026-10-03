@@ -264,6 +264,14 @@ fn socket_url() {
     );
 }
 
+/// HTTPS goes through the system's TLS. A missing TLS feature panics here
+/// instead of failing the request (CI's Windows smoke test found that).
+#[test]
+fn https_requests_fail_cleanly_offline() {
+    let error = api("https://127.0.0.1:9").connect_ticket().unwrap_err();
+    assert_eq!(error.code, ErrorCode::Network);
+}
+
 #[test]
 fn errors_map_by_status() {
     let error = ApiError::from_response(404, br#"{"_tag":"NotFound","message":"No such tap"}"#);

@@ -853,8 +853,11 @@ fn debug_banner() -> impl IntoElement {
         .text_size(px(11.))
         .font_weight(FontWeight::BOLD)
         .font_family("Consolas")
-        .flex()
-        .justify_center()
+        .px(px(8.))
+        .text_center()
+        .whitespace_nowrap()
+        .overflow_hidden()
+        .text_ellipsis()
         .child(format!("DEBUG BUILD · {host}"))
 }
 

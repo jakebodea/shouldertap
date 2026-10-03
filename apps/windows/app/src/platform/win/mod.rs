@@ -351,7 +351,7 @@ pub fn prepare_menu(window: &mut Window, anchor: Option<TrayAnchor>) {
             size_of_val(&round) as u32,
         );
     }
-    place_menu(hwnd, anchor);
+    place_menu(hwnd, anchor, None);
 }
 
 pub fn focus_menu(window: &mut Window) {
@@ -360,28 +360,40 @@ pub fn focus_menu(window: &mut Window) {
     }
 }
 
+/// Resizes and re-anchors in one move: a GPUI resize lands later, so placing
+/// by the window's current size would put a growing menu off the screen.
 pub fn resize_menu(window: &mut Window, height: f32, anchor: Option<TrayAnchor>) {
-    window.resize(size(px(MENU_WIDTH), px(height)));
-    if let Some(hwnd) = hwnd(window) {
-        place_menu(hwnd, anchor);
+    match hwnd(window) {
+        Some(hwnd) => place_menu(hwnd, anchor, Some(height)),
+        None => window.resize(size(px(MENU_WIDTH), px(height))),
     }
 }
 
 /// Above the tray icon (or beside it, for a taskbar on another edge), kept
 /// inside the work area; bottom right when the icon can't be found, as when
 /// it's in the overflow.
-fn place_menu(hwnd: HWND, anchor: Option<TrayAnchor>) {
+/// `height` (logical pixels) resizes it too; None keeps its size.
+fn place_menu(hwnd: HWND, anchor: Option<TrayAnchor>, height: Option<f32>) {
     unsafe {
-        let mut window = RECT::default();
-        if GetWindowRect(hwnd, &mut window).is_err() {
-            return;
-        }
-        let size = SIZE {
-            cx: window.right - window.left,
-            cy: window.bottom - window.top,
+        let dpi = windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd).max(96) as f32;
+        let size = match height {
+            Some(height) => SIZE {
+                cx: (MENU_WIDTH * dpi / 96.).round() as i32,
+                cy: (height * dpi / 96.).round() as i32,
+            },
+            None => {
+                let mut window = RECT::default();
+                if GetWindowRect(hwnd, &mut window).is_err() {
+                    return;
+                }
+                SIZE {
+                    cx: window.right - window.left,
+                    cy: window.bottom - window.top,
+                }
+            }
         };
         // Windows 11 flyouts float 12px off the taskbar.
-        let gap = 12 * windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) as i32 / 96;
+        let gap = (12. * dpi / 96.).round() as i32;
         let mut placed = RECT::default();
         let ok = match anchor {
             Some(icon) => {
@@ -426,14 +438,19 @@ fn place_menu(hwnd: HWND, anchor: Option<TrayAnchor>) {
             }
         };
         if ok {
+            let flags = if height.is_some() {
+                SWP_NOACTIVATE
+            } else {
+                SWP_NOSIZE | SWP_NOACTIVATE
+            };
             let _ = SetWindowPos(
                 hwnd,
                 Some(HWND_TOPMOST),
                 placed.left,
                 placed.top,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOACTIVATE,
+                size.cx,
+                size.cy,
+                flags,
             );
         }
     }

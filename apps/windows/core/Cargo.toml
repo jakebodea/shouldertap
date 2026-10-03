@@ -14,6 +14,6 @@ url = "2"
 percent-encoding = "2"
 # HTTPS and WebSocket over the system's TLS (SChannel on Windows), so they
 # respect its certificate store and add no TLS stack of their own.
-ureq = { version = "3.4", default-features = false, features = ["native-tls-no-default"] }
+ureq = { version = "3.4", default-features = false, features = ["native-tls"] }
 tungstenite = { version = "0.28", features = ["native-tls"] }
 native-tls = "0.2"
