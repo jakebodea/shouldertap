@@ -7,7 +7,10 @@
 #
 # Signing is optional; releases use the Developer ID:
 #   SIGN_IDENTITY="Developer ID Application: Jake Bodea (6C46GY4Z38)"  signs with the hardened runtime
-#   NOTARY_PROFILE=shouldertap  notarizes and staples (xcrun notarytool store-credentials shouldertap)
+#   Notarizing (and stapling) uses either an App Store Connect API key
+#     NOTARY_KEY=~/.appstoreconnect/AuthKey_XXXX.p8 NOTARY_KEY_ID=XXXX NOTARY_ISSUER=<uuid>
+#   (the same key as ASC_KEY_* in Infisical; no keychain or Apple ID password), or
+#     NOTARY_PROFILE=shouldertap  (xcrun notarytool store-credentials shouldertap)
 # Without them the build is ad-hoc signed and Gatekeeper asks users to allow it
 # in System Settings on first open.
 set -euo pipefail
@@ -58,9 +61,15 @@ rm -rf "$out/stage"
 
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
   codesign --force --timestamp --sign "$SIGN_IDENTITY" "$dmg"
-  if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+  notary=()
+  if [[ -n "${NOTARY_KEY:-}" ]]; then
+    notary=(--key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER")
+  elif [[ -n "${NOTARY_PROFILE:-}" ]]; then
+    notary=(--keychain-profile "$NOTARY_PROFILE")
+  fi
+  if (( ${#notary[@]} )); then
     echo "==> Notarizing"
-    xcrun notarytool submit "$dmg" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun notarytool submit "$dmg" "${notary[@]}" --wait
     xcrun stapler staple "$dmg"
   fi
 fi

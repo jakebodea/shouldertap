@@ -134,7 +134,7 @@ apps/macos/.build/artifacts/sparkle/Sparkle/bin/generate_keys --account app.shou
 
 Debug builds can rehearse an update against a local feed with `SHOULDERTAP_FEED_URL` and `SHOULDERTAP_UPDATE_SELFTEST=1`, which downloads, installs and relaunches without UI.
 
-Builds are ad-hoc signed until there's an Apple Developer ID, so Gatekeeper makes people click Open Anyway on first launch (the download page explains it). With a Developer ID, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the script header) and drop the "Allow it once" step from `apps/web/src/routes/download.tsx`.
+Builds are ad-hoc signed until there's an Apple Developer ID, so Gatekeeper makes people click Open Anyway on first launch (the download page explains it). With a Developer ID, set `SIGN_IDENTITY` and either the App Store Connect API key (`NOTARY_KEY`, `NOTARY_KEY_ID`, `NOTARY_ISSUER`; the `ASC_KEY_*` key in Infisical) or `NOTARY_PROFILE` (see the script header) and drop the "Allow it once" step from `apps/web/src/routes/download.tsx`.
 
 ## Known gaps in v0
 
