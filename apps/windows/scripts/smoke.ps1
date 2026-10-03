@@ -74,12 +74,13 @@ $tap = Api POST "/v1/taps" @{ requestId = "smoke-tap-0000001"; body = "Dinner's 
 Check "the overlay reports it displayed" { (TapState $tap.id).displayedAt } 20
 Start-Sleep -Seconds 1
 Shot "02-overlay"
-$foreground = Add-Type -PassThru -Name Fg -Namespace Smoke -MemberDefinition @'
+Add-Type -Name Fg -Namespace Smoke -MemberDefinition @'
 public struct RECT { public int Left, Top, Right, Bottom; }
 [DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
 [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(System.IntPtr hWnd, out int pid);
 [DllImport("user32.dll")] public static extern bool GetWindowRect(System.IntPtr hWnd, out RECT rect);
 '@
+$foreground = [Smoke.Fg]
 $fgPid = 0; [void] $foreground::GetWindowThreadProcessId($foreground::GetForegroundWindow(), [ref] $fgPid)
 Check "the overlay took keyboard focus" { $fgPid -eq $app.Id } 1
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
