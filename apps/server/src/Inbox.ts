@@ -91,10 +91,10 @@ const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** Shown to someone redeeming an invite into a full inbox. */
 const fullInboxMessage = (kind: CredentialKind, recipientName: string) =>
   kind === "sender"
-    ? `${recipientName || "This inbox"} already has ${PAIRING_CAPS.sender} people who can send taps. Ask them to remove someone in the Mac app, then try this link again.`
-    : `This inbox already has ${PAIRING_CAPS.device} devices. Remove one in the Mac app, then try again.`;
+    ? `${recipientName || "This inbox"} already has ${PAIRING_CAPS.sender} people who can send taps. Ask them to remove someone in Shouldertap on their computer, then try this link again.`
+    : `This inbox already has ${PAIRING_CAPS.device} devices. Remove one in Shouldertap on your computer, then try again.`;
 
-/** Shown to the recipient's Mac when it asks for an invite it can't use. */
+/** Shown to the recipient's computer when it asks for an invite it can't use. */
 const fullInviteMessage = (kind: CredentialKind) =>
   kind === "sender"
     ? `You already have ${PAIRING_CAPS.sender} people who can tap you. Remove someone before inviting someone new.`
@@ -110,9 +110,13 @@ const platformFor = (
   platform: DevicePlatform | undefined
 ): DevicePlatform | null => (kind === "device" ? (platform ?? "mac") : null);
 
-/** Why the last Mac can't go while an iPhone is still linked. */
-const lastMacMessage =
-  "This is the only Mac on this inbox, and taps show up on Macs. Add another Mac, or remove the linked iPhones first.";
+/** Macs and Windows PCs put taps on screen; an iPhone only manages the inbox. */
+const showsTaps = (platform: DevicePlatform | null | undefined) =>
+  platformFor("device", platform ?? undefined) !== "iphone";
+
+/** Why the last computer can't go while an iPhone is still linked. */
+const lastComputerMessage =
+  "This is the only computer on this inbox, and taps show up on computers. Add another Mac or Windows PC, or remove the linked iPhones first.";
 
 type Rpc<A, E = never> = Effect.Effect<A, E, RuntimeContext>;
 
@@ -715,9 +719,11 @@ export const InboxLive = Inbox.make(
                 recipientName: request.recipientName,
                 trialEndsAt: trialEndsAt ?? createdAt + TRIAL_MS,
               });
-              yield* tx
-                .insert(credentials)
-                .values({ ...credential.row, platform: "mac" });
+              yield* tx.insert(credentials).values({
+                ...credential.row,
+                // Only a computer can set up an inbox; older Macs don't say.
+                platform: request.platform === "windows" ? "windows" : "mac",
+              });
             })
           );
           yield* ensureRetention;
@@ -1087,23 +1093,18 @@ export const InboxLive = Inbox.make(
               const target = devices.find(
                 (device) => device.id === credentialId
               );
-              // Macs are where taps show up: an inbox left with only iPhones
-              // would take taps that nothing displays. Removing the very last
-              // device (resetting the inbox) is still allowed.
-              if (
-                target &&
-                platformFor("device", target.platform ?? undefined) === "mac"
-              ) {
+              // Computers are where taps show up: an inbox left with only
+              // iPhones would take taps that nothing displays. Removing the
+              // very last device (resetting the inbox) is still allowed.
+              if (target && showsTaps(target.platform)) {
                 const rest = devices.filter(
                   (device) => device.id !== credentialId
                 );
-                const macsLeft = rest.filter(
-                  (device) =>
-                    platformFor("device", device.platform ?? undefined) ===
-                    "mac"
+                const computersLeft = rest.filter((device) =>
+                  showsTaps(device.platform)
                 );
-                if (rest.length > 0 && macsLeft.length === 0) {
-                  return yield* new Conflict({ message: lastMacMessage });
+                if (rest.length > 0 && computersLeft.length === 0) {
+                  return yield* new Conflict({ message: lastComputerMessage });
                 }
               }
               return yield* tx

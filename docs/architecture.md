@@ -7,6 +7,7 @@ September 30, 2026. Architecture planning only; application scaffolding, Git ini
 - Apple devices first. Initial receiver: native Mac menu-bar app. Initial sender: Safari on iPhone/iPad.
 - A native iPhone/iPad companion is part of the future plan.
 - The Mac app is native Swift (AppKit + SwiftUI). It replaced React Native macOS on 2026-09-30 for size and efficiency: about 1.7 MB installed instead of 40 MB. The protocol is mirrored in `ShouldertapCore`. See [Mac client research](research/mac-client-efficiency.md).
+- The Windows app (2026-10-02) is Rust: `apps/windows/core` mirrors `ShouldertapCore` with no UI, and `apps/windows/app` is a GPUI tray app, one self-installing exe of about 6 MB. Windows PCs pair as `device` credentials with `platform: "windows"`; like Macs, they show taps, so the last computer can't leave an inbox while iPhones are linked.
 - TypeScript for application logic, contracts, web/native interfaces, backend, and infrastructure. Swift/AppKit and any required bridge glue cover Mac OS integration.
 - Use Alchemy, Cloudflare, and Effect extensively. Use Better T Stack for the foundation and Ultracite for TypeScript formatting/linting.
 

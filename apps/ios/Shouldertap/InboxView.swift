@@ -171,7 +171,7 @@ struct InboxScreen: View {
     if credential.kind == .sender {
       return "Their taps stop reaching you. To tap you again, they'll need a new invite."
     }
-    return credential.devicePlatform == .mac
+    return credential.devicePlatform.showsTaps
       ? "Taps stop showing up on it. To add it back, you'll need a new code."
       : "It stops managing your Shouldertap. To add it back, you'll need a new code."
   }
@@ -413,7 +413,11 @@ private struct CredentialRow: View {
     if isSelf { return "This iPhone" }
     let seen = credential.lastSeenAt.map { "Active \(relativeTime($0))" } ?? "Paired"
     guard credential.kind == .device else { return seen }
-    return credential.devicePlatform == .iphone ? "iPhone · \(seen)" : seen
+    switch credential.devicePlatform {
+    case .iphone: return "iPhone · \(seen)"
+    case .windows: return "Windows PC · \(seen)"
+    case .mac: return seen
+    }
   }
 }
 

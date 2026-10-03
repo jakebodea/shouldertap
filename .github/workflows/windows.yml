@@ -1,0 +1,33 @@
+# Tests the Windows app's core and builds a release Shouldertap.exe on
+# Windows, where GPUI precompiles its shaders. The exe is kept as an artifact;
+# scripts/release-windows.sh publishes it (EXE=<downloaded artifact>).
+name: Windows
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/windows/**", "apps/macos/Tests/ShouldertapCoreTests/Fixtures/**", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["apps/windows/**", "apps/macos/Tests/ShouldertapCoreTests/Fixtures/**", ".github/workflows/windows.yml"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/windows
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/windows
+      - run: cargo fmt --check
+      - run: cargo test --workspace
+      - run: cargo build --release -p shouldertap
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Shouldertap-windows-x64
+          path: apps/windows/target/release/Shouldertap.exe

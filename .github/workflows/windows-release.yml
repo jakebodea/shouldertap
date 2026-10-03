@@ -1,0 +1,64 @@
+# Pushing a `windows-v<version>` tag builds Shouldertap.exe on Windows from
+# that commit, attests that the exe came from this workflow (verify with
+# `gh attestation verify <exe> --repo jakebodea/shouldertap`), and attaches it
+# to a GitHub release. Tags with a pre-release suffix (windows-v1.0.0-beta.1)
+# make pre-releases: the beta channel for testers. The signed production
+# channel is scripts/release-windows.sh to download.shouldertap.app.
+name: Windows release
+
+on:
+  push:
+    tags: ["windows-v*"]
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/windows
+      - name: Test
+        working-directory: apps/windows
+        run: cargo test --workspace
+      - name: Build
+        working-directory: apps/windows
+        run: cargo build --release -p shouldertap
+      - name: Name it
+        id: exe
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#windows-v}"
+          name="Shouldertap-Setup-$version.exe"
+          cp apps/windows/target/release/Shouldertap.exe "$name"
+          echo "path=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          sha256sum "$name"
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.exe.outputs.path }}
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          [[ "${{ steps.exe.outputs.version }}" == *-* ]] && prerelease="--prerelease"
+          gh release create "$GITHUB_REF_NAME" "${{ steps.exe.outputs.path }}" $prerelease \
+            --title "Shouldertap for Windows ${{ steps.exe.outputs.version }}" \
+            --notes-file - <<'NOTES'
+          Shouldertap for Windows 10 and 11 (x64). Download the `.exe` below and run it.
+
+          - **"Windows protected your PC":** this build isn't code-signed yet. Click **More info**, then **Run anyway**.
+          - It installs itself for you (no admin prompt), opens at login, and shows its menu to get set up. Uninstall it from Settings › Apps.
+          - Can't see the icon? Windows 11 hides new tray icons: click **^** next to the clock, or drag the Shouldertap mark onto the taskbar.
+          - To get a tap, choose **Invite someone** and open the link on an iPhone. The sender uses Safari; nothing to install.
+
+          Beta builds don't update themselves: grab the newest one from the [releases page](https://github.com/jakebodea/shouldertap/releases).
+          Built by [this workflow](https://github.com/jakebodea/shouldertap/actions/workflows/windows-release.yml) from the tagged commit; check it with `gh attestation verify <exe> --repo jakebodea/shouldertap`.
+          NOTES
