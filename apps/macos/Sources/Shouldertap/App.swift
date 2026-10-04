@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     deviceName: { Host.current().localizedName ?? "Mac" },
     machine: HardwareID.trialFingerprint)
   private lazy var overlays = OverlayController(store: store)
+  private let welcome = WelcomeController()
   private let updates = Updates()
   private let popover = NSPopover()
   private var statusItem: NSStatusItem!
@@ -89,13 +90,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     observeNetwork()
 
     if !store.start() {
-      // Not set up yet: open the menu so there's somewhere to start.
-      DispatchQueue.main.async { self.openPopover() }
+      // Not set up yet: welcome them the first time, then open the menu so
+      // there's somewhere to start.
+      DispatchQueue.main.async { self.welcomeOrOpenPopover() }
+    }
+  }
+
+  private func welcomeOrOpenPopover() {
+    guard WelcomeController.shouldShow, let itemWindow = statusItem.button?.window,
+      let screen = itemWindow.screen ?? NSScreen.main
+    else { return openPopover() }
+    // The real icon knocks while the welcome points at it.
+    knock.pending = true
+    welcome.show(on: screen, item: itemWindow) { [weak self] setUp in
+      guard let self else { return }
+      knock.pending = store.activeTap != nil
+      if setUp { openPopover() }
     }
   }
 
   /// Launching the app again (Finder, Spotlight, `open`) shows the menu.
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    guard !welcome.isShowing else { return false }
     openPopover()
     return false
   }
@@ -103,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   // MARK: Popover
 
   @objc private func togglePopover() {
+    if welcome.isShowing { return welcome.dismiss(setUp: true) }
     popover.isShown ? popover.performClose(nil) : openPopover()
   }
 

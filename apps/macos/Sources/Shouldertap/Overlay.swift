@@ -302,8 +302,8 @@ private struct ReplyRow: View {
 
 /// The overlay's rounded answer buttons: 68pt tall, a 2pt line, or filled in
 /// the sender's color for the primary answer.
-private struct Pill: View {
-  let icon: Icon
+struct Pill: View {
+  var icon: Icon?
   var label: String?
   var hint: String?
   var fill: PersonColor?
@@ -313,7 +313,7 @@ private struct Pill: View {
   var body: some View {
     Button(action: action) {
       HStack(spacing: 12) {
-        IconView(icon: icon, size: 26)
+        if let icon { IconView(icon: icon, size: 26) }
         if let label {
           Text(label).font(Bricolage.bold(24))
         }
@@ -363,7 +363,7 @@ private struct PillChrome<Label: View>: View {
 
 /// The message, set in Bricolage 800 with the design's tight 0.98 line height
 /// and −0.04em tracking, which SwiftUI's Text can't express; selectable.
-private struct MessageText: NSViewRepresentable {
+struct MessageText: NSViewRepresentable {
   let text: String
   let size: CGFloat
 

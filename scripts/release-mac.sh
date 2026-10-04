@@ -5,6 +5,9 @@
 #   scripts/release-mac.sh              build, package, upload
 #   scripts/release-mac.sh --no-upload  build and package only
 #
+# Packaging drives Finder over AppleScript to lay out the DMG window, so the
+# first run asks to let your terminal control Finder.
+#
 # Signing is optional; releases use the Developer ID:
 #   SIGN_IDENTITY="Developer ID Application: Jake Bodea (6C46GY4Z38)"  signs with the hardened runtime
 #   Notarizing (and stapling) uses either an App Store Connect API key
@@ -51,13 +54,58 @@ codesign --verify --deep --strict "$app"
 du -sh "$app"
 
 echo "==> Packaging DMG"
+# The window opens on a paper background with an arrow from the app to
+# Applications (scripts/dmg-background.swift). Finder stores that layout in
+# the volume's .DS_Store, so lay it out on a writable image, then compress.
 rm -rf "$out"
-mkdir -p "$out/stage"
+mkdir -p "$out/stage/.background"
 ditto "$app" "$out/stage/Shouldertap.app"
 ln -s /Applications "$out/stage/Applications"
+swift "$root/apps/macos/scripts/dmg-background.swift" "$out"
+tiffutil -cathidpicheck "$out/background.png" "$out/background@2x.png" \
+  -out "$out/stage/.background/background.tiff" 2>/dev/null
+cp "$app/Contents/Resources/AppIcon.icns" "$out/stage/.VolumeIcon.icns"
 dmg="$out/Shouldertap-$version.dmg"
-hdiutil create -quiet -volname Shouldertap -srcfolder "$out/stage" -fs HFS+ -format UDZO -ov "$dmg"
-rm -rf "$out/stage"
+hdiutil create -quiet -volname Shouldertap -srcfolder "$out/stage" -fs HFS+ -format UDRW -ov "$out/rw.dmg"
+rm -rf "$out/stage" "$out"/background*.png
+
+# Another Shouldertap volume may be mounted; take whichever mount point we get.
+volume="$(hdiutil attach -readwrite -noverify -noautoopen "$out/rw.dmg" | tail -1 | cut -f3)"
+trap 'hdiutil detach -quiet "$volume" 2>/dev/null || true' EXIT
+xcrun SetFile -a C "$volume"
+# Window 660×400 (plus the title bar); icon centers match dmg-background.swift.
+osascript - "$volume" <<'APPLESCRIPT'
+on run argv
+  set vol to POSIX file (item 1 of argv) as alias
+  tell application "Finder"
+    tell item vol
+      open
+      set current view of container window to icon view
+      set toolbar visible of container window to false
+      set statusbar visible of container window to false
+      set pathbar visible of container window to false
+      set the bounds of container window to {200, 120, 860, 548}
+      set options to the icon view options of container window
+      set arrangement of options to not arranged
+      set icon size of options to 128
+      set text size of options to 13
+      set background picture of options to file ".background:background.tiff"
+      set position of item "Shouldertap.app" of container window to {170, 214}
+      set position of item "Applications" of container window to {490, 214}
+      update without registering applications
+      delay 1
+      close
+    end tell
+  end tell
+end run
+APPLESCRIPT
+# Give Finder a moment to write .DS_Store before the volume goes away.
+sync
+sleep 2
+hdiutil detach -quiet "$volume"
+trap - EXIT
+hdiutil convert -quiet "$out/rw.dmg" -format UDZO -imagekey zlib-level=9 -ov -o "$dmg"
+rm -f "$out/rw.dmg"
 
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
   codesign --force --timestamp --sign "$SIGN_IDENTITY" "$dmg"
