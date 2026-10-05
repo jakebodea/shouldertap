@@ -326,6 +326,52 @@ test(
 
     const senderView = yield* senderApi.inbox.me();
     expect(senderView.taps[0]?.response).not.toBeNull();
+
+    // Deleting: a device deletes any tap, a sender only their own, and it's
+    // gone for everyone.
+    const deleted = (id: string) => (event: ServerEvent) =>
+      event.type === "deleted" && event.tapId === id;
+    const invite = yield* macApi.inbox.createInvite({
+      payload: { kind: "sender" },
+    });
+    const other = yield* (yield* client(url)).pairing.redeemInvite({
+      payload: { code: invite.code, name: "Alex" },
+    });
+    const otherApi = yield* client(url, other.token);
+    const pending = yield* senderApi.inbox.sendTap({
+      payload: { requestId: crypto.randomUUID(), body: "Never mind" },
+    });
+    yield* a.next(tapEvent(pending.id));
+
+    const notTheirs = yield* otherApi.inbox
+      .deleteTap({ params: { id: pending.id } })
+      .pipe(Effect.flip);
+    expect(notTheirs._tag).toBe("NotFound");
+
+    // The sender takes back a pending tap: it leaves every overlay.
+    const unsent = yield* senderApi.inbox.deleteTap({
+      params: { id: pending.id },
+    });
+    expect(unsent.deleted).toBe(true);
+    yield* Effect.all([
+      a.next(deleted(pending.id)),
+      b.next(deleted(pending.id)),
+      s.next(deleted(pending.id)),
+    ]);
+
+    // A Mac deletes the answered one from history.
+    yield* laptopApi.inbox.deleteTap({ params: { id: tap.id } });
+    yield* Effect.all([
+      a.next(deleted(tap.id)),
+      b.next(deleted(tap.id)),
+      s.next(deleted(tap.id)),
+    ]);
+    const again = yield* macApi.inbox
+      .deleteTap({ params: { id: tap.id } })
+      .pipe(Effect.flip);
+    expect(again._tag).toBe("NotFound");
+    expect((yield* macApi.inbox.me()).taps).toHaveLength(0);
+    expect((yield* senderApi.inbox.me()).taps).toHaveLength(0);
   }).pipe(Effect.scoped),
   { timeout: 60_000 }
 );

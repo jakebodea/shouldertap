@@ -115,6 +115,12 @@ public struct APIClient: Sendable {
     try await send("POST", "/v1/taps/\(escape(tapId))/acknowledge", body: Acknowledge(response: response))
   }
 
+  /// Deletes a tap for everyone. Devices may delete any tap, a sender only
+  /// their own; `notFound` once it's gone.
+  public func deleteTap(tapId: String) async throws {
+    let _: Deleted = try await send("DELETE", "/v1/taps/\(escape(tapId))")
+  }
+
   /// Linked iPhones only: where and how to push taps to this device.
   public func registerPush(_ registration: PushRegistration) async throws {
     let _: Registered = try await send("PUT", "/v1/push", body: registration)

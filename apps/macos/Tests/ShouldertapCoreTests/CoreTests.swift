@@ -93,6 +93,8 @@ private func fixture(_ name: String) throws -> Data {
       Issue.record("unexpected events \(events)")
       return
     }
+    guard case let .tapDeleted(tapId) = events[4] else { Issue.record("expected a deletion"); return }
+    #expect(tapId == "t3")
   }
 
   @Test func unknownColorFallsBack() throws {

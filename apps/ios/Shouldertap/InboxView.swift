@@ -51,6 +51,7 @@ struct InboxScreen: View {
   let senders: SenderStore
 
   @State private var removing: Credential?
+  @State private var deleting: Tap?
   @State private var error: String?
   @Environment(\.inboxActions) private var actions
 
@@ -79,6 +80,16 @@ struct InboxScreen: View {
       Button(isSelf(credential) ? "Unlink" : "Remove", role: .destructive) { remove(credential) }
     } message: { credential in
       Text(removeMessage(credential))
+    }
+    .confirmationDialog(
+      "Delete this tap?",
+      isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+      titleVisibility: .visible,
+      presenting: deleting
+    ) { tap in
+      Button("Delete", role: .destructive) { delete(tap) }
+    } message: { tap in
+      Text("It's removed from your history and your devices, and from \(tap.senderName)'s.")
     }
     .alert(
       "Couldn't remove", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
@@ -151,9 +162,22 @@ struct InboxScreen: View {
           VStack(spacing: 0) {
             ForEach(inbox.taps.prefix(8)) { tap in
               ReceivedTapRow(tap: tap, now: context.date)
+                .contextMenu {
+                  Button("Delete", systemImage: "trash", role: .destructive) { deleting = tap }
+                }
             }
           }
         }
+      }
+    }
+  }
+
+  private func delete(_ tap: Tap) {
+    Task {
+      do {
+        try await inbox.delete(tapId: tap.id)
+      } catch {
+        self.error = (error as? APIError)?.message ?? error.localizedDescription
       }
     }
   }

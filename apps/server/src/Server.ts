@@ -221,6 +221,12 @@ export default class Server extends Cloudflare.Worker<Server>()(
             );
           })
         )
+        .handle("deleteTap", ({ params }) =>
+          Effect.gen(function* () {
+            const { token, stub } = yield* forCaller;
+            return yield* stub.deleteTap(token, params.id, yield* pushContext);
+          })
+        )
         .handle("registerPush", ({ payload }) =>
           Effect.flatMap(forCaller, ({ token, stub }) =>
             stub.registerPush(token, payload)

@@ -363,6 +363,8 @@ impl<'de> Deserialize<'de> for Snapshot {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ServerEvent {
     Tap(Tap),
+    /// A tap was deleted, for everyone: drop it.
+    TapDeleted(String),
     CredentialsChanged,
     Revoked,
     /// A newer or unknown event: resync from the snapshot instead.
@@ -380,6 +382,10 @@ impl<'de> Deserialize<'de> for ServerEvent {
                 let tap = value.get("tap").cloned().unwrap_or_default();
                 Self::Tap(serde_json::from_value(tap).map_err(serde::de::Error::custom)?)
             }
+            Some("deleted") => match value.get("tapId").and_then(|id| id.as_str()) {
+                Some(id) => Self::TapDeleted(id.to_owned()),
+                None => Self::Unknown,
+            },
             Some("credentials") => Self::CredentialsChanged,
             Some("revoked") => Self::Revoked,
             _ => Self::Unknown,

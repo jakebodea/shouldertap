@@ -238,6 +238,14 @@ export const TapEvent = Schema.Struct({
   tap: Tap,
 });
 
+/** A tap was deleted: drop it from history (and the overlay, if pending). */
+export const TapDeletedEvent = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("deleted"),
+  sequence: Schema.Number,
+  tapId: Schema.String,
+});
+
 export const CredentialsChangedEvent = Schema.Struct({
   v: Schema.Literal(1),
   type: Schema.Literal("credentials"),
@@ -251,6 +259,7 @@ export const RevokedEvent = Schema.Struct({
 
 export const ServerEvent = Schema.Union([
   TapEvent,
+  TapDeletedEvent,
   CredentialsChangedEvent,
   RevokedEvent,
 ]);

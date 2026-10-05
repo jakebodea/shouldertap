@@ -103,6 +103,12 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
       payload: RegisterPushRequest,
       success: Schema.Struct({ registered: Schema.Literal(true) }),
     }),
+    // A device deletes any tap; a sender only their own. Gone for everyone.
+    HttpApiEndpoint.delete("deleteTap", "/taps/:id", {
+      params: idParams,
+      success: Schema.Struct({ deleted: Schema.Literal(true) }),
+      error: NotFound,
+    }),
     HttpApiEndpoint.post("activityToken", "/taps/:id/activity-token", {
       params: idParams,
       payload: ActivityTokenRequest,

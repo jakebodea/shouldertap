@@ -231,6 +231,19 @@ impl MenuView {
         );
     }
 
+    fn delete_tap(&mut self, key: String, tap_id: String, cx: &mut Context<Self>) {
+        self.run(
+            cx,
+            move |store| store.delete_tap(&tap_id),
+            move |this, result, _| {
+                if let Err(error) = result {
+                    this.row_errors.insert(key, error.to_string());
+                    this.confirming = None;
+                }
+            },
+        );
+    }
+
     fn revoke(&mut self, id: String, cx: &mut Context<Self>) {
         let target = id.clone();
         self.run(
@@ -388,7 +401,7 @@ impl MenuView {
         let recent: Vec<AnyElement> = if state.taps.is_empty() {
             vec![muted(s, "Taps you receive show up here.").into_any_element()]
         } else {
-            state.taps.iter().take(6).map(|tap| tap_row(s, tap)).collect()
+            state.taps.iter().take(6).map(|tap| self.tap_row(s, tap, cx)).collect()
         };
 
         let plan = state
@@ -669,6 +682,119 @@ impl MenuView {
             .into_any_element()
     }
 
+    /// A tap you got, with a delete button on hover (for everyone).
+    fn tap_row(&mut self, s: Surface, tap: &Tap, cx: &mut Context<Self>) -> AnyElement {
+        let (icon, label) = match &tap.response {
+            Some(response) => (
+                Some(match response.kind {
+                    ResponseKind::OnIt => Icon::OnIt,
+                    ResponseKind::In10 => Icon::In10,
+                    ResponseKind::Text => Icon::Reply,
+                }),
+                response.label(),
+            ),
+            None => (None, "Waiting for you".to_string()),
+        };
+        // Taps and pairings share `confirming` and `row_errors`.
+        let key = format!("tap-{}", tap.id);
+        let error = self.row_errors.get(&key).cloned();
+        let group: SharedString = format!("row-{key}").into();
+        let (confirm_key, tap_id) = (key.clone(), tap.id.clone());
+        let trailing = self.remove_control(
+            s,
+            key.clone(),
+            group.clone(),
+            "Delete",
+            move |this, cx| this.delete_tap(confirm_key.clone(), tap_id.clone(), cx),
+            cx,
+        );
+        row(s, SharedString::from(key))
+            .group(group)
+            .items_start()
+            .child(avatar(&tap.sender_name, tap.sender_color))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .line_clamp(2)
+                            .child(tap.body.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(5.))
+                            .text_size(px(12.))
+                            .text_color(if error.is_some() { s.danger } else { s.secondary })
+                            .children(
+                                icon.filter(|_| error.is_none())
+                                    .map(|icon| svg().path(icon.path()).size(px(13.)).text_color(s.secondary)),
+                            )
+                            .child(div().truncate().child(
+                                error.unwrap_or_else(|| format!("{label} · {}", theme::ago(tap.created_at, now_ms()))),
+                            )),
+                    ),
+            )
+            .child(trailing)
+            .into_any_element()
+    }
+
+    /// A row's remove button, shown on hover, that asks once more. `key`
+    /// names the row in `confirming` and `row_errors`.
+    fn remove_control(
+        &mut self,
+        s: Surface,
+        key: String,
+        group: SharedString,
+        confirm_label: &'static str,
+        confirm: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if self.confirming.as_deref() == Some(key.as_str()) {
+            return div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    menu_button(s, "confirm-remove", confirm_label, None, Kind::Danger, false, false)
+                        .on_click(cx.listener(move |this, _, _, cx| confirm(this, cx))),
+                )
+                .child(
+                    menu_button(s, "cancel-remove", "Cancel", None, Kind::Plain, false, false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.confirming = None;
+                            cx.notify();
+                        },
+                    )),
+                )
+                .into_any_element();
+        }
+        div()
+            .id(SharedString::from(format!("remove-{key}")))
+            .size(px(24.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(5.))
+            .cursor_pointer()
+            .invisible()
+            .group_hover(group, |style| style.visible())
+            .hover(|style| style.bg(s.hover))
+            .text_color(s.secondary)
+            .child(svg().path(Icon::Remove.path()).size(px(16.)).text_color(s.secondary))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.row_errors.remove(&key);
+                this.confirming = Some(key.clone());
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
     fn pairing_row(
         &mut self,
         s: Surface,
@@ -685,54 +811,15 @@ impl MenuView {
             glyph(s, platform_icon(credential.device_platform())).into_any_element()
         };
         let group: SharedString = format!("row-{id}").into();
-        let trailing = if self.confirming.as_deref() == Some(id.as_str()) {
-            let confirm_id = id.clone();
-            div()
-                .flex()
-                .gap(px(8.))
-                .child(
-                    menu_button(
-                        s,
-                        "confirm-remove",
-                        if is_self { "Unpair" } else { "Remove" },
-                        None,
-                        Kind::Danger,
-                        false,
-                        false,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| this.revoke(confirm_id.clone(), cx))),
-                )
-                .child(
-                    menu_button(s, "cancel-remove", "Cancel", None, Kind::Plain, false, false).on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.confirming = None;
-                            cx.notify();
-                        },
-                    )),
-                )
-                .into_any_element()
-        } else {
-            let remove_id = id.clone();
-            div()
-                .id(SharedString::from(format!("remove-{id}")))
-                .size(px(24.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(5.))
-                .cursor_pointer()
-                .invisible()
-                .group_hover(group.clone(), |style| style.visible())
-                .hover(|style| style.bg(s.hover))
-                .text_color(s.secondary)
-                .child(svg().path(Icon::Remove.path()).size(px(16.)).text_color(s.secondary))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.row_errors.remove(&remove_id);
-                    this.confirming = Some(remove_id.clone());
-                    cx.notify();
-                }))
-                .into_any_element()
-        };
+        let confirm_id = id.clone();
+        let trailing = self.remove_control(
+            s,
+            id.clone(),
+            group.clone(),
+            if is_self { "Unpair" } else { "Remove" },
+            move |this, cx| this.revoke(confirm_id.clone(), cx),
+            cx,
+        );
         row(s, SharedString::from(format!("pairing-{id}")))
             .group(group)
             .child(leading)
@@ -1061,52 +1148,6 @@ fn row(s: Surface, id: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
         .mx(px(-6.))
         .rounded(px(7.))
         .hover(|style| style.bg(s.hover))
-}
-
-fn tap_row(s: Surface, tap: &Tap) -> AnyElement {
-    let (icon, label) = match &tap.response {
-        Some(response) => (
-            Some(match response.kind {
-                ResponseKind::OnIt => Icon::OnIt,
-                ResponseKind::In10 => Icon::In10,
-                ResponseKind::Text => Icon::Reply,
-            }),
-            response.label(),
-        ),
-        None => (None, "Waiting for you".to_string()),
-    };
-    row(s, SharedString::from(format!("tap-{}", tap.id)))
-        .items_start()
-        .child(avatar(&tap.sender_name, tap.sender_color))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .line_clamp(2)
-                        .child(tap.body.clone()),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(5.))
-                        .text_size(px(12.))
-                        .text_color(s.secondary)
-                        .children(icon.map(|icon| svg().path(icon.path()).size(px(13.)).text_color(s.secondary)))
-                        .child(
-                            div()
-                                .truncate()
-                                .child(format!("{label} · {}", theme::ago(tap.created_at, now_ms()))),
-                        ),
-                ),
-        )
-        .into_any_element()
 }
 
 #[derive(Clone, Copy, PartialEq)]

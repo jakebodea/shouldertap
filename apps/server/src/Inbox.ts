@@ -45,6 +45,7 @@ import {
   isDeadToken,
   notificationPayload,
   type PushContext,
+  removedActivityPayload,
   resolvedPayload,
   sendPush,
   startActivityPayload,
@@ -150,6 +151,16 @@ export interface InboxRpc {
   readonly deleteSender: (
     token: ParsedToken
   ) => Rpc<{ deleted: true }, Unauthorized>;
+  /**
+   * Deletes one tap for everyone. A device may delete any tap, a sender only
+   * their own. `push` (when APNs is configured) clears a pending one from
+   * linked iPhones.
+   */
+  readonly deleteTap: (
+    token: ParsedToken,
+    tapId: string,
+    push?: PushContext
+  ) => Rpc<{ deleted: true }, Unauthorized | NotFound>;
   /**
    * Creates the inbox. `trialEndsAt` comes from the Mac's trial ledger when
    * it has one; without it the trial is a fresh one from now.
@@ -657,6 +668,57 @@ export const InboxLive = Inbox.make(
             .where(eq(activityTokens.tapId, tap.id));
         }).pipe(Effect.catchCause((cause) => Effect.logError(cause)));
 
+      /** A deleted pending tap: end its Live Activities, clear the rest. */
+      const notifyRemoval = (
+        tap: Tap,
+        activities: readonly (typeof activityTokens.$inferSelect)[],
+        push: PushContext
+      ) =>
+        Effect.gen(function* () {
+          const at = yield* now;
+          const targets = yield* pushTargets;
+          yield* Effect.forEach(
+            targets,
+            (target) =>
+              Effect.gen(function* () {
+                const base = {
+                  environment: target.environment,
+                  topic: target.topic,
+                };
+                const activity = activities.find(
+                  (row) => row.credentialId === target.credentialId
+                );
+                if (activity) {
+                  yield* deliver(
+                    push,
+                    {
+                      ...base,
+                      pushType: "liveactivity",
+                      priority: 10,
+                      token: activity.token,
+                      payload: removedActivityPayload(tap, at),
+                    },
+                    Effect.void
+                  );
+                }
+                if (target.deviceToken) {
+                  yield* deliver(
+                    push,
+                    {
+                      ...base,
+                      pushType: "background",
+                      priority: 5,
+                      token: target.deviceToken,
+                      payload: resolvedPayload(tap),
+                    },
+                    clearToken(target.credentialId, "deviceToken")
+                  );
+                }
+              }),
+            { concurrency: "unbounded", discard: true }
+          );
+        }).pipe(Effect.catchCause((cause) => Effect.logError(cause)));
+
       // Retention: one repeating event in Alchemy's DO scheduler drives the
       // alarm. Armed when the inbox is created, and on every activation of
       // an existing inbox, so inboxes created before retention get one too.
@@ -1137,6 +1199,39 @@ export const InboxLive = Inbox.make(
           }
           yield* broadcastCredentials;
           return { revoked: true as const };
+        }, orDieOnStorage),
+
+        deleteTap: Effect.fn("Inbox.deleteTap")(function* (token, tapId, push) {
+          const actor = yield* authenticate(token);
+          const tap = yield* getTap(tapId);
+          // Someone else's tap is none of a sender's business, so: not found.
+          if (actor.kind === "sender" && tap.senderId !== actor.id) {
+            return yield* new NotFound({ message: "No such tap" });
+          }
+          const { sequence, activities } = yield* db.transaction((tx) =>
+            Effect.gen(function* () {
+              const [row] = yield* tx
+                .update(inbox)
+                .set({ sequence: sql`${inbox.sequence} + 1` })
+                .where(eq(inbox.id, 1))
+                .returning({ sequence: inbox.sequence });
+              yield* tx.delete(taps).where(eq(taps.id, tapId));
+              const ended = yield* tx
+                .delete(activityTokens)
+                .where(eq(activityTokens.tapId, tapId))
+                .returning();
+              return { sequence: row?.sequence ?? 0, activities: ended };
+            })
+          );
+          yield* broadcast(
+            { v: 1, type: "deleted", sequence, tapId },
+            (session) =>
+              session.kind === "device" || session.credentialId === tap.senderId
+          );
+          if (tap.state === "pending" && push) {
+            yield* state.waitUntil(notifyRemoval(tap, activities, push));
+          }
+          return { deleted: true as const };
         }, orDieOnStorage),
 
         deleteSender: Effect.fn("Inbox.deleteSender")(function* (token) {

@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
  * Once the tap is answered anywhere, its Live Activity is ended (when the
  * phone sent us its token), its notification is replaced by a quiet
  * "Answered", and a background push tells the app to clear anything left.
+ * A pending tap that's deleted is cleared the same way, minus the "Answered".
  */
 
 /** The signed provider token the Inbox sends with every push. */
@@ -213,6 +214,16 @@ export const endActivityPayload = (tap: Tap, at: number) => ({
   },
 });
 
+/** Ends a deleted tap's Live Activity right away. */
+export const removedActivityPayload = (tap: Tap, at: number) => ({
+  aps: {
+    timestamp: seconds(at),
+    event: "end",
+    "content-state": { body: tap.body, answer: "Deleted" },
+    "dismissal-date": seconds(at),
+  },
+});
+
 /**
  * Replaces an answered tap's notification (same collapse id) with a quiet
  * one saying how it was answered: no sound, no lit screen. Background
@@ -228,7 +239,7 @@ export const answeredNotificationPayload = (tap: Tap) => ({
   tapId: tap.id,
 });
 
-/** Wakes the app to clear what's left of an answered tap. */
+/** Wakes the app to clear what's left of an answered or deleted tap. */
 export const resolvedPayload = (tap: Tap) => ({
   aps: { "content-available": 1 },
   resolvedTapId: tap.id,
