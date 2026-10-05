@@ -25,9 +25,18 @@ Provider request logs are included as Other Diagnostic Data; the privacy policy 
 
 ## Current resubmission
 
-Apple rejected 1.0 (49) on October 2 under Guideline 2.1, Information Needed, citing limited developer-account review history. No specific crash or payment defect was identified. The existing 1.1 source is now the first public 1.0: sending plus linked-inbox receiving, Live Activities/notifications and inbox management. All app/widget version settings use 1.0. The old 1.1 beta is to be expired after a replacement 1.0 is available; Apple retains the upload record.
+Apple rejected 1.0 (49) on October 2 under Guideline 2.1, Information Needed, citing limited developer-account review history. No specific crash or payment defect was identified. The existing 1.1 source is now the first public 1.0: sending plus linked-inbox receiving, Live Activities/notifications and inbox management. All app/widget version settings use 1.0. Replacement 1.0 (57) processed VALID, is selected in the App Store draft (PREPARE_FOR_SUBMISSION, manual release), and is IN_BETA_TESTING in the internal Me group. The old 1.1 (53) beta is expired; Apple retains the upload record.
 
 `review-notes.txt` covers Apple's requested purpose/audience, setup, external services, regions and rights, with an explicit pending-recording statement. `review-reply-draft.txt` is an unsent template, not an assertion that a new video exists. Refresh its recording statement only after the new physical-device evidence is attached.
+
+## Live preparation status (October 5)
+
+- Uploaded from source commit `439a6591d05398df60c90f8c39d9b41c9e1476c6`. Archive app and widget both declare 1.0 (57).
+- Public description, subtitle, promotional text and review Notes saved and read back from App Store Connect. Review Notes explicitly say the new physical-device recording is pending.
+- App Store Device ID disclosure was selected, but its purpose/identity/tracking setup was not finished: the connected browser stopped responding, then disappeared from the browser inventory. Finish App Privacy > OK (if the setup notice is open) > Set Up Device ID: App Functionality only, linked to identity, not tracking. Publish only after reviewing the summary.
+- Local release workflow: 53 shared Swift tests passed; archive/export/upload succeeded. Release simulator build passed and Help readability inspected; `validation/launch-1-0-help.png` is simulator evidence only.
+- PR code check passed. First preview integration run failed 6 tests (error decoding / 404s), despite unchanged server/client source relative to main. A single failed-job retry was requested to distinguish a transient preview failure; this is unresolved and is not a release pass.
+- No replacement recording attached, no review reply sent and no App Review resubmission performed. Existing screenshots and earlier recording remain historical and need replacing for the current UI.
 
 ## Remaining release gates
 
