@@ -43,6 +43,8 @@ final class Receiver {
   /// token callbacks arriving together don't repeat it.
   @ObservationIgnored private var registered: (credentialId: String, registration: PushRegistration)?
   @ObservationIgnored private var observing = false
+  /// Taps that were waiting at the last reconcile, to notice deleted ones.
+  @ObservationIgnored private var waiting: Set<String> = []
   @ObservationIgnored private var reportedActivities: Set<String> = []
 
   nonisolated static let category = "tap"
@@ -178,9 +180,12 @@ final class Receiver {
     center.removeDeliveredNotifications(withIdentifiers: ids)
   }
 
-  /// After a snapshot: anything still showing for a tap that's been answered goes.
+  /// After a snapshot: anything still showing for a tap that's been answered,
+  /// or deleted while it waited, goes.
   func reconcile(_ taps: [Tap]) {
-    let answered = Set(taps.filter { $0.state == .acknowledged }.map(\.id))
+    let deleted = waiting.subtracting(taps.map(\.id))
+    waiting = Set(taps.filter { $0.state == .pending }.map(\.id))
+    let answered = Set(taps.filter { $0.state == .acknowledged }.map(\.id)).union(deleted)
     let showing = Set(Activity<TapActivityAttributes>.activities.map(\.attributes.tapId))
     Task {
       for tapId in answered.intersection(showing) { await TapActivities.end(tapId: tapId, answer: nil) }

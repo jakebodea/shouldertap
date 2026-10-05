@@ -292,6 +292,17 @@ impl ReceiverStore {
         self.inner.api().create_invite(CredentialKind::Device)
     }
 
+    /// Deletes a tap for everyone: from history, and from every screen if
+    /// it's still waiting. One that's already gone counts as deleted.
+    pub fn delete_tap(&self, tap_id: &str) -> Result<(), ApiError> {
+        match self.inner.api().delete_tap(tap_id) {
+            Err(error) if error.code != ErrorCode::NotFound => return Err(error),
+            _ => {}
+        }
+        self.inner.drop_tap(tap_id);
+        Ok(())
+    }
+
     /// Removing this device forgets it here even if the server can't be
     /// reached, except when the server refuses (the inbox's last computer
     /// while an iPhone is still linked): then it stays, and the error says why.
@@ -401,6 +412,11 @@ impl Inner {
         self.update(|state| state.taps = merge_tap(&state.taps, tap));
     }
 
+    fn drop_tap(&self, tap_id: &str) {
+        self.update(|state| state.taps.retain(|tap| tap.id != tap_id));
+        self.drop_pending_ack(tap_id);
+    }
+
     /// Unpaired (revoked, or this computer removed itself): back to setup.
     fn forget(&self) {
         self.live_id.fetch_add(1, Ordering::SeqCst);
@@ -500,6 +516,12 @@ impl LiveHandlers for Handlers {
     fn on_tap(&self, tap: Tap) {
         if let Some(inner) = self.current() {
             inner.merge(tap);
+        }
+    }
+
+    fn on_tap_deleted(&self, tap_id: String) {
+        if let Some(inner) = self.current() {
+            inner.drop_tap(&tap_id);
         }
     }
 

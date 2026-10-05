@@ -282,6 +282,17 @@ impl ApiClient {
         )
     }
 
+    /// Deletes a tap for everyone. `NotFound` once it's gone.
+    pub fn delete_tap(&self, tap_id: &str) -> Result<(), ApiError> {
+        #[derive(Deserialize)]
+        struct Deleted {
+            #[allow(dead_code)]
+            deleted: bool,
+        }
+        self.send::<(), Deleted>("DELETE", &format!("/v1/taps/{}", escape(tap_id)), None)
+            .map(|_| ())
+    }
+
     pub fn revoke(&self, credential_id: &str) -> Result<(), ApiError> {
         #[derive(Deserialize)]
         struct Revoked {

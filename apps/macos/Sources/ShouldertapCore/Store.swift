@@ -192,6 +192,7 @@ public final class ReceiverStore {
       handlers: .init(
         onResync: { [weak self] in self?.resync() },
         onTap: { [weak self] tap in self?.merge(tap) },
+        onTapDeleted: { [weak self] tapId in self?.drop(tapId) },
         onStatus: { [weak self] status in self?.status = status },
         onRevoked: { [weak self] in self?.forget() }
       ), session: session)
@@ -218,6 +219,11 @@ public final class ReceiverStore {
 
   private func merge(_ tap: Tap) {
     taps = mergeTap(taps, tap)
+  }
+
+  private func drop(_ tapId: String) {
+    taps.removeAll { $0.id == tapId }
+    dropPendingAck(tapId)
   }
 
   /// Unpaired (revoked, or this Mac removed itself): back to setup.
@@ -306,6 +312,17 @@ public final class ReceiverStore {
     var acks = pendingAcks
     acks[tapId] = nil
     setPendingAcks(acks)
+  }
+
+  // MARK: History
+
+  /// Deletes a tap for everyone: from history, and from every screen if it's
+  /// still waiting. One that's already gone counts as deleted.
+  public func delete(tapId: String) async throws {
+    do {
+      try await api.deleteTap(tapId: tapId)
+    } catch let error as APIError where error.code == .notFound {}
+    drop(tapId)
   }
 
   // MARK: Pairing management

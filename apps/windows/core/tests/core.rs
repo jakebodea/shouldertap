@@ -165,6 +165,7 @@ fn decodes_events() {
     assert_eq!(events[1], ServerEvent::CredentialsChanged);
     assert_eq!(events[2], ServerEvent::Revoked);
     assert_eq!(events[3], ServerEvent::Unknown);
+    assert_eq!(events[4], ServerEvent::TapDeleted("t3".into()));
 }
 
 #[test]

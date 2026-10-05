@@ -150,6 +150,35 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { store.pendingAcks.isEmpty })
   }
 
+  @Test func deletingATapDropsItAndItsQueuedAnswer() async throws {
+    let snapshot = String(decoding: try fixture("snapshot"), as: UTF8.self)
+    let calls = Calls()
+    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
+      switch (request.httpMethod, request.url!.path) {
+      case ("GET", "/v1/me"): return (200, snapshot)
+      case ("DELETE", "/v1/taps/t1"):
+        _ = calls.record(request)
+        return (200, #"{"deleted":true}"#)
+      // Already deleted elsewhere: still counts.
+      case ("DELETE", _): return (404, #"{"_tag":"NotFound","message":"No such tap"}"#)
+      default: return (503, "")
+      }
+    }
+    store.start()
+    store.refresh()
+    #expect(await eventually { !store.taps.isEmpty })
+    let ids = store.taps.map(\.id)
+    store.respond(tapId: "t1", response: .onIt)
+    try await store.delete(tapId: "t1")
+    #expect(calls.count("/v1/taps/t1") == 1)
+    #expect(!store.taps.contains { $0.id == "t1" })
+    #expect(store.pendingAcks["t1"] == nil)
+    if let other = ids.first(where: { $0 != "t1" }) {
+      try await store.delete(tapId: other)
+      #expect(!store.taps.contains { $0.id == other })
+    }
+  }
+
   @Test func revokedCredentialReturnsToSetup() async {
     let persistence = MemoryPersistence(credential: "a.b.c")
     let store = makeStore(persistence: persistence) { request in

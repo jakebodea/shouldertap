@@ -16,6 +16,8 @@ export interface LiveHandlers {
   readonly onStatus?: (status: LiveStatus) => void;
   /** A tap changed. Apply with `mergeTap`; the server's sequence orders updates. */
   readonly onTap: (tap: Tap) => void;
+  /** A tap was deleted. Without this handler, the snapshot is refetched. */
+  readonly onTapDeleted?: (tapId: string) => void;
 }
 
 export interface LiveConnection {
@@ -130,6 +132,13 @@ export const connectLive = (
       switch (event.value.type) {
         case "tap":
           handlers.onTap(event.value.tap);
+          break;
+        case "deleted":
+          if (handlers.onTapDeleted) {
+            handlers.onTapDeleted(event.value.tapId);
+          } else {
+            handlers.onResync();
+          }
           break;
         case "credentials":
           handlers.onResync();

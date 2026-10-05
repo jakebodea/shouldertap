@@ -156,6 +156,7 @@ public final class SenderSession: Identifiable {
       handlers: .init(
         onResync: { [weak self] in self?.resync() },
         onTap: { [weak self] tap in self?.merge(tap) },
+        onTapDeleted: { [weak self] tapId in self?.taps.removeAll { $0.id == tapId } },
         onStatus: { [weak self] status in self?.status = status },
         onRevoked: { [weak self] in self?.revoked() }
       ), session: session)
@@ -235,6 +236,15 @@ public final class SenderSession: Identifiable {
         }
       }
     }
+  }
+
+  /// Deletes one of your taps for everyone, including from their screens if
+  /// they haven't answered. One that's already gone counts as deleted.
+  public func delete(tapId: String) async throws {
+    do {
+      try await api.deleteTap(tapId: tapId)
+    } catch let error as APIError where error.code == .notFound {}
+    taps.removeAll { $0.id == tapId }
   }
 
   private func updateOutbox(_ update: ([OutgoingTap]) -> [OutgoingTap]) {

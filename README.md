@@ -161,7 +161,7 @@ Bump `version` in `apps/windows/Cargo.toml`, then build `Shouldertap-Setup-<vers
 scripts/release-windows.sh
 ```
 
-Prefer the exe `.github/workflows/windows.yml` builds on a Windows runner (download the `Shouldertap-windows-x64` artifact, then `EXE=<path> scripts/release-windows.sh`): GPUI precompiles its Direct3D shaders only on a Windows host, so exes cross-built on a Mac compile them at launch. `--no-upload` builds only.
+Prefer an exe built on Windows, e.g. the one a `windows-v<version>` tag attaches to its GitHub release (`.github/workflows/windows-release.yml`; then `EXE=<path> scripts/release-windows.sh`): GPUI precompiles its Direct3D shaders only on a Windows host, so exes cross-built on a Mac compile them at launch. `--no-upload` builds only.
 
 The exe installs itself: run from Downloads, it copies itself to `%LocalAppData%\Programs\Shouldertap`, adds a Start menu entry, an entry in Settings › Apps (which runs `--uninstall`) and the login item, and starts from there. `--install --silent` and `--uninstall --silent` are there for winget. Updates download the new exe, check its SHA-256 (and, once releases are signed, its Authenticode signature), swap it in and restart.
 

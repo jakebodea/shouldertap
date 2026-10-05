@@ -142,7 +142,7 @@ private struct ReadyView: View {
         if store.taps.isEmpty {
           Muted("Taps you receive show up here.")
         } else {
-          ForEach(store.taps.prefix(6)) { TapRow(tap: $0) }
+          ForEach(store.taps.prefix(6)) { TapRow(store: store, tap: $0) }
         }
       }
 
@@ -460,25 +460,54 @@ private struct PairingRow: View {
   }
 }
 
+/// A tap you got, with a delete button on hover that asks once more.
 private struct TapRow: View {
+  let store: ReceiverStore
   let tap: Tap
+  @State private var confirming = false
+  @State private var error: String?
 
   var body: some View {
-    Row(alignment: .top) { _ in
+    Row(alignment: .top) { hovered in
       Avatar(name: tap.senderName, color: tap.senderColor)
       VStack(alignment: .leading, spacing: 2) {
         Text(tap.body).font(.system(size: 13, weight: .semibold)).lineLimit(2)
         HStack(spacing: 5) {
-          if let response = tap.response {
+          if let response = tap.response, error == nil {
             IconView(icon: response.icon, size: 13).foregroundStyle(.secondary)
           }
-          Text("\(tap.response?.label ?? "Waiting for you") · \(ago(tap.createdAt))")
+          Text(error ?? "\(tap.response?.label ?? "Waiting for you") · \(ago(tap.createdAt))")
             .font(.system(size: 12))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(error == nil ? .secondary : Color.red)
             .lineLimit(1)
         }
       }
       Spacer(minLength: 0)
+      if confirming {
+        HStack(spacing: 8) {
+          MenuButton(title: "Delete", kind: .danger) {
+            Task {
+              do { try await store.delete(tapId: tap.id) } catch {
+                self.error = error.localizedDescription
+                confirming = false
+              }
+            }
+          }
+          MenuButton(title: "Cancel", kind: .plain) { confirming = false }
+        }
+      } else {
+        Button {
+          error = nil
+          confirming = true
+        } label: {
+          IconView(icon: .remove, size: 16).frame(width: 24, height: 24).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .opacity(hovered ? 1 : 0)
+        .help("Delete for everyone")
+        .accessibilityLabel("Delete this tap")
+      }
     }
   }
 }

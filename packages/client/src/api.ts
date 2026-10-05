@@ -145,6 +145,11 @@ export class ApiClient {
     );
   }
 
+  /** Deletes a tap for everyone; a sender may only delete their own. */
+  deleteTap(tapId: string) {
+    return this.call((c) => c.inbox.deleteTap({ params: { id: tapId } }));
+  }
+
   revoke(credentialId: string) {
     return this.call((c) => c.inbox.revoke({ params: { id: credentialId } }));
   }

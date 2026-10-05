@@ -30,6 +30,7 @@ pub trait LiveHandlers: Send + Sync + 'static {
     /// whenever the server says pairings changed, so a missed event is never lost.
     fn on_resync(&self);
     fn on_tap(&self, tap: Tap);
+    fn on_tap_deleted(&self, tap_id: String);
     fn on_status(&self, status: LiveStatus);
     /// The credential was revoked or is no longer valid. The connection stops.
     fn on_revoked(&self);
@@ -246,6 +247,7 @@ impl Shared {
     fn handle(&self, text: &str) {
         match serde_json::from_str::<ServerEvent>(text) {
             Ok(ServerEvent::Tap(tap)) => self.handlers.on_tap(tap),
+            Ok(ServerEvent::TapDeleted(tap_id)) => self.handlers.on_tap_deleted(tap_id),
             Ok(ServerEvent::Revoked) => {
                 self.closed.store(true, Ordering::SeqCst);
                 self.handlers.on_revoked();

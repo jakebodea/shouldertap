@@ -134,6 +134,8 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   useEffect(() => {
     const live = connectLive(client, {
       onTap: (tap) => setTaps((current) => mergeTap(current, tap)),
+      onTapDeleted: (tapId) =>
+        setTaps((current) => current.filter((tap) => tap.id !== tapId)),
       onResync: resync,
       onStatus: setStatus,
       onRevoked: () => revokedRef.current(),

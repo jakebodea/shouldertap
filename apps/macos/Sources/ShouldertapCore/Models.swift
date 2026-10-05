@@ -274,12 +274,14 @@ public enum Snapshot: Sendable, Decodable {
 /// Server → client WebSocket events: versioned JSON envelopes.
 public enum ServerEvent: Sendable, Decodable {
   case tap(Tap)
+  /// A tap was deleted, for everyone: drop it.
+  case tapDeleted(String)
   case credentialsChanged
   case revoked
   /// A newer or unknown event: resync from the snapshot instead.
   case unknown
 
-  private enum CodingKeys: String, CodingKey { case v, type, tap }
+  private enum CodingKeys: String, CodingKey { case v, type, tap, tapId }
 
   public init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -289,6 +291,7 @@ public enum ServerEvent: Sendable, Decodable {
     }
     switch try container.decode(String.self, forKey: .type) {
     case "tap": self = .tap(try container.decode(Tap.self, forKey: .tap))
+    case "deleted": self = .tapDeleted(try container.decode(String.self, forKey: .tapId))
     case "credentials": self = .credentialsChanged
     case "revoked": self = .revoked
     default: self = .unknown

@@ -113,6 +113,8 @@ private struct ComposerPage: View {
 
   @State private var draft = ""
   @State private var sent = 0
+  @State private var deleting: Tap?
+  @State private var deleteError: String?
   @FocusState private var focused: Bool
 
   private var recipient: String { session.pairing.recipientName }
@@ -153,8 +155,38 @@ private struct ComposerPage: View {
 
       recent
     }
+    .confirmationDialog(
+      "Delete this tap?",
+      isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+      titleVisibility: .visible,
+      presenting: deleting
+    ) { tap in
+      Button("Delete", role: .destructive) { delete(tap) }
+    } message: { tap in
+      Text(
+        tap.state == .pending
+          ? "It's taken back from \(recipient)'s screens before they answer, and removed for both of you."
+          : "It's removed for both of you, along with \(recipient)'s answer.")
+    }
+    .alert(
+      "Couldn't delete", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
+    ) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(deleteError ?? "")
+    }
     .sensoryFeedback(.success, trigger: session.taps.first { $0.state == .acknowledged }?.id)
     .sensoryFeedback(.impact(weight: .medium), trigger: sent)
+  }
+
+  private func delete(_ tap: Tap) {
+    Task {
+      do {
+        try await session.delete(tapId: tap.id)
+      } catch {
+        deleteError = (error as? APIError)?.errorDescription ?? error.localizedDescription
+      }
+    }
   }
 
   private var header: some View {
@@ -183,6 +215,7 @@ private struct ComposerPage: View {
             row {
               TapRow(tap: tap, recipient: recipient, color: session.color, now: context.date)
                 .contextMenu {
+                  Button("Delete", systemImage: "trash", role: .destructive) { deleting = tap }
                   Link("Report this tap or reply", destination: reportURL(tap))
                 }
             }

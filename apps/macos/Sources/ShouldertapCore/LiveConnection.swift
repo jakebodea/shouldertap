@@ -17,6 +17,7 @@ public final class LiveConnection {
     /// whenever the server says pairings changed, so a missed event is never lost.
     public var onResync: @MainActor () -> Void
     public var onTap: @MainActor (Tap) -> Void
+    public var onTapDeleted: @MainActor (String) -> Void
     public var onStatus: @MainActor (LiveStatus) -> Void
     /// The credential was revoked or is no longer valid. The connection stops.
     public var onRevoked: @MainActor () -> Void
@@ -24,11 +25,13 @@ public final class LiveConnection {
     public init(
       onResync: @escaping @MainActor () -> Void,
       onTap: @escaping @MainActor (Tap) -> Void,
+      onTapDeleted: @escaping @MainActor (String) -> Void,
       onStatus: @escaping @MainActor (LiveStatus) -> Void,
       onRevoked: @escaping @MainActor () -> Void
     ) {
       self.onResync = onResync
       self.onTap = onTap
+      self.onTapDeleted = onTapDeleted
       self.onStatus = onStatus
       self.onRevoked = onRevoked
     }
@@ -136,6 +139,7 @@ public final class LiveConnection {
     }
     switch event {
     case let .tap(tap): handlers.onTap(tap)
+    case let .tapDeleted(tapId): handlers.onTapDeleted(tapId)
     case .credentialsChanged, .unknown: handlers.onResync()
     case .revoked:
       close()

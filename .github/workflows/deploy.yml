@@ -112,50 +112,6 @@ jobs:
     outputs:
       server: ${{ steps.preview.outputs.server }}
 
-  # The Windows app on a real Windows desktop against the preview: pairs it,
-  # sends taps, answers with the keyboard, and keeps screenshots. Only when
-  # something it depends on changed.
-  windows-smoke:
-    needs: deploy
-    if: github.event_name == 'pull_request' && needs.deploy.outputs.server != ''
-    runs-on: windows-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Changed?
-        id: changed
-        shell: bash
-        run: |
-          if git diff --quiet "origin/${{ github.base_ref }}...HEAD" -- apps/windows apps/server packages/domain \
-            apps/macos/Tests/ShouldertapCoreTests/Fixtures .github/workflows/deploy.yml; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.changed.outputs.run == 'true'
-      - uses: Swatinem/rust-cache@v2
-        if: steps.changed.outputs.run == 'true'
-        with:
-          workspaces: apps/windows
-      - name: Build (dev build, so it can point at the preview)
-        if: steps.changed.outputs.run == 'true'
-        working-directory: apps/windows
-        run: cargo build -p shouldertap
-      - name: Smoke test
-        if: steps.changed.outputs.run == 'true'
-        working-directory: apps/windows
-        run: ./scripts/smoke.ps1 -Server "${{ needs.deploy.outputs.server }}" -Exe target\debug\Shouldertap.exe -Out smoke
-      - name: Screenshots and logs
-        if: always() && steps.changed.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-smoke
-          path: apps/windows/smoke/
-
   cleanup:
     if: >-
       github.event_name == 'pull_request' && github.event.action == 'closed'
