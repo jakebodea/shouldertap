@@ -8,7 +8,7 @@
 # cargo-xwin (cargo install cargo-xwin; brew install llvm lld), and release
 # builds use the `cross` profile: GPUI precompiles its Direct3D shaders only
 # on a Windows host, so cross-built exes compile them at launch instead.
-# Prefer the CI build (.github/workflows/windows.yml) for releases.
+# Prefer the CI build (.github/workflows/windows-release.yml) for releases.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
