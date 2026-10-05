@@ -33,9 +33,9 @@ Apple rejected 1.0 (49) on October 2 under Guideline 2.1, Information Needed, ci
 
 - Uploaded from source commit `439a6591d05398df60c90f8c39d9b41c9e1476c6`. Archive app and widget both declare 1.0 (57).
 - Public description, subtitle, promotional text and review Notes saved and read back from App Store Connect. Review Notes explicitly say the new physical-device recording is pending.
-- App Store Device ID disclosure was selected, but its purpose/identity/tracking setup was not finished: the connected browser stopped responding, then disappeared from the browser inventory. Finish App Privacy > OK (if the setup notice is open) > Set Up Device ID: App Functionality only, linked to identity, not tracking. Publish only after reviewing the summary.
+- App Store Device ID disclosure is published: App Functionality only, linked to identity, not tracking. The live privacy page confirms seven collected data types and the completed Device ID entry.
 - Local release workflow: 53 shared Swift tests passed; archive/export/upload succeeded. Release simulator build passed and Help readability inspected; `validation/launch-1-0-help.png` is simulator evidence only.
-- PR code check passed. First preview integration run failed 6 tests (error decoding / 404s), despite unchanged server/client source relative to main. A single failed-job retry was requested to distinguish a transient preview failure; this is unresolved and is not a release pass.
+- PR checks passed on documentation commit `3e59af9660d4e38459d8e43c917f2b7d6fcb9e8b`: code check, deployed-preview integration tests and Windows smoke checks (run `37344172232`). The first preview run failed six tests, but the later full run passed without a server/client source change.
 - No replacement recording attached, no review reply sent and no App Review resubmission performed. Existing screenshots and earlier recording remain historical and need replacing for the current UI.
 
 ## Remaining release gates
@@ -43,7 +43,7 @@ Apple rejected 1.0 (49) on October 2 under Guideline 2.1, Information Needed, ci
 - Test the exact replacement TestFlight build on a physical iPhone running the latest public OS. Verify Help in light/dark mode, QR scanning/camera denial and paste fallback, live send/delivery/reply, link/receive/answer, Live Activity and notification fallback, reporting/blocking and deletion of a disposable sender pairing only.
 - Make a fresh physical-device recording starting at launch and showing those flows. Use a second paired sender/device to trigger incoming taps. Do not substitute a simulator recording or the local sample. See `recording-checklist.md`.
 - Attach the new recording in App Review Information and the rejection reply; put all six answers in both Review Notes and the reply. Remove the pending-recording text only when evidence exists. Do not submit yet.
-- Recheck App Store privacy answers for Device ID (APNs/Live Activity tokens), received messages and linked inbox credentials. These are linked to identity for App Functionality only, with no tracking. The binary privacy manifest now includes Device ID. The public privacy policy already describes linked-iPhone push tokens.
+- App Store privacy answers and the binary privacy manifest include Device ID (APNs/Live Activity tokens), received messages and linked inbox credentials, linked to identity for App Functionality only, with no tracking. The public privacy policy already describes linked-iPhone push tokens.
 - Refresh screenshots to the current UI and include the Inbox/receiving flow; current sender screenshots predate the two-tab interface.
 - App Store availability remains U.S. only; manual release, free pricing and existing age/content-rights declarations must be retained.
 - Review setup uses a fresh Mac inbox and generated invites/link codes. Offer assisted access if needed. The public Mac download is Developer ID signed and notarized; a sample is explanatory only.
