@@ -6,9 +6,9 @@
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
-	<!-- The display name the sender types is sent to the recipient they pair
-	     with, to label their taps. Names and messages are linked to a persistent sender pairing.
-	     Nothing is used for tracking or ads. -->
+	<!-- Names and sent/received messages are linked to sender pairings or
+	     linked inbox credentials. APNs tokens identify a linked iPhone for
+	     notification and Live Activity delivery. Nothing is used for tracking or ads. -->
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
 		<dict>
@@ -76,6 +76,19 @@
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- APNs device and Live Activity tokens, linked to the inbox device credential. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeDeviceID</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<true/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>

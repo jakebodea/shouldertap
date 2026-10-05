@@ -1,3 +1,7 @@
+DRAFT — DO NOT SEND UNTIL PHYSICAL-DEVICE RECORDING IS ATTACHED
+
+Thank you for the review. We have replaced build 49 with a new version 1.0 build that includes iPhone receiving and inbox management. The attached physical-device recording demonstrates this exact build from launch through its live flows. The App Review Notes have also been updated.
+
 PURPOSE AND AUDIENCE
 Shouldertap is private, invite-only communication for friends, family, partners and colleagues who want a short message acknowledged. The free iPhone companion sends taps to known recipients and can link to an existing Mac inbox to receive and answer taps. There is no public feed, discovery, advertising or username/password signup.
 
@@ -17,5 +21,3 @@ Cloudflare hosts the HTTPS/WebSocket backend and stores inbox, pairing and messa
 REGIONS AND RIGHTS
 Initial App Store availability is U.S. only. App functionality has no region-specific variants. This is everyday communication, not a regulated service or an emergency service; it contains no licensed third-party catalog.
 
-PHYSICAL-DEVICE RECORDING
-A replacement recording of this exact build on a physical iPhone running the latest OS is pending. It must start at app launch and demonstrate live pairing/send/reply, iPhone receiving/answering, reporting/blocking and disposable sender-data deletion. The earlier sender-only recording does not cover this build's full flow. Do not resubmit until the new recording is attached here and to the App Review reply.
