@@ -76,8 +76,8 @@ export default Alchemy.Stack(
       value: Redacted.make(accountId),
     });
 
-    // Changes reach main only through a pull request whose `check` job (in
-    // .github/workflows/deploy.yml) passed. Nobody can bypass it, admins
+    // Changes reach main only through a pull request whose `check` and `e2e`
+    // jobs (in .github/workflows/deploy.yml) passed. Nobody can bypass it, admins
     // included; loosen it here if that ever has to change.
     yield* GitHub.Ruleset("protect-main", {
       ...repo,
@@ -89,7 +89,10 @@ export default Alchemy.Stack(
         pullRequest: { requiredApprovingReviewCount: 0 },
         requiredStatusChecks: {
           // 15368 is the GitHub Actions app.
-          checks: [{ context: "check", integrationId: 15_368 }],
+          checks: [
+            { context: "check", integrationId: 15_368 },
+            { context: "e2e", integrationId: 15_368 },
+          ],
         },
       },
     });
