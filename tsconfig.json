@@ -7,7 +7,9 @@
   },
   "include": [
     "alchemy.run.ts",
+    "alchemy.cleanup.ts",
     "domains.ts",
+    "scripts/cloudflare/**/*.ts",
     "stacks/**/*.ts",
     "apps/server/drizzle/**/*.d.ts"
   ]
