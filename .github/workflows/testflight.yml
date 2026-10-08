@@ -14,12 +14,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    runs-on: macos-26
+  # Most pushes carry no release:beta label, so the lookup runs on Linux and the macOS job
+  # starts only when there is something to upload.
+  find:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: write
-      id-token: write
+      pull-requests: read
+    outputs:
+      release: ${{ steps.pr.outputs.release }}
+      number: ${{ steps.pr.outputs.number }}
     steps:
       - name: Find the merged pull request
         id: pr
@@ -40,14 +45,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - if: steps.pr.outputs.release == 'true'
-        uses: actions/checkout@v5
+  release:
+    needs: find
+    if: needs.find.outputs.release == 'true'
+    runs-on: macos-26
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
         with:
           # The build number is the commit count, so it needs full history.
           fetch-depth: 0
 
       - name: Load the App Store Connect key
-        if: steps.pr.outputs.release == 'true'
         uses: Infisical/secrets-action@v1.0.12
         with:
           method: oidc
@@ -59,7 +71,6 @@ jobs:
 
       - name: Archive and upload
         id: upload
-        if: steps.pr.outputs.release == 'true'
         run: |
           export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
           printf '%s\n' "$ASC_KEY_P8" > "$ASC_KEY_PATH"
@@ -69,13 +80,13 @@ jobs:
           echo "build=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Comment on the pull request
-        if: always() && steps.pr.outputs.number != ''
+        if: always() && needs.find.outputs.number != ''
         run: |
           if [ "${{ steps.upload.outcome }}" = success ]; then
             body="Uploaded build ${{ steps.upload.outputs.build }} to App Store Connect. It shows up in TestFlight after processing (usually 5-15 minutes)."
           else
             body="TestFlight upload failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
-          gh pr comment ${{ steps.pr.outputs.number }} --repo ${{ github.repository }} --body "$body"
+          gh pr comment ${{ needs.find.outputs.number }} --repo ${{ github.repository }} --body "$body"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

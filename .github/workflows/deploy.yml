@@ -18,6 +18,11 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A new push to a PR cancels its older checks; main runs always finish.
+    concurrency:
+      group: check-${{ github.event.number || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     permissions:
       contents: read
     steps:
@@ -30,9 +35,38 @@ jobs:
       - run: bun run check-types
       - name: Preview lifecycle tests
         run: bun test scripts/cloudflare
-      - name: Install browser test engines
+
+  # Runs beside `check` in Playwright's image, which already has WebKit and its system
+  # libraries. `playwright install --with-deps` fetched those from Ubuntu's mirror on every run:
+  # under a minute usually, but up to 36 minutes when the mirror crawled.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: e2e-${{ github.event.number || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+    container:
+      # Keep in step with @playwright/test in bun.lock; the first step fails if they differ.
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    env:
+      PLAYWRIGHT_VERSION: 1.63.0
+    steps:
+      - uses: actions/checkout@v5
+      # The image has Node but not unzip, which setup-bun needs, so Bun comes from npm.
+      - name: Install Bun
+        run: npm install --global "bun@$(node -p 'require("./package.json").packageManager.split("@")[1]')"
+      - run: bun install --frozen-lockfile
+      - name: Match the image to the installed Playwright
         working-directory: apps/web
-        run: bunx playwright install --with-deps webkit
+        run: |
+          installed=$(node -p 'require("@playwright/test/package.json").version')
+          if [ "$installed" != "$PLAYWRIGHT_VERSION" ]; then
+            echo "::error::@playwright/test is $installed but the e2e image is $PLAYWRIGHT_VERSION; update both in deploy.yml."
+            exit 1
+          fi
       - name: Download flow tests
         working-directory: apps/web
         run: bun run test:e2e --workers=3
@@ -44,7 +78,7 @@ jobs:
           path: apps/web/playwright-report/
 
   deploy:
-    needs: check
+    needs: [check, e2e]
     # Fork PRs get no secrets, so they're checked but not previewed.
     if: >-
       (github.event_name == 'push'
