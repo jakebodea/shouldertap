@@ -1,0 +1,80 @@
+name: Preview cleanup
+
+on:
+  pull_request_target:
+    types: [closed]
+  schedule:
+    - cron: "41 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  discover:
+    if: >-
+      github.event_name != 'pull_request_target'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      pull-requests: ${{ steps.previews.outputs.pull-requests }}
+    steps:
+      # Never execute closed PR code with cleanup credentials.
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Find closed preview stages
+        id: previews
+        run: bun scripts/cloudflare/discover-previews.ts
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+
+  cleanup:
+    needs: discover
+    if: needs.discover.outputs.pull-requests != '[]'
+    strategy:
+      fail-fast: false
+      # Keep teardown serial across stages sharing the account-wide state store.
+      max-parallel: 1
+      matrix:
+        pull-request: ${{ fromJSON(needs.discover.outputs.pull-requests) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: shouldertap-pr-${{ matrix.pull-request }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Recheck PR and destroy its preview
+        run: |
+          allowed=$(bun scripts/cloudflare/preview-gate.ts cleanup)
+          if [ "$allowed" != true ]; then
+            echo "Keeping preview: PR is currently open."
+            exit 0
+          fi
+          bun alchemy destroy alchemy.cleanup.ts --stage "pr-$PULL_REQUEST" --no-input --yes
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ matrix.pull-request }}
