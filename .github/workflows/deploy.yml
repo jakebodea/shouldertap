@@ -30,17 +30,15 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
-      # Oxlint's JS plugins and its RuleTester run on Node 22+.
+      # Vitest and Oxlint's JS plugins run on Node.
       - uses: actions/setup-node@v5
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run check-types
-      - name: Preview lifecycle tests
-        run: bun test scripts/cloudflare
-      - name: Lint rule tests
-        run: bun run test:lint
+      # Unit tests only: the server's integration test deploys a stack and runs after the preview deploy.
+      - run: bun run test
 
   # Runs beside `check` in Playwright's image, which already has WebKit and its system
   # libraries. `playwright install --with-deps` fetched those from Ubuntu's mirror on every run:
@@ -156,7 +154,7 @@ jobs:
         if: github.event_name == 'pull_request' && steps.deploy.outputs.deployed == 'true'
         run: |
           echo "Testing $STACK_URL"
-          cd apps/server && bun test
+          cd apps/server && bun run test:integ
         env:
           STACK_URL: ${{ steps.preview.outputs.server }}
     outputs:

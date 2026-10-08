@@ -1,13 +1,12 @@
-import { expect } from "bun:test";
-
 import { makeShouldertapClient } from "@shouldertap/client";
 import { ServerEvent } from "@shouldertap/domain";
 import type { Tap } from "@shouldertap/domain";
 import * as Cloudflare from "alchemy/Cloudflare";
-import * as Test from "alchemy/Test/Bun";
+import * as Test from "alchemy/Test/Vitest";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import { expect } from "vitest";
 
 import Stack from "../../../alchemy.run.ts";
 
@@ -195,7 +194,7 @@ test(
         liveActivities: true,
       },
     });
-    expect(registered.registered).toBe(true);
+    expect(registered.registered).toBeTruthy();
     const senderCannotRegister = yield* (yield* client(url, sender.token)).inbox
       .registerPush({
         payload: {
@@ -212,7 +211,7 @@ test(
       params: { id: trialTap.id },
       payload: { token: "ef".repeat(40) },
     });
-    expect(saved.saved).toBe(true);
+    expect(saved.saved).toBeTruthy();
     yield* phone.inbox.acknowledge({
       params: { id: trialTap.id },
       payload: { response: { kind: "on_it" } },
@@ -332,7 +331,7 @@ test(
       { concurrency: "unbounded" }
     );
     expect(ackA.state).toBe("acknowledged");
-    expect(ackA.response).toEqual(ackB.response);
+    expect(ackA.response).toStrictEqual(ackB.response);
 
     yield* Effect.all([
       a.next(tapEvent(tap.id, "acknowledged")),
@@ -366,7 +365,7 @@ test(
     const unsent = yield* senderApi.inbox.deleteTap({
       params: { id: pending.id },
     });
-    expect(unsent.deleted).toBe(true);
+    expect(unsent.deleted).toBeTruthy();
     yield* Effect.all([
       a.next(deleted(pending.id)),
       b.next(deleted(pending.id)),
@@ -412,7 +411,7 @@ test(
         resume(Effect.succeed(false));
       });
     });
-    expect(reuseOpened).toBe(false);
+    expect(reuseOpened).toBeFalsy();
 
     yield* (yield* client(url, macA.token)).inbox.revoke({
       params: { id: sender.credentialId },
@@ -632,7 +631,7 @@ test(
         snapshot.credentials.some(
           (credential) => credential.id === sender.credentialId
         )
-    ).toBe(false);
+    ).toBeFalsy();
     const access = yield* first.inbox.me().pipe(Effect.flip);
     expect(access._tag).toBe("Unauthorized");
     const blocked = yield* second.inbox

@@ -1,5 +1,4 @@
-import { describe, expect, test } from "bun:test";
-
+import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import { INBOX_METADATA_KEY, verifyWebhook, webhookAction } from "../src/Creem";
@@ -29,9 +28,9 @@ const refundCreated = (checkout: unknown) =>
     object: { id: "ref_1", order: { id: "ord_1" }, checkout },
   });
 
-describe("webhookAction", () => {
-  test("a completed checkout for our product is a purchase", () => {
-    expect(webhookAction(checkoutCompleted(), PRODUCT)).toEqual({
+describe(webhookAction, () => {
+  it("a completed checkout for our product is a purchase", () => {
+    expect(webhookAction(checkoutCompleted(), PRODUCT)).toStrictEqual({
       kind: "purchase",
       inboxId: "inbox123",
       orderId: "ord_1",
@@ -39,18 +38,18 @@ describe("webhookAction", () => {
     });
   });
 
-  test("other products on the store are ignored", () => {
+  it("other products on the store are ignored", () => {
     expect(webhookAction(checkoutCompleted("prod_other"), PRODUCT).kind).toBe(
       "ignore"
     );
   });
 
-  test("a refund carries the inbox when the checkout is expanded", () => {
+  it("a refund carries the inbox when the checkout is expanded", () => {
     const checkout = {
       id: "ch_1",
       metadata: { [INBOX_METADATA_KEY]: "inbox123" },
     };
-    expect(webhookAction(refundCreated(checkout), PRODUCT)).toEqual({
+    expect(webhookAction(refundCreated(checkout), PRODUCT)).toStrictEqual({
       kind: "refund",
       orderId: "ord_1",
       inboxId: "inbox123",
@@ -58,8 +57,8 @@ describe("webhookAction", () => {
     });
   });
 
-  test("a refund with a bare checkout id needs a lookup", () => {
-    expect(webhookAction(refundCreated("ch_1"), PRODUCT)).toEqual({
+  it("a refund with a bare checkout id needs a lookup", () => {
+    expect(webhookAction(refundCreated("ch_1"), PRODUCT)).toStrictEqual({
       kind: "refund",
       orderId: "ord_1",
       inboxId: null,
@@ -67,7 +66,7 @@ describe("webhookAction", () => {
     });
   });
 
-  test("other events are ignored", () => {
+  it("other events are ignored", () => {
     const body = JSON.stringify({
       id: "evt_3",
       eventType: "subscription.paid",
@@ -94,30 +93,32 @@ const sign = async (body: string, secret: string) => {
   return Buffer.from(mac).toString("hex");
 };
 
-describe("verifyWebhook", () => {
+describe(verifyWebhook, () => {
   const body = checkoutCompleted();
 
-  test("accepts the right signature", async () => {
-    const signature = await sign(body, "whsec_test");
-    await Effect.runPromise(
-      verifyWebhook(body, { "creem-signature": signature }, "whsec_test")
-    );
-  });
+  it.effect("accepts the right signature", () =>
+    Effect.gen(function* rightSignature() {
+      const signature = yield* Effect.promise(() => sign(body, "whsec_test"));
+      yield* verifyWebhook(
+        body,
+        { "creem-signature": signature },
+        "whsec_test"
+      );
+    })
+  );
 
-  test("rejects a wrong secret or a changed body", async () => {
-    const signature = await sign(body, "whsec_other");
-    const wrongSecret = await Effect.runPromise(
-      Effect.flip(
+  it.effect("rejects a wrong secret or a changed body", () =>
+    Effect.gen(function* wrongSecretOrBody() {
+      const signature = yield* Effect.promise(() => sign(body, "whsec_other"));
+      const wrongSecret = yield* Effect.flip(
         verifyWebhook(body, { "creem-signature": signature }, "whsec_test")
-      )
-    );
-    expect(wrongSecret._tag).toBe("CreemError");
-    const good = await sign(body, "whsec_test");
-    const tampered = await Effect.runPromise(
-      Effect.flip(
+      );
+      expect(wrongSecret._tag).toBe("CreemError");
+      const good = yield* Effect.promise(() => sign(body, "whsec_test"));
+      const tampered = yield* Effect.flip(
         verifyWebhook(`${body} `, { "creem-signature": good }, "whsec_test")
-      )
-    );
-    expect(tampered._tag).toBe("CreemError");
-  });
+      );
+      expect(tampered._tag).toBe("CreemError");
+    })
+  );
 });

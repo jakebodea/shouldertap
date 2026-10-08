@@ -1,9 +1,9 @@
-import { Database } from "bun:sqlite";
-import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
-import { drizzle } from "drizzle-orm/bun-sqlite";
+import { drizzle } from "drizzle-orm/node-sqlite";
+import { describe, expect, it } from "vitest";
 
 import {
   INVITE_GRACE_MS,
@@ -13,13 +13,13 @@ import {
 } from "../src/retention";
 import { credentials, invites, taps, tickets } from "../src/schema";
 
-const MIGRATIONS = path.join(import.meta.dir, "../drizzle");
+const MIGRATIONS = path.join(import.meta.dirname, "../drizzle");
 const NOW = Date.UTC(2026, 9, 1);
 const MIGRATION_DIR = /^\d/u;
 
 /** The Inbox's schema, from the same migrations the Durable Object applies. */
 const freshDb = () => {
-  const sqlite = new Database(":memory:");
+  const sqlite = new DatabaseSync(":memory:");
   for (const dir of readdirSync(MIGRATIONS)
     .filter((d) => MIGRATION_DIR.test(d))
     .toSorted()) {
@@ -28,7 +28,7 @@ const freshDb = () => {
       "utf-8"
     );
     for (const statement of migration.split("--> statement-breakpoint")) {
-      sqlite.run(statement);
+      sqlite.exec(statement);
     }
   }
   return drizzle({ client: sqlite });
@@ -79,7 +79,7 @@ const prune = (db: ReturnType<typeof freshDb>, now: number) => {
 const ids = (rows: { id: string }[]) => rows.map((row) => row.id).toSorted();
 
 describe("retention", () => {
-  test("deletes taps older than 90 days and keeps newer ones", () => {
+  it("deletes taps older than 90 days and keeps newer ones", () => {
     const db = freshDb();
     db.insert(credentials).values(credential("sam", null)).run();
     db.insert(taps)
@@ -90,7 +90,7 @@ describe("retention", () => {
       ])
       .run();
     prune(db, NOW);
-    expect(ids(db.select().from(taps).all())).toEqual(["edge", "new"]);
+    expect(ids(db.select().from(taps).all())).toStrictEqual(["edge", "new"]);
     // Remaining taps keep their sequence numbers; nothing is renumbered.
     expect(
       db
@@ -99,10 +99,10 @@ describe("retention", () => {
         .all()
         .map((t) => t.sequence)
         .toSorted()
-    ).toEqual([2, 3]);
+    ).toStrictEqual([2, 3]);
   });
 
-  test("deletes invites a day after expiry, and expired tickets", () => {
+  it("deletes invites a day after expiry, and expired tickets", () => {
     const db = freshDb();
     db.insert(invites)
       .values([
@@ -128,14 +128,14 @@ describe("retention", () => {
       ])
       .run();
     prune(db, NOW);
-    expect(ids(db.select().from(invites).all())).toEqual([
+    expect(ids(db.select().from(invites).all())).toStrictEqual([
       "just-expired",
       "live",
     ]);
-    expect(ids(db.select().from(tickets).all())).toEqual(["fresh"]);
+    expect(ids(db.select().from(tickets).all())).toStrictEqual(["fresh"]);
   });
 
-  test("deletes long-removed pairings only once their taps are gone", () => {
+  it("deletes long-removed pairings only once their taps are gone", () => {
     const db = freshDb();
     const longAgo = NOW - REVOKED_RETENTION_MS - 1;
     db.insert(credentials)
@@ -154,7 +154,7 @@ describe("retention", () => {
       ])
       .run();
     prune(db, NOW);
-    expect(ids(db.select().from(credentials).all())).toEqual([
+    expect(ids(db.select().from(credentials).all())).toStrictEqual([
       "active",
       "recently-removed",
       "removed-recent-tap",

@@ -25,6 +25,7 @@ September 30, 2026. Architecture planning only; application scaffolding, Git ini
 | Account metadata | D1 + Drizzle + Better Auth | Accounts/sessions and identity-related metadata |
 | Infrastructure | Alchemy v2 | Workers, assets, D1, Durable Object namespace/bindings and environments |
 | TypeScript quality | Ultracite + Oxlint/Oxfmt | Formatting/linting (plus `lint/oxlint-plugin-test-quality.mjs` for tests), separate TypeScript type checks |
+| Tests | Vitest + `@effect/vitest`; Playwright | Unit tests (`it.effect` for Effect programs), the Alchemy `Test` harness for the deployed integration suite, browser download flows |
 
 These are proposed implementation choices beneath the agreed direction. The cited [backend research](research/backend-stack.md) and [Apple client research](research/apple-clients.md) record current support and compatibility gates. Better T Stack supplies a foundation, not every application abstraction: its stock API layer should give way to Effect's HTTP facilities where feasible.
 

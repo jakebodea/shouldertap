@@ -4,8 +4,9 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "test": "bun test",
-    "test:local": "ALCHEMY_DEV=1 bun test"
+    "test": "vitest run --exclude test/integ.test.ts",
+    "test:local": "ALCHEMY_DEV=1 vitest run",
+    "test:integ": "vitest run test/integ.test.ts"
   },
   "dependencies": {
     "@effect/sql-sqlite-do": "4.0.0-rc.115",
@@ -17,10 +18,12 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
+    "@effect/vitest": "catalog:",
     "@shouldertap/client": "workspace:*",
     "@shouldertap/config": "workspace:*",
     "@types/bun": "^1.4.2",
     "drizzle-kit": "1.0.0-rc.5-ab785fc",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
