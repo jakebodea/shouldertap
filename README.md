@@ -44,11 +44,15 @@ bun run dev            # alchemy dev: API on :3000, web on :3001, Workers and DO
 ```
 
 ```bash
-cd apps/server && bun run test:local     # integration suite against a local Stack
+bun run test                                 # unit tests (Vitest), no deploys
 ```
 
 ```bash
-cd apps/server && bun run test           # same suite, deployed to the test_$USER stage and destroyed after
+cd apps/server && bun run test:local         # integration suite against a local Stack
+```
+
+```bash
+cd apps/server && bun run test:integ         # same suite, deployed to the test_$USER stage and destroyed after
 ```
 
 Schema changes: edit `apps/server/src/schema.ts`, then generate and commit a migration. Each Inbox applies pending migrations when it activates.

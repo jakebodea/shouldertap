@@ -16,6 +16,9 @@
     "test": {
       "dependsOn": ["^test"],
       "cache": false
+    },
+    "//#test:root": {
+      "cache": false
     }
   },
   "globalEnv": ["CI", "NODE_ENV", "VITE_SERVER_URL"],

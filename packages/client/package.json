@@ -8,7 +8,7 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vitest run"
   },
   "dependencies": {
     "@shouldertap/domain": "workspace:*",
@@ -17,6 +17,7 @@
   "devDependencies": {
     "@shouldertap/config": "workspace:*",
     "@types/bun": "^1.4.2",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

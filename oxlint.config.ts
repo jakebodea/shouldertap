@@ -50,13 +50,33 @@ export default defineConfig({
       files: ["**/*.test.{ts,tsx}"],
       plugins: ["vitest"],
       rules: {
-        // Tests run on bun:test, which provides its own globals.
-        "vitest/prefer-importing-vitest-globals": "off",
+        // @effect/vitest's `it.effect` and Alchemy's `Test.make` tests are test blocks.
+        "vitest/no-standalone-expect": [
+          "error",
+          {
+            additionalTestBlockFunctions: [
+              "it.effect",
+              "it.live",
+              "it.scoped",
+              "test",
+            ],
+          },
+        ],
+      },
+    },
+    {
+      // The deployed end-to-end suite: each Alchemy `test` drives one whole protocol flow and
+      // asserts every step, and the rule loses track of the Effect body passed to `test`.
+      files: ["apps/server/test/integ.test.ts"],
+      plugins: ["vitest"],
+      rules: {
+        "vitest/max-expects": "off",
+        "vitest/no-standalone-expect": "off",
       },
     },
     {
       // Playwright specs: `test`/`expect` come from @playwright/test, which has no `.each`, and the
-      // `.spec.ts` name keeps root `bun test` from picking them up.
+      // `.spec.ts` name keeps vitest from picking them up.
       files: ["apps/web/e2e/**"],
       plugins: ["vitest"],
       rules: {

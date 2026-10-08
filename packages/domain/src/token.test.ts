@@ -1,6 +1,5 @@
-import { describe, expect, test } from "bun:test";
-
 import * as Schema from "effect/Schema";
+import { describe, expect, it } from "vitest";
 
 import {
   CreateInboxRequest,
@@ -11,17 +10,17 @@ import {
 import { formatToken, parseBearer, parseToken } from "./token";
 
 describe("token", () => {
-  test("round-trips", () => {
+  it("round-trips", () => {
     const token = {
       inboxId: "inbox1234",
       id: "cred12345",
       secret: "s3cr3t-value_xyz",
     };
-    expect(parseToken(formatToken(token))).toEqual(token);
-    expect(parseBearer(`Bearer ${formatToken(token)}`)).toEqual(token);
+    expect(parseToken(formatToken(token))).toStrictEqual(token);
+    expect(parseBearer(`Bearer ${formatToken(token)}`)).toStrictEqual(token);
   });
 
-  test("rejects malformed values", () => {
+  it("rejects malformed values", () => {
     expect(parseToken("a.b")).toBeNull();
     expect(parseToken("inbox1234.cred12345.bad secret")).toBeNull();
     expect(parseBearer("Basic abc")).toBeNull();
@@ -30,7 +29,7 @@ describe("token", () => {
 });
 
 describe("contracts", () => {
-  test("send request trims are enforced", () => {
+  it("send request trims are enforced", () => {
     const decode = Schema.decodeUnknownExit(SendTapRequest);
     expect(decode({ requestId: "req-12345", body: "Laundry!" })._tag).toBe(
       "Success"
@@ -41,7 +40,7 @@ describe("contracts", () => {
     );
   });
 
-  test("create inbox accepts only a 64-char lowercase hex machine", () => {
+  it("create inbox accepts only a 64-char lowercase hex machine", () => {
     const decode = Schema.decodeUnknownExit(CreateInboxRequest);
     const names = { recipientName: "Jake", deviceName: "Studio Mac" };
     expect(decode(names)._tag).toBe("Success");
@@ -51,7 +50,7 @@ describe("contracts", () => {
     }
   });
 
-  test("decodes snapshot union and events", () => {
+  it("decodes snapshot union and events", () => {
     const sender = {
       kind: "sender",
       credentialId: "c",

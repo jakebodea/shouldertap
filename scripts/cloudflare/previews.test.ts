@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it } from "vitest";
 
 import {
   closedPreviewNumbers,
@@ -27,7 +27,7 @@ const response =
     Promise.resolve(Response.json(body, { status }));
 
 describe("preview boundaries", () => {
-  test("accepts canonical PR stages and refuses prod, malformed, or unsafe numbers", () => {
+  it("accepts canonical PR stages and refuses prod, malformed, or unsafe numbers", () => {
     expect(previewNumber("pr-25")).toBe(25);
     for (const stage of [
       "prod",
@@ -43,7 +43,7 @@ describe("preview boundaries", () => {
     }
   });
 
-  test("discovers each Shouldertap preview once, including a partial teardown", () => {
+  it("discovers each Shouldertap preview once, including a partial teardown", () => {
     expect(
       previewNumbers([
         "shouldertap-prod-server",
@@ -59,40 +59,40 @@ describe("preview boundaries", () => {
         "shouldertap-server-pr-9-hash-extra",
         "shouldertap-releases",
       ])
-    ).toEqual([7, 25]);
+    ).toStrictEqual([7, 25]);
   });
 });
 
 describe("deploy gate after acquiring the PR lock", () => {
-  test("does not redeploy a closed PR after cleanup", () => {
+  it("does not redeploy a closed PR after cleanup", () => {
     expect(
       previewAllowed({ ...current, state: "closed" }, repository, current.head)
-    ).toBe(false);
+    ).toBeFalsy();
   });
 
-  test("skips queued runs superseded by another push", () => {
-    expect(previewAllowed(current, repository, "previous-head")).toBe(false);
+  it("skips queued runs superseded by another push", () => {
+    expect(previewAllowed(current, repository, "previous-head")).toBeFalsy();
   });
 
-  test("deploys the current open head, including after reopening", () => {
-    expect(previewAllowed(current, repository, current.head)).toBe(true);
+  it("deploys the current open head, including after reopening", () => {
+    expect(previewAllowed(current, repository, current.head)).toBeTruthy();
   });
 
-  test("does not grant preview credentials to a fork", () => {
+  it("does not grant preview credentials to a fork", () => {
     expect(
       previewAllowed(
         { ...current, repository: "fork/shouldertap" },
         repository,
         current.head
       )
-    ).toBe(false);
+    ).toBeFalsy();
     expect(
       previewAllowed(
         { ...current, repository: undefined },
         repository,
         current.head
       )
-    ).toBe(false);
+    ).toBeFalsy();
   });
 });
 
@@ -105,7 +105,7 @@ describe("daily discovery", () => {
     ]),
   ];
 
-  test("keeps all open previews regardless of age and excludes production", async () => {
+  it("keeps all open previews regardless of age and excludes production", async () => {
     const reads: number[] = [];
     const closed = await closedPreviewNumbers(workers, (number) => {
       reads.push(number);
@@ -114,11 +114,11 @@ describe("daily discovery", () => {
         state: [16, 17].includes(number) ? "open" : "closed",
       });
     });
-    expect(closed).toEqual([7, 9, 11, 14, 20, 23, 25]);
-    expect(reads).toEqual([7, 9, 11, 14, 16, 17, 20, 23, 25]);
+    expect(closed).toStrictEqual([7, 9, 11, 14, 20, 23, 25]);
+    expect(reads).toStrictEqual([7, 9, 11, 14, 16, 17, 20, 23, 25]);
   });
 
-  test("fails discovery if a PR cannot be verified instead of assuming it closed", async () => {
+  it("fails discovery if a PR cannot be verified instead of assuming it closed", async () => {
     await expect(
       closedPreviewNumbers(workers, () =>
         Promise.reject(new Error("GitHub unavailable"))
@@ -128,7 +128,7 @@ describe("daily discovery", () => {
 });
 
 describe("provider reads fail closed", () => {
-  test("reads GitHub state, exact head, and repository", async () => {
+  it("reads GitHub state, exact head, and repository", async () => {
     const reads: string[] = [];
     const fetchImpl: ReadFetch = (input) => {
       reads.push(String(input));
@@ -141,13 +141,13 @@ describe("provider reads fail closed", () => {
     };
     await expect(
       readPullRequest({ ...context, fetchImpl }, 25)
-    ).resolves.toEqual({ ...current, state: "closed" });
-    expect(reads).toEqual([
+    ).resolves.toStrictEqual({ ...current, state: "closed" });
+    expect(reads).toStrictEqual([
       "https://github.test/repos/jakebodea/shouldertap/pulls/25",
     ]);
   });
 
-  test.each([403, 404, 500])(
+  it.each([403, 404, 500])(
     "refuses GitHub HTTP %s instead of assuming the PR closed",
     async (status) => {
       await expect(
@@ -156,34 +156,43 @@ describe("provider reads fail closed", () => {
     }
   );
 
-  test.each([
-    null,
-    {},
-    { state: "unknown", head: {} },
-    { state: "closed", head: { sha: 25, repo: null } },
-  ])("rejects malformed GitHub state: %j", async (body) => {
+  it.each([
+    [null, "Expected an API object"],
+    [{}, "Expected an API object"],
+    [{ state: "unknown", head: {} }, "Expected an API object"],
+    [
+      { state: "closed", head: { sha: 25, repo: null } },
+      "Invalid response for PR #25",
+    ],
+  ])("rejects malformed GitHub state: %j", async (body, message) => {
     await expect(
       readPullRequest({ ...context, fetchImpl: response(body) }, 25)
-    ).rejects.toThrow();
+    ).rejects.toThrow(message);
   });
 
-  test.each([
-    { success: false, result: [] },
-    { success: true, result: [{}] },
-    { success: true, result: null },
-  ])("rejects invalid Cloudflare results: %j", async (body) => {
+  it.each([
+    [
+      { success: false, result: [] },
+      "Listing Workers returned an invalid result",
+    ],
+    [{ success: true, result: [{}] }, "Worker is missing its name"],
+    [
+      { success: true, result: null },
+      "Listing Workers returned an invalid result",
+    ],
+  ])("rejects invalid Cloudflare results: %j", async (body, message) => {
     await expect(
       readWorkerNames("account", "token", response(body))
-    ).rejects.toThrow();
+    ).rejects.toThrow(message);
   });
 
-  test("refuses Cloudflare HTTP errors", async () => {
+  it("refuses Cloudflare HTTP errors", async () => {
     await expect(
       readWorkerNames("account", "token", response({}, 403))
     ).rejects.toThrow("failed: 403");
   });
 
-  test("reads live Worker names without selecting unrelated resources", async () => {
+  it("reads live Worker names without selecting unrelated resources", async () => {
     const names = ["shouldertap-pr-25-server", "unrelated-prod"];
     await expect(
       readWorkerNames(
@@ -191,6 +200,6 @@ describe("provider reads fail closed", () => {
         "token",
         response({ success: true, result: names.map((id) => ({ id })) })
       )
-    ).resolves.toEqual(names);
+    ).resolves.toStrictEqual(names);
   });
 });

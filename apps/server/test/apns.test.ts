@@ -1,6 +1,5 @@
-import { describe, expect, test } from "bun:test";
-
 import type { Tap } from "@shouldertap/domain";
+import { describe, expect, it } from "vitest";
 
 import {
   answeredNotificationPayload,
@@ -31,7 +30,7 @@ const decode = (part: string) =>
   JSON.parse(atob(part.replaceAll("-", "+").replaceAll("_", "/")));
 
 describe("provider token", () => {
-  test("is an ES256 JWT that verifies with the key's public half", async () => {
+  it("is an ES256 JWT that verifies with the key's public half", async () => {
     const pair = (await crypto.subtle.generateKey(
       { name: "ECDSA", namedCurve: "P-256" },
       true,
@@ -51,8 +50,11 @@ describe("provider token", () => {
       string,
       string,
     ];
-    expect(decode(header)).toEqual({ alg: "ES256", kid: "ABC123DEFG" });
-    expect(decode(claims)).toEqual({ iss: "6C46GY4Z38", iat: 1_790_790_000 });
+    expect(decode(header)).toStrictEqual({ alg: "ES256", kid: "ABC123DEFG" });
+    expect(decode(claims)).toStrictEqual({
+      iss: "6C46GY4Z38",
+      iat: 1_790_790_000,
+    });
 
     const raw = Uint8Array.from(
       atob(signature.replaceAll("-", "+").replaceAll("_", "/")),
@@ -64,38 +66,42 @@ describe("provider token", () => {
       raw,
       new TextEncoder().encode(`${header}.${claims}`)
     );
-    expect(valid).toBe(true);
+    expect(valid).toBeTruthy();
   });
 });
 
 describe("payloads", () => {
-  test("a Live Activity start carries the attributes the app decodes", () => {
+  it("a Live Activity start carries the attributes the app decodes", () => {
     const payload = startActivityPayload(tap, 1_790_790_005_000);
-    expect(payload.aps.event).toBe("start");
-    expect(payload.aps.timestamp).toBe(1_790_790_005);
-    expect(payload.aps["attributes-type"]).toBe("TapActivityAttributes");
-    expect(payload.aps.attributes).toEqual({
+    expect(payload.aps).toMatchObject({
+      event: "start",
+      timestamp: 1_790_790_005,
+      "attributes-type": "TapActivityAttributes",
+    });
+    expect(payload.aps.attributes).toStrictEqual({
       tapId: "tap123456",
       senderName: "Maya",
       senderColor: "tomato",
       createdAt: 1_790_790_000_000,
     });
-    expect(payload.aps["content-state"]).toEqual({ body: "Dinner's ready" });
-    expect(payload.aps.alert).toEqual({
+    expect(payload.aps["content-state"]).toStrictEqual({
+      body: "Dinner's ready",
+    });
+    expect(payload.aps.alert).toStrictEqual({
       title: "Maya",
       body: "Dinner's ready",
       sound: "default",
     });
   });
 
-  test("the notification is Time Sensitive with the tap's actions", () => {
+  it("the notification is Time Sensitive with the tap's actions", () => {
     const payload = notificationPayload(tap);
     expect(payload.aps.category).toBe("tap");
     expect(payload.aps["interruption-level"]).toBe("time-sensitive");
     expect(payload.tapId).toBe("tap123456");
   });
 
-  test("an answered tap ends with who answered and how", () => {
+  it("an answered tap ends with who answered and how", () => {
     const answered: Tap = {
       ...tap,
       state: "acknowledged",
@@ -109,7 +115,7 @@ describe("payloads", () => {
     expect(payload.aps["content-state"].answer).toBe("On it · Studio Mac");
   });
 
-  test("an answered notification is replaced quietly", () => {
+  it("an answered notification is replaced quietly", () => {
     const answered: Tap = {
       ...tap,
       state: "acknowledged",
@@ -119,14 +125,14 @@ describe("payloads", () => {
     const payload = answeredNotificationPayload(answered);
     expect(payload.aps["interruption-level"]).toBe("passive");
     expect(payload.aps.alert.body).toBe("Answered: In 10 min · Studio Mac");
-    expect("sound" in payload.aps).toBe(false);
+    expect("sound" in payload.aps).toBeFalsy();
     expect(payload.tapId).toBe("tap123456");
   });
 
-  test("dead tokens are recognized", () => {
-    expect(isDeadToken({ status: 410 })).toBe(true);
-    expect(isDeadToken({ status: 400, reason: "BadDeviceToken" })).toBe(true);
-    expect(isDeadToken({ status: 400, reason: "BadTopic" })).toBe(false);
-    expect(isDeadToken({ status: 0, reason: "timeout" })).toBe(false);
+  it("dead tokens are recognized", () => {
+    expect(isDeadToken({ status: 410 })).toBeTruthy();
+    expect(isDeadToken({ status: 400, reason: "BadDeviceToken" })).toBeTruthy();
+    expect(isDeadToken({ status: 400, reason: "BadTopic" })).toBeFalsy();
+    expect(isDeadToken({ status: 0, reason: "timeout" })).toBeFalsy();
   });
 });

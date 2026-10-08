@@ -1,6 +1,5 @@
-import { describe, expect, test } from "bun:test";
-
 import type { Tap } from "@shouldertap/domain";
+import { describe, expect, it } from "vitest";
 
 import { mergeSnapshot, mergeTap } from "./live";
 
@@ -19,33 +18,32 @@ const tap = (id: string, sequence: number, createdAt = sequence): Tap => ({
   sequence,
 });
 
-describe("mergeTap", () => {
-  test("inserts newest first", () => {
-    expect(mergeTap([tap("a", 1)], tap("b", 2)).map((t) => t.id)).toEqual([
-      "b",
-      "a",
-    ]);
+describe(mergeTap, () => {
+  it("inserts newest first", () => {
+    expect(mergeTap([tap("a", 1)], tap("b", 2)).map((t) => t.id)).toStrictEqual(
+      ["b", "a"]
+    );
   });
 
-  test("ignores stale updates", () => {
+  it("ignores stale updates", () => {
     const acked = { ...tap("a", 5, 1), state: "acknowledged" as const };
     expect(mergeTap([acked], tap("a", 3, 1))[0]?.state).toBe("acknowledged");
   });
 });
 
-describe("mergeSnapshot", () => {
-  test("keeps a newer local copy over an older snapshot", () => {
+describe(mergeSnapshot, () => {
+  it("keeps a newer local copy over an older snapshot", () => {
     const local = [{ ...tap("a", 9, 1), state: "acknowledged" as const }];
     const merged = mergeSnapshot(local, [tap("a", 4, 1), tap("b", 5, 2)]);
-    expect(merged.map((t) => [t.id, t.state])).toEqual([
+    expect(merged.map((t) => [t.id, t.state])).toStrictEqual([
       ["b", "pending"],
       ["a", "acknowledged"],
     ]);
   });
 
-  test("drops local taps the server no longer lists", () => {
+  it("drops local taps the server no longer lists", () => {
     expect(
       mergeSnapshot([tap("gone", 1)], [tap("b", 2)]).map((t) => t.id)
-    ).toEqual(["b"]);
+    ).toStrictEqual(["b"]);
   });
 });
