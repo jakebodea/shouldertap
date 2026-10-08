@@ -1,4 +1,5 @@
-import { type PersonColor, parseToken } from "@shouldertap/domain";
+import { parseToken } from "@shouldertap/domain";
+import type { PersonColor } from "@shouldertap/domain";
 
 /**
  * One person this phone can tap. A phone can hold several pairings, each its
@@ -117,8 +118,9 @@ export const updatePairing = (pairing: Pairing) => {
   });
 };
 
-export const selectPairing = (credentialId: string) =>
+export const selectPairing = (credentialId: string) => {
   store({ ...load(), selected: credentialId });
+};
 
 export const removePairing = (credentialId: string) => {
   const stored = load();

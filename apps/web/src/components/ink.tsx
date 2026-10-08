@@ -11,7 +11,7 @@ import type { CSSProperties, ReactNode } from "react";
 type Icon = typeof Tick02Icon;
 
 const kebab = (key: string) =>
-  key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  key.replaceAll(/[A-Z]/gu, (c) => `-${c.toLowerCase()}`);
 
 const maskFromSvg = (inner: string, viewBox: string) =>
   `url("data:image/svg+xml,${encodeURIComponent(
@@ -51,38 +51,32 @@ const masked = (mask: string): CSSProperties => ({
   WebkitMaskImage: mask,
 });
 
-export function InkIcon({
+export const InkIcon = ({
   icon,
   className,
 }: {
   icon: Icon;
   className?: string;
-}) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`ink-fill mask-glyph inline-block shrink-0 ${className ?? ""}`}
-      style={masked(maskFor(icon))}
-    />
-  );
-}
+}) => (
+  <span
+    aria-hidden="true"
+    className={`ink-fill mask-glyph inline-block shrink-0 ${className ?? ""}`}
+    style={masked(maskFor(icon))}
+  />
+);
 
-export function InkMark({ className }: { className?: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`ink-fill mask-glyph inline-block shrink-0 ${className ?? ""}`}
-      style={masked(MARK_MASK)}
-    />
-  );
-}
+export const InkMark = ({ className }: { className?: string }) => (
+  <span
+    aria-hidden="true"
+    className={`ink-fill mask-glyph inline-block shrink-0 ${className ?? ""}`}
+    style={masked(MARK_MASK)}
+  />
+);
 
-export function InkText({
+export const InkText = ({
   children,
   className,
 }: {
   children: ReactNode;
   className?: string;
-}) {
-  return <span className={`ink-text ${className ?? ""}`}>{children}</span>;
-}
+}) => <span className={`ink-text ${className ?? ""}`}>{children}</span>;

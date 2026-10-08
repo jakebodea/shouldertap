@@ -79,7 +79,7 @@ export type Credential = typeof Credential.Type;
  * the hardware id.
  */
 export const MachineFingerprint = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+  Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/u))
 );
 export type MachineFingerprint = typeof MachineFingerprint.Type;
 
@@ -143,7 +143,7 @@ export type PushEnvironment = typeof PushEnvironment.Type;
 
 /** An APNs token as the device reports it, in hex. */
 const PushToken = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[0-9a-fA-F]{16,512}$/))
+  Schema.check(Schema.isPattern(/^[0-9a-fA-F]{16,512}$/u))
 );
 
 /**
@@ -155,7 +155,7 @@ export const RegisterPushRequest = Schema.Struct({
   environment: PushEnvironment,
   /** The app's bundle id, the APNs topic. */
   topic: Schema.String.pipe(
-    Schema.check(Schema.isPattern(/^[A-Za-z0-9.-]{3,155}$/))
+    Schema.check(Schema.isPattern(/^[A-Za-z0-9.-]{3,155}$/u))
   ),
   deviceToken: Schema.NullOr(PushToken),
   /** `Activity.pushToStartToken` (iOS 17.2 and later). */

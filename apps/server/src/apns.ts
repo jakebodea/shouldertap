@@ -1,8 +1,5 @@
-import {
-  describeResponse,
-  type PushEnvironment,
-  type Tap,
-} from "@shouldertap/domain";
+import { describeResponse } from "@shouldertap/domain";
+import type { PushEnvironment, Tap } from "@shouldertap/domain";
 import * as Effect from "effect/Effect";
 
 /**
@@ -28,7 +25,7 @@ export interface PushContext {
 const PROVIDER_TOKEN_TTL_MS = 45 * 60 * 1000;
 
 const base64url = (bytes: Uint8Array) =>
-  btoa(String.fromCharCode(...bytes))
+  btoa(String.fromCodePoint(...bytes))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replaceAll("=", "");
@@ -39,9 +36,9 @@ const encodeJson = (value: unknown) =>
 /** The .p8 file's contents (PEM, PKCS #8) as DER bytes. */
 const pemBytes = (pem: string) => {
   const body = pem
-    .replace(/-----(BEGIN|END) PRIVATE KEY-----/g, "")
-    .replace(/\s+/g, "");
-  return Uint8Array.from(atob(body), (char) => char.charCodeAt(0));
+    .replaceAll(/-----(?:BEGIN|END) PRIVATE KEY-----/gu, "")
+    .replaceAll(/\s+/gu, "");
+  return Uint8Array.from(atob(body), (char) => char.codePointAt(0) ?? 0);
 };
 
 /** An ES256 provider token: header `{alg, kid}`, claims `{iss, iat}`. */
@@ -121,6 +118,8 @@ const hosts: Record<PushEnvironment, string> = {
   sandbox: "https://api.sandbox.push.apple.com",
 };
 
+const timedOut = (): ApnsResult => ({ status: 0, reason: "timeout" });
+
 /** One push. Network failures come back as status 0, never as errors. */
 export const sendPush = (context: PushContext, request: ApnsRequest) =>
   Effect.promise(async (): Promise<ApnsResult> => {
@@ -153,8 +152,6 @@ export const sendPush = (context: PushContext, request: ApnsRequest) =>
       return { status: 0, reason: String(error) };
     }
   }).pipe(Effect.timeout("10 seconds"), Effect.orElseSucceed(timedOut));
-
-const timedOut = (): ApnsResult => ({ status: 0, reason: "timeout" });
 
 // Payloads. The Live Activity's attributes and content state must decode as
 // `TapActivityAttributes` in apps/ios/TapActivity/TapActivity.swift.

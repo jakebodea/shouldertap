@@ -11,11 +11,11 @@ import {
   describeResponse,
   fallbackColor,
   MAX_TAP_LENGTH,
-  type Tap,
-  type TapResponse,
 } from "@shouldertap/domain";
+import type { Tap, TapResponse } from "@shouldertap/domain";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { toast } from "sonner";
 
 import { Frame } from "@/components/frame";
@@ -24,27 +24,16 @@ import { isStandalone } from "@/lib/install";
 import {
   loadPairing,
   loadPairings,
-  type Pairing,
   removePairing,
   selectPairing,
   updatePairing,
 } from "@/lib/pairing";
+import type { Pairing } from "@/lib/pairing";
 import { duration, relativeTime } from "@/lib/time";
-import { type OutgoingTap, useSender } from "@/lib/use-sender";
+import { useSender } from "@/lib/use-sender";
+import type { OutgoingTap } from "@/lib/use-sender";
 
-// The composer only means something on a paired phone. Anyone else gets the
-// landing page, which explains how to get an invite; a Home Screen app has no
-// landing page to show, so it asks for an invite link.
-export const Route = createFileRoute("/tap")({
-  beforeLoad: () => {
-    if (!loadPairing()) {
-      throw redirect({ to: isStandalone() ? "/join" : "/", replace: true });
-    }
-  },
-  component: TapComponent,
-});
-
-function TapComponent() {
+const TapComponent = () => {
   const navigate = useNavigate();
   const [pairing, setPairing] = useState(loadPairing);
   const select = useCallback((credentialId: string) => {
@@ -71,13 +60,15 @@ function TapComponent() {
     <Composer
       key={pairing.credentialId}
       onSelect={select}
-      onUnpair={() => unpair(pairing.credentialId)}
+      onUnpair={() => {
+        unpair(pairing.credentialId);
+      }}
       pairing={pairing}
     />
   );
-}
+};
 
-function Composer({
+const Composer = ({
   pairing,
   onSelect,
   onUnpair,
@@ -85,7 +76,7 @@ function Composer({
   pairing: Pairing;
   onSelect: (credentialId: string) => void;
   onUnpair: () => void;
-}) {
+}) => {
   const handleRevoked = useCallback(() => {
     // Unpairing here revokes too; that's not the recipient removing us.
     const stillPaired = loadPairings().some(
@@ -107,8 +98,12 @@ function Composer({
   const paused = outbox.find((item) => item.paused);
 
   useEffect(() => {
-    const timer = setInterval(() => setTick((n) => n + 1), 15_000);
-    return () => clearInterval(timer);
+    const timer = setInterval(() => {
+      setTick((n) => n + 1);
+    }, 15_000);
+    return () => {
+      clearInterval(timer);
+    };
   }, []);
 
   // Pairings made before colors existed learn theirs from the first snapshot.
@@ -134,7 +129,7 @@ function Composer({
 
   const unpair = () => {
     if (
-      // biome-ignore lint/suspicious/noAlert: a native confirm is right for this rare action
+      // oxlint-disable-next-line no-alert -- a native confirm is right for this rare action
       window.confirm(
         `Stop sending taps to ${pairing.recipientName} from this phone?`
       )
@@ -152,12 +147,9 @@ function Composer({
       </header>
 
       {paused ? (
-        <p
-          className="rounded-[18px] bg-faint px-4 py-3 font-semibold text-[0.9375rem] leading-snug"
-          role="status"
-        >
+        <output className="bg-faint block rounded-[18px] px-4 py-3 text-[0.9375rem] leading-snug font-semibold">
           {paused.error}
-        </p>
+        </output>
       ) : null}
 
       <form className="flex flex-col gap-3" onSubmit={onSubmit}>
@@ -168,7 +160,9 @@ function Composer({
           className="field min-h-28 resize-none leading-snug"
           id="tap-body"
           maxLength={MAX_TAP_LENGTH}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value);
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               submit(draft);
@@ -188,10 +182,10 @@ function Composer({
       </form>
 
       <section aria-labelledby="recent" className="flex flex-col">
-        <h2 className="mb-1 font-bold text-sm text-tone" id="recent">
+        <h2 className="text-tone mb-1 text-sm font-bold" id="recent">
           Recent
         </h2>
-        <ul className="flex flex-col divide-y divide-line">
+        <ul className="divide-line flex flex-col divide-y">
           {outbox.map((item) => (
             <li className="py-4 first:pt-2" key={item.requestId}>
               <OutboxItem item={item} onDiscard={discard} onRetry={send} />
@@ -204,14 +198,14 @@ function Composer({
           ))}
         </ul>
         {loaded && taps.length === 0 && outbox.length === 0 ? (
-          <p className="pt-2 text-[0.9375rem] text-tone leading-snug">
-            Nothing sent yet. Your taps and {pairing.recipientName}'s answers
-            show up here.
+          <p className="text-tone pt-2 text-[0.9375rem] leading-snug">
+            Nothing sent yet. Your taps and {pairing.recipientName}&apos;s
+            answers show up here.
           </p>
         ) : null}
       </section>
 
-      <footer className="mt-auto pt-2 text-center text-[0.8125rem] text-tone">
+      <footer className="text-tone mt-auto pt-2 text-center text-[0.8125rem]">
         Paired as {pairing.senderName} ·{" "}
         <button
           className="text-ink underline underline-offset-[3px]"
@@ -230,7 +224,7 @@ function Composer({
       </footer>
     </Frame>
   );
-}
+};
 
 const ADD_SOMEONE = "add";
 
@@ -238,22 +232,22 @@ const ADD_SOMEONE = "add";
  * The heading doubles as a native picker: everyone this phone can tap, plus
  * a way to pair with someone new.
  */
-function RecipientPicker({
+const RecipientPicker = ({
   pairing,
   onSelect,
 }: {
   pairing: Pairing;
   onSelect: (credentialId: string) => void;
-}) {
+}) => {
   const navigate = useNavigate();
-  const [pairings] = useState(loadPairings);
+  const pairings = useMemo(() => loadPairings(), []);
   return (
     <div className="relative min-w-0">
-      <h1 className="text-balance font-extrabold text-[2.125rem] leading-none tracking-[-0.035em]">
+      <h1 className="text-[2.125rem] leading-none font-extrabold tracking-[-0.035em] text-balance">
         Tap {pairing.recipientName}
         <HugeiconsIcon
           aria-hidden="true"
-          className="ml-1.5 inline size-[0.7em] align-[0.02em] text-tone"
+          className="text-tone ml-1.5 inline size-[0.7em] align-[0.02em]"
           icon={UnfoldMoreIcon}
           strokeWidth={2.5}
         />
@@ -280,9 +274,9 @@ function RecipientPicker({
       </select>
     </div>
   );
-}
+};
 
-function StatusLabel({ status }: { status: LiveStatus }) {
+const StatusLabel = ({ status }: { status: LiveStatus }) => {
   const label = {
     live: "Live",
     connecting: "Connecting",
@@ -291,15 +285,15 @@ function StatusLabel({ status }: { status: LiveStatus }) {
   return (
     <span
       aria-live="polite"
-      className="inline-flex shrink-0 items-center gap-[7px] pt-2 font-semibold text-[0.8125rem] text-tone"
+      className="text-tone inline-flex shrink-0 items-center gap-[7px] pt-2 text-[0.8125rem] font-semibold"
     >
       <span
-        className={`size-2 rounded-full ${status === "live" ? "bg-live" : "animate-[pulse-soft_1.6s_ease-in-out_infinite] bg-tone"}`}
+        className={`size-2 rounded-full ${status === "live" ? "bg-live" : "bg-tone animate-[pulse-soft_1.6s_ease-in-out_infinite]"}`}
       />
       {label}
     </span>
   );
-}
+};
 
 const STEPS = ["Sent", "On screen", "Answered"] as const;
 
@@ -314,33 +308,31 @@ const segmentClass = (step: number, reached: number) => {
 };
 
 /** Three segments in the sender's color: where the tap is right now. */
-function Track({ reached, note }: { reached: number; note: string }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div aria-hidden="true" className="grid grid-cols-3 gap-1">
-        {STEPS.map((step, i) => (
-          <i
-            className={`h-[5px] rounded-full ${segmentClass(i, reached)}`}
-            key={step}
-          />
-        ))}
-      </div>
-      <div
-        aria-hidden="true"
-        className="grid grid-cols-3 gap-1 font-semibold text-tone text-xs"
-      >
-        {STEPS.map((step, i) => (
-          <span className={i === reached - 1 ? "text-ink" : ""} key={step}>
-            {step}
-          </span>
-        ))}
-      </div>
-      <span className="sr-only">{note}</span>
+const Track = ({ reached, note }: { reached: number; note: string }) => (
+  <div className="flex flex-col gap-1.5">
+    <div aria-hidden="true" className="grid grid-cols-3 gap-1">
+      {STEPS.map((step, i) => (
+        <i
+          className={`h-[5px] rounded-full ${segmentClass(i, reached)}`}
+          key={step}
+        />
+      ))}
     </div>
-  );
-}
+    <div
+      aria-hidden="true"
+      className="text-tone grid grid-cols-3 gap-1 text-xs font-semibold"
+    >
+      {STEPS.map((step, i) => (
+        <span className={i === reached - 1 ? "text-ink" : ""} key={step}>
+          {step}
+        </span>
+      ))}
+    </div>
+    <span className="sr-only">{note}</span>
+  </div>
+);
 
-function OutboxItem({
+const OutboxItem = ({
   item,
   onRetry,
   onDiscard,
@@ -348,47 +340,47 @@ function OutboxItem({
   item: OutgoingTap;
   onRetry: (body: string) => void;
   onDiscard: (requestId: string) => void;
-}) {
-  return (
-    <article className="flex flex-col gap-3">
-      <p className="font-bold text-[1.3125rem] leading-tight tracking-[-0.02em]">
-        {item.body}
-      </p>
-      {item.failed ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {item.paused ? (
-            <span className="mr-auto font-semibold text-[0.9375rem] text-tone leading-snug">
-              Not sent: taps are paused
-            </span>
-          ) : (
-            <span className="mr-auto font-semibold text-[0.9375rem] text-destructive leading-snug">
-              {item.error ?? "Couldn't send"}
-            </span>
-          )}
-          <button
-            className="pill pill-sm"
-            onClick={() => onDiscard(item.requestId)}
-            type="button"
-          >
-            Discard
-          </button>
-          <button
-            className="pill pill-sm pill-frame"
-            onClick={() => {
-              onDiscard(item.requestId);
-              onRetry(item.body);
-            }}
-            type="button"
-          >
-            Try again
-          </button>
-        </div>
-      ) : (
-        <Track note="Sending" reached={0} />
-      )}
-    </article>
-  );
-}
+}) => (
+  <article className="flex flex-col gap-3">
+    <p className="text-[1.3125rem] leading-tight font-bold tracking-[-0.02em]">
+      {item.body}
+    </p>
+    {item.failed ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {item.paused ? (
+          <span className="text-tone mr-auto text-[0.9375rem] leading-snug font-semibold">
+            Not sent: taps are paused
+          </span>
+        ) : (
+          <span className="text-destructive mr-auto text-[0.9375rem] leading-snug font-semibold">
+            {item.error ?? "Couldn't send"}
+          </span>
+        )}
+        <button
+          className="pill pill-sm"
+          onClick={() => {
+            onDiscard(item.requestId);
+          }}
+          type="button"
+        >
+          Discard
+        </button>
+        <button
+          className="pill pill-sm pill-frame"
+          onClick={() => {
+            onDiscard(item.requestId);
+            onRetry(item.body);
+          }}
+          type="button"
+        >
+          Try again
+        </button>
+      </div>
+    ) : (
+      <Track note="Sending" reached={0} />
+    )}
+  </article>
+);
 
 const RESPONSE_ICON = {
   on_it: Tick02Icon,
@@ -396,17 +388,23 @@ const RESPONSE_ICON = {
   text: BubbleChatIcon,
 } as const;
 
-function TapItem({ tap, recipientName }: { tap: Tap; recipientName: string }) {
+const TapItem = ({
+  tap,
+  recipientName,
+}: {
+  tap: Tap;
+  recipientName: string;
+}) => {
   const answered =
     tap.state === "acknowledged" && tap.response && tap.acknowledgedAt;
   return (
     <article className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="font-bold text-[1.3125rem] leading-tight tracking-[-0.02em]">
+        <p className="text-[1.3125rem] leading-tight font-bold tracking-[-0.02em]">
           {tap.body}
         </p>
         <time
-          className="shrink-0 text-[0.8125rem] text-tone tabular-nums"
+          className="text-tone shrink-0 text-[0.8125rem] tabular-nums"
           dateTime={new Date(tap.createdAt).toISOString()}
         >
           {relativeTime(tap.createdAt)}
@@ -414,10 +412,10 @@ function TapItem({ tap, recipientName }: { tap: Tap; recipientName: string }) {
       </div>
       {answered ? (
         <Answer
-          acknowledgedAt={tap.acknowledgedAt as number}
+          acknowledgedAt={tap.acknowledgedAt}
           by={tap.acknowledgedBy}
           createdAt={tap.createdAt}
-          response={tap.response as TapResponse}
+          response={tap.response}
         />
       ) : (
         <Track
@@ -431,9 +429,9 @@ function TapItem({ tap, recipientName }: { tap: Tap; recipientName: string }) {
       )}
     </article>
   );
-}
+};
 
-function Answer({
+const Answer = ({
   response,
   createdAt,
   acknowledgedAt,
@@ -443,25 +441,35 @@ function Answer({
   createdAt: number;
   acknowledgedAt: number;
   by: string | null;
-}) {
-  return (
-    <div className="flex items-center gap-2.5 rounded-2xl bg-faint px-3.5 py-3">
-      <HugeiconsIcon
-        className="size-5 shrink-0"
-        icon={RESPONSE_ICON[response.kind]}
-      />
-      <b className="min-w-0 break-words font-bold text-[1.0625rem] leading-snug">
-        {describeResponse(response)}
-      </b>
-      <span className="ml-auto shrink-0 text-right text-[0.8125rem] text-tone tabular-nums leading-tight">
-        {duration(createdAt, acknowledgedAt)} later
-        {by ? (
-          <>
-            <br />
-            on {by}
-          </>
-        ) : null}
-      </span>
-    </div>
-  );
-}
+}) => (
+  <div className="bg-faint flex items-center gap-2.5 rounded-2xl px-3.5 py-3">
+    <HugeiconsIcon
+      className="size-5 shrink-0"
+      icon={RESPONSE_ICON[response.kind]}
+    />
+    <b className="min-w-0 text-[1.0625rem] leading-snug font-bold break-words">
+      {describeResponse(response)}
+    </b>
+    <span className="text-tone ml-auto shrink-0 text-right text-[0.8125rem] leading-tight tabular-nums">
+      {duration(createdAt, acknowledgedAt)} later
+      {by ? (
+        <>
+          <br />
+          on {by}
+        </>
+      ) : null}
+    </span>
+  </div>
+);
+
+// The composer only means something on a paired phone. Anyone else gets the
+// landing page, which explains how to get an invite; a Home Screen app has no
+// landing page to show, so it asks for an invite link.
+export const Route = createFileRoute("/tap")({
+  beforeLoad: () => {
+    if (!loadPairing()) {
+      throw redirect({ to: isStandalone() ? "/join" : "/", replace: true });
+    }
+  },
+  component: TapComponent,
+});

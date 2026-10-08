@@ -2,16 +2,15 @@
 // Images render at 2x unless a job gives its own scale (exact-size uploads use 1).
 import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, "..");
-const { chromium } = createRequire(join(root, "apps/web/package.json"))(
+const here = import.meta.dirname;
+const root = path.join(here, "..");
+const { chromium } = createRequire(path.join(root, "apps/web/package.json"))(
   "@playwright/test"
 );
 const font = readFileSync(
-  join(
+  path.join(
     root,
     "node_modules/.bun/@fontsource-variable+bricolage-grotesque@5.3.0/node_modules/@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-standard-normal.woff2"
   )
@@ -533,7 +532,7 @@ const jobs = {
   ],
 };
 
-const [, , only] = process.argv;
+const [only] = process.argv.slice(2);
 const browser = await chromium.launch();
 await Promise.all(
   Object.entries(jobs)
@@ -545,8 +544,8 @@ await Promise.all(
       });
       await page.setContent(html);
       await page.evaluate(() => document.fonts.ready);
-      const out = join(here, `${name}.png`);
-      mkdirSync(dirname(out), { recursive: true });
+      const out = path.join(here, `${name}.png`);
+      mkdirSync(path.dirname(out), { recursive: true });
       await page.screenshot({
         path: out,
         omitBackground: name.startsWith("logo/") || name.includes("-logo"),

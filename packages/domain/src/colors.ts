@@ -42,7 +42,7 @@ export const personColors = PersonColor.literals;
 export const fallbackColor = (id: string): PersonColor => {
   let hash = 0;
   for (const char of id) {
-    hash = (hash * 31 + char.charCodeAt(0)) % 2_147_483_647;
+    hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 2_147_483_647;
   }
   return personColors[hash % personColors.length] ?? "cobalt";
 };

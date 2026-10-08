@@ -3,13 +3,13 @@ import type { MouseEvent, ReactNode } from "react";
 
 import { MAC_DOWNLOAD_URL } from "@/lib/download";
 
-export function MacDownloadLink({
+export const MacDownloadLink = ({
   children,
   className,
 }: {
   children: ReactNode;
   className: string;
-}) {
+}) => {
   const navigate = useNavigate();
 
   const download = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -52,4 +52,4 @@ export function MacDownloadLink({
       {children}
     </a>
   );
-}
+};

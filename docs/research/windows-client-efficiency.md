@@ -26,7 +26,7 @@ This replaces the Electron recommendation in [windows-client.md](windows-client.
 | Stay until answered | `requireInteraction: true` | Chromium maps it to the Windows toast `scenario="reminder"`. It adds a button, because Windows ignores the flag on toasts without one (Chromium's `EnsureReminderHasButton`, quoted in [Mozilla bug 1794475](https://bugzilla.mozilla.org/show_bug.cgi?id=1794475)). Reminder toasts "stay on screen until the user dismisses it or takes action" ([toast content](https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/app-notifications-content)). This is the closest the web gets. |
 | On it / In 10 min | Notification `actions` | Windows allows two actions. `notificationclick` can `fetch()` the acknowledgement without opening a window ([Edge docs](https://learn.microsoft.com/en-us/microsoft-edge/progressive-web-apps/how-to/notifications-badges)). |
 | Typed reply | Inline reply (`type: "text"`) | Chrome-only and non-standard ([chromestatus](https://chromestatus.com/feature/5743740178137088)); it never entered the spec. Current Windows 11 and Edge behavior is unconfirmed. Plan on clicking into the PWA window instead. |
-| Dismiss on the other PCs | `registration.getNotifications({tag})` then `.close()` | Works ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/getNotifications)). But every push must show *some* notification (`userVisibleOnly`), so the "dismiss" push has to replace the toast with a brief "Answered on another PC". |
+| Dismiss on the other PCs | `registration.getNotifications({tag})` then `.close()` | Works ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/getNotifications)). But every push must show _some_ notification (`userVisibleOnly`), so the "dismiss" push has to replace the toast with a brief "Answered on another PC". |
 | Above full-screen apps | none | Windows turns Do Not Disturb on automatically for full-screen apps and games, and suppressed toasts go to the notification center ([Focus](https://support.microsoft.com/en-us/windows/experience/focus-stay-on-task-without-distractions-in-windows)). Native apps can use `scenario="urgent"` to break through ([toast schema](https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-toast)). The web cannot. |
 | Cover every monitor | Fullscreen API + Window Management API | Both need a user gesture. Fullscreen without a gesture exists only for Isolated Web Apps, which are ChromeOS-only ([IWA allowlist](https://developer.chrome.com/docs/iwa/allowlist)), or for origins an admin lists in `AutomaticFullscreenAllowedForUrls` ([Edge policy](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies/automaticfullscreenallowedforurls)). |
 | Draw over other apps | Document Picture-in-Picture | It is always on top, but it needs a user gesture, it is size-clamped, the site can't position it, and it dies with its opener ([Chrome docs](https://developer.chrome.com/docs/web-platform/document-picture-in-picture)). It cannot be opened from a push. |
@@ -68,7 +68,7 @@ It is acceptable as a clearly labelled fallback for locked-down work PCs, or for
 | **(e2) C# WinForms/WPF, .NET 9/10 NativeAOT** | Not supported: "trimming support for Windows Forms apps is disabled" ([docs](https://learn.microsoft.com/en-us/dotnet/core/deploying/trimming/incompatibilities)). Without AOT you need the Desktop Runtime or a large self-contained build. | 6–7 MB for WinForms (Task Manager, [wpf#9017](https://github.com/dotnet/wpf/discussions/9017)) | Modern .NET is not in-box |
 | **(e3) WinUI 3 / Windows App SDK 2.5** | The runtime redistributable is 56.8 MiB. Hello world: about 33 MiB framework-dependent (under 5 MiB LZMA) to about 200 MiB self-contained ([discussion](https://github.com/microsoft/microsoft-ui-xaml/discussions/7683)). NativeAOT has been supported since 1.6. | No trustworthy number found | Windows App Runtime (not in-box). **No tray API** ([WindowsAppSDK #713](https://github.com/microsoft/WindowsAppSDK/issues/713), backlog) |
 | **(f) C++ Win32** | Tens to hundreds of KB | Same as (a) | None with `/MT` |
-| *Reference: Electron 44* | *About 100 MB installer, 158 MB runtime zip* | *100+ MB* | *None* |
+| _Reference: Electron 44_ | _About 100 MB installer, 158 MB runtime zip_ | _100+ MB_ | _None_ |
 
 ### Capability scorecard
 
@@ -157,7 +157,7 @@ What every option shares: Windows alone decides z-order against exclusive full-s
 
 Expected numbers, to be confirmed in M0 on hardware:
 
-| | Expected | Basis |
+|  | Expected | Basis |
 | --- | --- | --- |
 | Download = installed size | 1.5–2.5 MB exe; about 0.8–1.2 MB compressed if it's ever zipped | 872 KB measured skeleton, plus popup UI, AccessKit, QR, and 2–3 font files (about 90 KB each, from `apps/macos/.../Fonts`) |
 | Idle RAM | 5–12 MB working set | Estimate: Win32 baseline, network thread, and graphics devices released while idle |
@@ -215,6 +215,7 @@ scripts/release-windows.sh    mirrors release-mac.sh
   ```
 
   The existing `Shouldertap.dmg` keys stay where they are.
+
 - **`domains.ts` / `alchemy.run.ts`.** Add `windowsDownloadUrl`, and pass `VITE_WINDOWS_DOWNLOAD_URL` next to `VITE_MAC_DOWNLOAD_URL`.
 - **`/download`.**
   - Add a validated `?os=mac|windows` search param, defaulting from `navigator.userAgentData?.platform` with a `userAgent` fallback.

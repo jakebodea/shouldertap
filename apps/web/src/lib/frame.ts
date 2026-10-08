@@ -1,4 +1,5 @@
-import { type PersonColor, swatches } from "@shouldertap/domain";
+import { swatches } from "@shouldertap/domain";
+import type { PersonColor } from "@shouldertap/domain";
 import type { CSSProperties } from "react";
 import { useLayoutEffect } from "react";
 
@@ -24,9 +25,9 @@ export const useThemeColor = (color: string) => {
     const previousBody = document.body.style.backgroundColor;
     const previousHtml = document.documentElement.style.backgroundColor;
     return () => {
-      metas.forEach((meta, i) => {
+      for (const [i, meta] of metas.entries()) {
         meta.content = previous[i] ?? meta.content;
-      });
+      }
       document.body.style.backgroundColor = previousBody;
       document.documentElement.style.backgroundColor = previousHtml;
     };

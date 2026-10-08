@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import type { Tap } from "@shouldertap/domain";
 
 import { mergeSnapshot, mergeTap } from "./live";

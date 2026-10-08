@@ -11,6 +11,22 @@ import "../index.css";
 
 export type RouterAppContext = Record<string, never>;
 
+const RootComponent = () => (
+  <>
+    <HeadContent />
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      disableTransitionOnChange
+    >
+      <div className="bg-background text-foreground min-h-svh">
+        <Outlet />
+      </div>
+      <Toaster position="top-center" richColors />
+    </ThemeProvider>
+  </>
+);
+
 export const Route = createRootRouteWithContext<RouterAppContext>()({
   component: RootComponent,
   head: () => ({
@@ -18,21 +34,3 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
     meta: [{ title: "Shouldertap" }],
   }),
 });
-
-function RootComponent() {
-  return (
-    <>
-      <HeadContent />
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        disableTransitionOnChange
-      >
-        <div className="min-h-svh bg-background text-foreground">
-          <Outlet />
-        </div>
-        <Toaster position="top-center" richColors />
-      </ThemeProvider>
-    </>
-  );
-}

@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-const DOWNLOAD_PATH = /\/download$/;
-const DOWNLOAD_LABEL = /Download/;
-const RETRY_COPY = /If it didn’t/;
-const INSTALLER_PATH = /\/Shouldertap\.dmg$/;
+const DOWNLOAD_PATH = /\/download$/u;
+const DOWNLOAD_LABEL = /Download/u;
+const RETRY_COPY = /If it didn’t/u;
+const INSTALLER_PATH = /\/Shouldertap\.dmg$/u;
 for (const placement of ["header", "footer"] as const) {
   test(`${placement} download starts before instructions and can be retried`, async ({
     page,
@@ -23,7 +23,8 @@ for (const placement of ["header", "footer"] as const) {
 
     const retried = page.waitForEvent("download");
     await page.getByRole("link", { name: "Download for Mac" }).click();
-    expect(await (await retried).failure()).toBeNull();
+    const retriedDownload = await retried;
+    expect(await retriedDownload.failure()).toBeNull();
     await expect(page).toHaveURL(DOWNLOAD_PATH);
   });
 }

@@ -23,7 +23,8 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import { domains, isProduction } from "../../../domains.ts";
-import { makeProviderTokens, type PushContext } from "./apns";
+import { makeProviderTokens } from "./apns";
+import type { PushContext } from "./apns";
 import {
   checkoutInboxId,
   createCheckout,
@@ -36,6 +37,15 @@ import { TrialLedger, TrialLedgerLive } from "./TrialLedger";
 
 const newInboxId = Effect.sync(() => crypto.randomUUID().replaceAll("-", ""));
 
+/**
+ * An effect that succeeds with nothing. `Effect.void` is `Effect<void>`, which
+ * isn't assignable to the `T | undefined` the Inbox's push and trial
+ * parameters take.
+ */
+const absent = <T>(): Effect.Effect<T | undefined> =>
+  // oxlint-disable-next-line unicorn/no-useless-undefined -- the typed value, see above
+  Effect.succeed(undefined);
+
 /** New inboxes per client IP per minute. Approximate and per Cloudflare location. */
 const INBOX_CREATION_LIMIT = 10;
 
@@ -45,7 +55,7 @@ const INBOX_CREATION_LIMIT = 10;
  */
 export default class Server extends Cloudflare.Worker<Server>()(
   "server",
-  Effect.gen(function* () {
+  Effect.gen(function* props() {
     // Stage exists at deploy time only; the deployed Worker re-evaluates these
     // props without it, where the domain no longer matters.
     const stage = yield* Effect.serviceOption(Stage);
@@ -58,7 +68,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
       dev: { port: 3000 },
     };
   }),
-  Effect.gen(function* () {
+  Effect.gen(function* serverMain() {
     const inboxes = yield* Inbox;
     // Payments are optional so previews and dev run without Creem: checkout
     // answers 503 and the webhook 404 until all three are configured.
@@ -88,13 +98,13 @@ export default class Server extends Cloudflare.Worker<Server>()(
     );
     /** A signed provider token for the Inbox, or nothing without APNs. */
     const pushContext = Option.match(apns, {
-      onNone: () => Effect.succeed(undefined),
+      onNone: () => absent<PushContext>(),
       onSome: (tokens) =>
         tokens.pipe(
           Effect.map((context): PushContext | undefined => context),
           Effect.catchCause((cause) =>
             Effect.logError("Couldn't sign an APNs token", cause).pipe(
-              Effect.as(undefined)
+              Effect.andThen(absent<PushContext>())
             )
           )
         ),
@@ -115,7 +125,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
           Effect.timeout("5 seconds"),
           Effect.catchCause((cause) =>
             Effect.logWarning("Trial ledger unavailable", cause).pipe(
-              Effect.as(undefined)
+              Effect.andThen(absent<number>())
             )
           )
         );
@@ -145,7 +155,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
       (handlers) =>
         handlers
           .handle("createInbox", ({ payload }) =>
-            Effect.gen(function* () {
+            Effect.gen(function* createInbox() {
               const request = yield* HttpServerRequest;
               const { success } = yield* inboxCreation
                 .limit({
@@ -186,32 +196,38 @@ export default class Server extends Cloudflare.Worker<Server>()(
     );
 
     const inbox = HttpApiBuilder.group(ShouldertapApi, "inbox", (handlers) => {
-      const forCaller = Effect.gen(function* () {
+      const forCaller = Effect.gen(function* forCaller() {
         const token = yield* Caller;
         return { token, stub: inboxes.getByName(token.inboxId) };
       });
       return handlers
         .handle("me", () =>
-          Effect.flatMap(forCaller, ({ token, stub }) => stub.snapshot(token))
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) => stub.snapshot(token))
+          )
         )
         .handle("createInvite", ({ payload }) =>
-          Effect.flatMap(forCaller, ({ token, stub }) =>
-            stub.createInvite(token, payload)
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) =>
+              stub.createInvite(token, payload)
+            )
           )
         )
         .handle("sendTap", ({ payload }) =>
-          Effect.gen(function* () {
+          Effect.gen(function* sendTap() {
             const { token, stub } = yield* forCaller;
             return yield* stub.sendTap(token, payload, yield* pushContext);
           })
         )
         .handle("markDisplayed", ({ params }) =>
-          Effect.flatMap(forCaller, ({ token, stub }) =>
-            stub.markDisplayed(token, params.id)
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) =>
+              stub.markDisplayed(token, params.id)
+            )
           )
         )
         .handle("acknowledge", ({ params, payload }) =>
-          Effect.gen(function* () {
+          Effect.gen(function* acknowledge() {
             const { token, stub } = yield* forCaller;
             return yield* stub.acknowledge(
               token,
@@ -222,33 +238,37 @@ export default class Server extends Cloudflare.Worker<Server>()(
           })
         )
         .handle("deleteTap", ({ params }) =>
-          Effect.gen(function* () {
+          Effect.gen(function* deleteTap() {
             const { token, stub } = yield* forCaller;
             return yield* stub.deleteTap(token, params.id, yield* pushContext);
           })
         )
         .handle("registerPush", ({ payload }) =>
-          Effect.flatMap(forCaller, ({ token, stub }) =>
-            stub.registerPush(token, payload)
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) =>
+              stub.registerPush(token, payload)
+            )
           )
         )
         .handle("activityToken", ({ params, payload }) =>
-          Effect.flatMap(forCaller, ({ token, stub }) =>
-            stub.activityToken(token, params.id, payload)
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) =>
+              stub.activityToken(token, params.id, payload)
+            )
           )
         )
         .handle("revoke", ({ params }) =>
-          Effect.flatMap(forCaller, ({ token, stub }) =>
-            stub.revoke(token, params.id)
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) => stub.revoke(token, params.id))
           )
         )
         .handle("deleteSender", () =>
-          Effect.flatMap(forCaller, ({ token, stub }) =>
-            stub.deleteSender(token)
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) => stub.deleteSender(token))
           )
         )
         .handle("createCheckout", () =>
-          Effect.gen(function* () {
+          Effect.gen(function* startCheckout() {
             const { token, stub } = yield* forCaller;
             const context = yield* stub.checkoutContext(token);
             if (Option.isNone(creem)) {
@@ -272,8 +292,8 @@ export default class Server extends Cloudflare.Worker<Server>()(
           })
         )
         .handle("connectTicket", () =>
-          Effect.flatMap(forCaller, ({ token, stub }) =>
-            stub.createTicket(token)
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) => stub.createTicket(token))
           )
         );
     });
@@ -306,7 +326,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
      * inbox named in the checkout metadata. A 5xx makes Creem retry, so only
      * transient failures answer one; anything we'll never act on gets 200.
      */
-    const creemWebhook = Effect.gen(function* () {
+    const creemWebhook = Effect.gen(function* creemWebhook() {
       if (Option.isNone(creem)) {
         return HttpServerResponse.text("Not found", { status: 404 });
       }
@@ -359,6 +379,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
       }
       return HttpServerResponse.text("ok");
     }).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-then, promise/prefer-await-to-callbacks -- Effect.catch, not Promise#catch
       Effect.catch((error) =>
         Effect.logError("Creem webhook failed", error).pipe(
           Effect.as(HttpServerResponse.text("Try again", { status: 500 }))
@@ -367,7 +388,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
     );
 
     return {
-      fetch: Effect.gen(function* () {
+      fetch: Effect.gen(function* fetch() {
         const request = yield* HttpServerRequest;
         if (request.url.startsWith("/v1/connect?")) {
           // WebSocket upgrade with a one-time ticket; the Inbox accepts it.

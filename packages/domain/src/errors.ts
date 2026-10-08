@@ -1,3 +1,4 @@
+/* oxlint-disable unicorn/throw-new-error -- `Schema.TaggedError<T>()` is a class factory, not an Error constructor call; adding `new` breaks the class. */
 import * as Schema from "effect/Schema";
 
 // Typed failures shared by the Durable Object (RPC), the Worker (HttpApi)

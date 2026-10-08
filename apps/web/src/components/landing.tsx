@@ -8,14 +8,10 @@ import {
   UserAdd01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type PersonColor, swatches } from "@shouldertap/domain";
-import {
-  type CSSProperties,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { swatches } from "@shouldertap/domain";
+import type { PersonColor } from "@shouldertap/domain";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { DocLinks } from "@/components/document";
 import { InkIcon, InkMark, InkText } from "@/components/ink";
@@ -51,8 +47,340 @@ const REPLIES = [
 const prefersReducedMotion = () =>
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+const Step = ({
+  title,
+  children,
+  art,
+  flip = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  art: React.ReactNode;
+  flip?: boolean;
+}) => (
+  <div
+    className={`grid items-center gap-8 md:grid-cols-2 md:gap-16 ${flip ? "md:[&>*:first-child]:order-2" : ""}`}
+  >
+    <div className="flex max-w-md flex-col gap-3">
+      <h3 className="text-[2rem] leading-[1.02] font-extrabold tracking-[-0.035em] text-balance md:text-[2.75rem]">
+        {title}
+      </h3>
+      <p className="text-tone text-[1.0625rem] leading-relaxed md:text-lg">
+        {children}
+      </p>
+    </div>
+    <div className="flex justify-center">{art}</div>
+  </div>
+);
+
+const MiniMenuBar = () => (
+  <div
+    aria-hidden="true"
+    className="relative h-72 w-full max-w-[26rem] overflow-hidden rounded-[1.25rem] bg-[radial-gradient(120%_90%_at_70%_10%,#50606b,#26303a_70%)] font-[system-ui] text-[13px]"
+  >
+    <div className="flex h-7 items-center justify-end gap-4 bg-black/25 px-3.5 font-medium text-white">
+      <Mark className="size-4" />
+      <span className="tabular-nums">7:42 PM</span>
+    </div>
+    <div className="absolute top-9 right-8 flex w-64 flex-col gap-3 rounded-xl bg-[#f6f6f4]/95 p-3 text-[#1d1d1f] shadow-[0_0_0_0.5px_rgb(0_0_0/0.25),0_20px_40px_-10px_rgb(0_0_0/0.45)]">
+      <div className="flex items-center gap-2">
+        <Mark className="size-5" />
+        <b className="font-sans text-[15px] font-bold tracking-[-0.02em]">
+          Shouldertap
+        </b>
+        <span className="ml-auto flex items-center gap-1.5 text-[11px] text-[#6e6e73]">
+          <i className="bg-live size-1.5 rounded-full" />
+          Connected
+        </span>
+      </div>
+      <div className="flex h-8 items-center justify-center gap-2 rounded-lg bg-[#1d1d1f] font-semibold text-white">
+        <HugeiconsIcon className="size-4" icon={UserAdd01Icon} />
+        Invite someone
+      </div>
+      <div>
+        <p className="mb-1 text-[11px] font-semibold text-[#86868b]">
+          Can tap you
+        </p>
+        {(
+          [
+            ["Alex", "cobalt", "Active 5m ago"],
+            ["Rosa", "rose", "Active yesterday"],
+          ] as const
+        ).map(([name, c, meta]) => (
+          <div className="flex items-center gap-2.5 py-1" key={name}>
+            <span
+              className="grid size-6 place-items-center rounded-full font-sans text-[11px] font-bold"
+              style={{ background: swatches[c].base, color: swatches[c].ink }}
+            >
+              {name[0]}
+            </span>
+            <div className="leading-tight">
+              <div className="font-semibold">{name}</div>
+              <div className="text-[11px] text-[#86868b]">{meta}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
+const MiniPhone = ({ scene }: { scene: Scene }) => (
+  <div
+    aria-hidden="true"
+    className="frame-fill text-frame-ink grid w-64 grid-rows-[2.25rem_1fr] rounded-[2.25rem] px-1.5 pb-1.5 shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
+  >
+    <div className="flex items-center justify-between px-6 pt-1 text-xs font-semibold">
+      <InkText className="tabular-nums">7:41</InkText>
+      <span className="h-5 w-20 rounded-full bg-black" />
+      <InkText>5G</InkText>
+    </div>
+    <div className="bg-paper text-ink flex flex-col gap-4 rounded-[1.875rem] px-4 pt-5 pb-5">
+      <div className="flex items-start justify-between">
+        <b className="text-2xl leading-none font-extrabold tracking-[-0.035em]">
+          Tap {RECIPIENT}
+        </b>
+        <span className="text-tone flex items-center gap-1.5 pt-1 text-[11px] font-semibold">
+          <i className="bg-live size-1.5 rounded-full" />
+          Live
+        </span>
+      </div>
+      <div className="bg-faint min-h-20 rounded-2xl px-3.5 py-3 text-[15px]">
+        <Swept id={scene.who}>{scene.message}</Swept>
+      </div>
+      <div className="pill pill-fill frame-fill pill-sm w-full">
+        <InkIcon className="size-4" icon={SentIcon} />
+        <InkText>Send tap</InkText>
+      </div>
+    </div>
+  </div>
+);
+
+const MiniOverlay = ({ scene }: { scene: Scene }) => (
+  <div
+    aria-hidden="true"
+    className="frame-fill text-frame-ink relative aspect-[16/10] w-full max-w-[30rem] rounded-2xl px-3 pt-9 pb-3 shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
+  >
+    <div className="absolute top-2.5 left-5 flex items-baseline gap-2 text-sm font-bold">
+      <Swept id={scene.who}>
+        <InkText>{scene.who}</InkText>
+      </Swept>
+      <InkText className="text-xs font-medium opacity-75">just now</InkText>
+    </div>
+    <div className="bg-paper text-ink flex h-full flex-col justify-between rounded-xl px-6 pt-8 pb-5">
+      <b className="text-[2.25rem] leading-[0.95] font-extrabold tracking-[-0.04em]">
+        <Swept id={scene.who}>{scene.message}</Swept>
+      </b>
+      <div className="flex gap-1.5">
+        <span className="pill pill-fill frame-fill h-7 gap-1.5 px-3 text-xs">
+          <InkIcon className="size-3.5" icon={Tick02Icon} />
+          <InkText>On it</InkText>
+        </span>
+        <span className="pill h-7 gap-1.5 px-3 text-xs">
+          <HugeiconsIcon className="size-3.5" icon={Clock01Icon} />
+          In 10 min
+        </span>
+        <span className="pill h-7 gap-1.5 px-3 text-xs">
+          <HugeiconsIcon className="size-3.5" icon={BubbleChatIcon} />
+          Reply
+        </span>
+      </div>
+    </div>
+  </div>
+);
+
+const MiniAnswer = ({ scene, earlier }: { scene: Scene; earlier: Scene }) => (
+  <div
+    aria-hidden="true"
+    className="bg-paper flex w-full max-w-sm flex-col gap-5 rounded-[1.5rem] p-5 shadow-[0_0_0_1.5px_var(--line)]"
+  >
+    <div className="flex flex-col gap-3">
+      <div className="flex items-baseline justify-between">
+        <b className="text-xl font-bold tracking-[-0.02em]">
+          <Swept id={scene.who}>{scene.message}</Swept>
+        </b>
+        <span className="text-tone text-[13px]">now</span>
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        <i className="frame-fill h-[5px] rounded-full" />
+        <i className="frame-fill h-[5px] animate-[pulse-soft_1.6s_ease-in-out_infinite] rounded-full" />
+        <i className="bg-faint h-[5px] rounded-full" />
+      </div>
+      <div className="text-tone grid grid-cols-3 gap-1 text-xs font-semibold">
+        <span className="text-ink">Sent</span>
+        <span>On screen</span>
+        <span>Answered</span>
+      </div>
+    </div>
+    <div className="border-line flex flex-col gap-3 border-t pt-5">
+      <div className="flex items-baseline justify-between">
+        <b className="text-xl font-bold tracking-[-0.02em]">
+          <Swept id={scene.who}>{earlier.message}</Swept>
+        </b>
+        <span className="text-tone text-[13px]">13m</span>
+      </div>
+      <div className="bg-faint flex items-center gap-2.5 rounded-2xl px-3.5 py-3">
+        <HugeiconsIcon className="size-5" icon={Tick02Icon} />
+        <b className="font-bold">On it</b>
+        <span className="text-tone ml-auto text-right text-[13px] leading-tight tabular-nums">
+          8s later
+          <br />
+          on Studio
+        </span>
+      </div>
+    </div>
+  </div>
+);
+
+/** Every illustration follows whoever is tapping in the hero right now. */
+const HowItWorks = ({ scene, earlier }: { scene: Scene; earlier: Scene }) => (
+  <section
+    aria-labelledby="how"
+    className="flex scroll-mt-4 flex-col gap-20 px-6 py-20 md:gap-28 md:px-[72px] md:py-32"
+  >
+    <h2
+      className="max-w-[16ch] text-[2.75rem] leading-[0.98] font-extrabold tracking-[-0.04em] text-balance md:text-[4.5rem]"
+      id="how"
+    >
+      Harder to miss than a text. Kinder than yelling up the stairs.
+    </h2>
+    <Step art={<MiniMenuBar />} title="Invite them from your Mac">
+      Shouldertap lives in your menu bar. Create an invite link and they scan it
+      with their iPhone camera. Only people you invite can tap you.
+    </Step>
+    <Step
+      art={<MiniPhone scene={scene} />}
+      flip
+      title="They tap you from their phone"
+    >
+      It opens in Safari, nothing to install. They pick a color so you know
+      it&apos;s them, type what they need, and send.
+    </Step>
+    <Step
+      art={<MiniOverlay scene={scene} />}
+      title="It covers your screens until you answer"
+    >
+      Every display on every paired Mac, above full-screen apps. Answer with On
+      it, In 10 min, or a quick reply. Answer on one Mac and it clears from all
+      of them.
+    </Step>
+    <Step
+      art={<MiniAnswer earlier={earlier} scene={scene} />}
+      flip
+      title="They know you saw it"
+    >
+      Their phone shows the tap arrive, land on your screen, and your answer,
+      with how long it took.
+    </Step>
+  </section>
+);
+
+const Consent = () => {
+  const facts = [
+    {
+      icon: UserAdd01Icon,
+      text: "Only people you invite can tap you. Invite links work once and expire after a week.",
+    },
+    {
+      icon: ComputerIcon,
+      text: "Remove anyone from the menu bar at any time, and they can't tap you again.",
+    },
+    {
+      icon: Tick02Icon,
+      text: "Every tap ends with an answer, so nobody has to wonder if you saw it.",
+    },
+  ];
+  return (
+    <section className="bg-faint px-6 py-20 md:px-[72px] md:py-28">
+      <h2 className="mb-12 max-w-[18ch] text-[2.5rem] leading-none font-extrabold tracking-[-0.04em] text-balance md:mb-16 md:text-[3.5rem]">
+        Built for the people you live with, on your terms.
+      </h2>
+      <ul className="grid gap-8 md:grid-cols-3 md:gap-12">
+        {facts.map((fact) => (
+          <li className="flex flex-col gap-4" key={fact.text}>
+            <HugeiconsIcon className="size-7" icon={fact.icon} />
+            <p className="max-w-[32ch] text-[1.0625rem] leading-relaxed md:text-lg">
+              {fact.text}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
+/** Creem's review requires the price to be easy to find on the site. */
+const Pricing = () => {
+  const points = [
+    "Every feature from day one: unlimited taps, every Mac you own, and up to 20 people who can tap you.",
+    "The people who tap you never pay. They use any iPhone with Safari.",
+    "Not for you? Ask for a full refund within 14 days of buying.",
+  ];
+  return (
+    <section
+      aria-labelledby="pricing"
+      className="flex scroll-mt-4 flex-col gap-10 px-6 py-20 md:px-[72px] md:py-28"
+    >
+      <h2
+        className="max-w-[16ch] text-[2.75rem] leading-[0.98] font-extrabold tracking-[-0.04em] text-balance md:text-[4.5rem]"
+        id="pricing"
+      >
+        Free for a week. Then $5, once.
+      </h2>
+      <div className="grid gap-10 md:grid-cols-[auto_1fr] md:gap-16">
+        <div className="flex flex-col gap-2">
+          <p className="text-[4rem] leading-none font-extrabold tracking-[-0.045em] md:text-[5.5rem]">
+            $5
+          </p>
+          <p className="text-tone text-[1.0625rem] md:text-lg">
+            One-time purchase, plus tax where it applies.
+            <br />
+            No subscription.
+          </p>
+        </div>
+        <ul className="flex max-w-xl flex-col gap-4">
+          <li className="text-[1.0625rem] leading-relaxed md:text-lg">
+            Try everything free for 7 days. Then unlock Shouldertap on your Mac
+            for good.
+          </li>
+          {points.map((point) => (
+            <li
+              className="text-tone text-[1.0625rem] leading-relaxed md:text-lg"
+              key={point}
+            >
+              {point}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+};
+
+const Close = () => (
+  <section className="flex flex-col gap-10 px-6 pt-24 pb-10 md:px-[72px] md:pt-36">
+    <p className="max-w-[12ch] text-[3.5rem] leading-[0.92] font-extrabold tracking-[-0.045em] text-balance md:text-[7rem]">
+      Dinner&apos;s ready. Really.
+    </p>
+    <div className="flex flex-wrap items-center gap-4">
+      <MacDownloadLink className="pill pill-ink">
+        <HugeiconsIcon className="size-5" icon={Download04Icon} />
+        Download for Mac
+      </MacDownloadLink>
+      <span className="text-tone text-[0.9375rem]">
+        Free for 7 days, then $5 once. Mac app plus any iPhone with Safari.
+      </span>
+    </div>
+    <footer className="border-line text-tone mt-16 flex flex-wrap items-center justify-between gap-4 border-t-[1.5px] pt-6 text-sm">
+      <Wordmark className="text-ink text-lg" />
+      <DocLinks />
+      <span>Made for households.</span>
+    </footer>
+  </section>
+);
+
 /** The marketing page is a live tap: the frame cycles through a household. */
-export function Landing() {
+export const Landing = () => {
   const [index, setIndex] = useState(0);
   // The color the wipe starts from, and the one the frame's own text is set in.
   const [from, setFrom] = useState<PersonColor>(SCENES[0]?.color ?? "moss");
@@ -64,7 +392,7 @@ export function Landing() {
   } | null>(null);
   const [paused, setPaused] = useState(false);
   const heroRef = useRef<HTMLElement>(null);
-  const [pairing] = useState(loadPairing);
+  const pairing = useMemo(() => loadPairing(), []);
 
   // Hold the current tap while the visitor is pointing at or tabbing through it.
   useEffect(() => {
@@ -72,8 +400,12 @@ export function Landing() {
     if (!hero) {
       return;
     }
-    const hold = () => setPaused(true);
-    const release = () => setPaused(false);
+    const hold = () => {
+      setPaused(true);
+    };
+    const release = () => {
+      setPaused(false);
+    };
     hero.addEventListener("pointerenter", hold);
     hero.addEventListener("pointerleave", release);
     hero.addEventListener("focusin", hold);
@@ -90,9 +422,13 @@ export function Landing() {
   // advancing underneath it; hold the cycle until the page is seen again.
   const [hidden, setHidden] = useState(false);
   useEffect(() => {
-    const sync = () => setHidden(document.visibilityState === "hidden");
+    const sync = () => {
+      setHidden(document.visibilityState === "hidden");
+    };
     document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+    };
   }, []);
 
   const scene = SCENES[index] ?? SCENES[0];
@@ -119,7 +455,9 @@ export function Landing() {
           fill: "forwards",
         }
       );
-      wipe.onfinish = () => setFrom(nextColor);
+      wipe.onfinish = () => {
+        setFrom(nextColor);
+      };
       wipeRef.current = wipe;
     },
     [index, scene.color, scene.who]
@@ -129,8 +467,12 @@ export function Landing() {
     if (paused || hidden || prefersReducedMotion()) {
       return;
     }
-    const timer = setTimeout(() => advance(), SCENE_MS);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      advance();
+    }, SCENE_MS);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [advance, paused, hidden]);
 
   useEffect(() => {
@@ -145,12 +487,14 @@ export function Landing() {
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
   }, [advance]);
 
   return (
     <div
-      className="landing-frame paper-light absolute inset-0 overflow-hidden text-frame-ink"
+      className="landing-frame paper-light text-frame-ink absolute inset-0 overflow-hidden"
       ref={rootRef}
       style={
         {
@@ -175,10 +519,10 @@ export function Landing() {
         aria-hidden="true"
         className="frame-fill pointer-events-none absolute inset-0"
       />
-      <header className="landing-header absolute inset-x-0 z-10 flex h-16 items-center gap-6 px-5 font-semibold text-[0.9375rem] md:h-24 md:px-[72px] md:text-lg">
+      <header className="landing-header absolute inset-x-0 z-10 flex h-16 items-center gap-6 px-5 text-[0.9375rem] font-semibold md:h-24 md:px-[72px] md:text-lg">
         <a
           aria-label="Shouldertap home"
-          className="mr-auto inline-flex items-center gap-[0.32em] font-extrabold text-xl tracking-[-0.035em] md:text-[1.625rem]"
+          className="mr-auto inline-flex items-center gap-[0.32em] text-xl font-extrabold tracking-[-0.035em] md:text-[1.625rem]"
           href="/"
         >
           <InkMark className="size-[1.05em]" />
@@ -198,13 +542,13 @@ export function Landing() {
         </a>
         {pairing ? (
           <a
-            className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
+            className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
             href="/tap"
           >
             <span className="frame-fill-text">Tap {pairing.recipientName}</span>
           </a>
         ) : (
-          <MacDownloadLink className="ink-fill inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 font-bold text-sm transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base">
+          <MacDownloadLink className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base">
             <span className="frame-fill-text">
               Download<span className="hidden sm:inline">&nbsp;for Mac</span>
             </span>
@@ -212,27 +556,27 @@ export function Landing() {
         )}
       </header>
 
-      <main className="landing-page absolute inset-x-2.5 z-10 overflow-y-auto overscroll-contain rounded-[1.5rem] bg-paper text-ink md:inset-x-10 md:rounded-[1.75rem]">
+      <main className="landing-page bg-paper text-ink absolute inset-x-2.5 z-10 overflow-y-auto overscroll-contain rounded-[1.5rem] md:inset-x-10 md:rounded-[1.75rem]">
         <section
           aria-label="A tap, live"
           className="flex min-h-full flex-col px-6 pt-10 pb-8 md:px-[72px] md:pt-16 md:pb-14"
           ref={heroRef}
         >
           <div className="flex flex-1 flex-col justify-center gap-7 md:gap-8">
-            <p className="flex items-center gap-3 font-semibold text-lg text-tone md:text-[1.375rem]">
-              <span className="frame-fill grid size-8 place-items-center rounded-full font-bold text-sm md:size-[2.125rem] md:text-[0.9375rem]">
+            <p className="text-tone flex items-center gap-3 text-lg font-semibold md:text-[1.375rem]">
+              <span className="frame-fill grid size-8 place-items-center rounded-full text-sm font-bold md:size-[2.125rem] md:text-[0.9375rem]">
                 <Swept id={index}>
                   <InkText>{scene.who[0]}</InkText>
                 </Swept>
               </span>
-              <b className="font-bold text-ink">
+              <b className="text-ink font-bold">
                 <Swept id={index}>{scene.who}</Swept>
               </b>
               <span className="tabular-nums">just now</span>
             </p>
             <h2
               aria-live="polite"
-              className="min-h-[1.84em] max-w-[11ch] text-balance font-extrabold text-[clamp(3.5rem,11vw,9.5rem)] leading-[0.92] tracking-[-0.045em]"
+              className="min-h-[1.84em] max-w-[11ch] text-[clamp(3.5rem,11vw,9.5rem)] leading-[0.92] font-extrabold tracking-[-0.045em] text-balance"
             >
               <Swept id={index}>{scene.message}</Swept>
             </h2>
@@ -241,7 +585,9 @@ export function Landing() {
                 <button
                   className={`pill md:h-[4.25rem] md:px-7 md:text-2xl ${i === 0 ? "pill-fill frame-fill" : ""}`}
                   key={reply.key}
-                  onClick={() => advance(reply.label)}
+                  onClick={() => {
+                    advance(reply.label);
+                  }}
                   type="button"
                 >
                   {i === 0 ? (
@@ -272,8 +618,8 @@ export function Landing() {
             </div>
           </div>
 
-          <div className="mt-10 grid gap-6 border-line border-t-[1.5px] pt-8 md:mt-12 md:grid-cols-[1fr_auto] md:items-end md:gap-12 md:pt-9">
-            <h1 className="max-w-[30em] text-balance font-bold text-[1.625rem] leading-[1.12] tracking-[-0.025em] md:text-[2.125rem]">
+          <div className="border-line mt-10 grid gap-6 border-t-[1.5px] pt-8 md:mt-12 md:grid-cols-[1fr_auto] md:items-end md:gap-12 md:pt-9">
+            <h1 className="max-w-[30em] text-[1.625rem] leading-[1.12] font-bold tracking-[-0.025em] text-balance md:text-[2.125rem]">
               When someone at home needs you, their message covers your Mac
               until you answer.{" "}
               <span className="text-tone">
@@ -282,13 +628,13 @@ export function Landing() {
             </h1>
             <p
               aria-live="polite"
-              className="flex min-h-7 items-center gap-2.5 font-semibold text-[1.0625rem] text-tone md:min-w-64 md:justify-end md:text-lg"
+              className="text-tone flex min-h-7 items-center gap-2.5 text-[1.0625rem] font-semibold md:min-w-64 md:justify-end md:text-lg"
             >
               <Swept id={index}>
                 {answered ? (
                   <span className="flex items-center gap-2.5">
                     <HugeiconsIcon
-                      className="size-5 text-ink"
+                      className="text-ink size-5"
                       icon={Tick02Icon}
                     />
                     <span>
@@ -316,350 +662,4 @@ export function Landing() {
       </main>
     </div>
   );
-}
-
-function Step({
-  title,
-  children,
-  art,
-  flip = false,
-}: {
-  title: string;
-  children: React.ReactNode;
-  art: React.ReactNode;
-  flip?: boolean;
-}) {
-  return (
-    <div
-      className={`grid items-center gap-8 md:grid-cols-2 md:gap-16 ${flip ? "md:[&>*:first-child]:order-2" : ""}`}
-    >
-      <div className="flex max-w-md flex-col gap-3">
-        <h3 className="text-balance font-extrabold text-[2rem] leading-[1.02] tracking-[-0.035em] md:text-[2.75rem]">
-          {title}
-        </h3>
-        <p className="text-[1.0625rem] text-tone leading-relaxed md:text-lg">
-          {children}
-        </p>
-      </div>
-      <div className="flex justify-center">{art}</div>
-    </div>
-  );
-}
-
-/** Every illustration follows whoever is tapping in the hero right now. */
-function HowItWorks({ scene, earlier }: { scene: Scene; earlier: Scene }) {
-  return (
-    <section
-      aria-labelledby="how"
-      className="flex scroll-mt-4 flex-col gap-20 px-6 py-20 md:gap-28 md:px-[72px] md:py-32"
-    >
-      <h2
-        className="max-w-[16ch] text-balance font-extrabold text-[2.75rem] leading-[0.98] tracking-[-0.04em] md:text-[4.5rem]"
-        id="how"
-      >
-        Harder to miss than a text. Kinder than yelling up the stairs.
-      </h2>
-      <Step art={<MiniMenuBar />} title="Invite them from your Mac">
-        Shouldertap lives in your menu bar. Create an invite link and they scan
-        it with their iPhone camera. Only people you invite can tap you.
-      </Step>
-      <Step
-        art={<MiniPhone scene={scene} />}
-        flip
-        title="They tap you from their phone"
-      >
-        It opens in Safari, nothing to install. They pick a color so you know
-        it's them, type what they need, and send.
-      </Step>
-      <Step
-        art={<MiniOverlay scene={scene} />}
-        title="It covers your screens until you answer"
-      >
-        Every display on every paired Mac, above full-screen apps. Answer with
-        On it, In 10 min, or a quick reply. Answer on one Mac and it clears from
-        all of them.
-      </Step>
-      <Step
-        art={<MiniAnswer earlier={earlier} scene={scene} />}
-        flip
-        title="They know you saw it"
-      >
-        Their phone shows the tap arrive, land on your screen, and your answer,
-        with how long it took.
-      </Step>
-    </section>
-  );
-}
-
-function MiniMenuBar() {
-  return (
-    <div
-      aria-hidden="true"
-      className="relative h-72 w-full max-w-[26rem] overflow-hidden rounded-[1.25rem] bg-[radial-gradient(120%_90%_at_70%_10%,#50606b,#26303a_70%)] font-[system-ui] text-[13px]"
-    >
-      <div className="flex h-7 items-center justify-end gap-4 bg-black/25 px-3.5 font-medium text-white">
-        <Mark className="size-4" />
-        <span className="tabular-nums">7:42 PM</span>
-      </div>
-      <div className="absolute top-9 right-8 flex w-64 flex-col gap-3 rounded-xl bg-[#f6f6f4]/95 p-3 text-[#1d1d1f] shadow-[0_0_0_0.5px_rgb(0_0_0/0.25),0_20px_40px_-10px_rgb(0_0_0/0.45)]">
-        <div className="flex items-center gap-2">
-          <Mark className="size-5" />
-          <b className="font-bold font-sans text-[15px] tracking-[-0.02em]">
-            Shouldertap
-          </b>
-          <span className="ml-auto flex items-center gap-1.5 text-[#6e6e73] text-[11px]">
-            <i className="size-1.5 rounded-full bg-live" />
-            Connected
-          </span>
-        </div>
-        <div className="flex h-8 items-center justify-center gap-2 rounded-lg bg-[#1d1d1f] font-semibold text-white">
-          <HugeiconsIcon className="size-4" icon={UserAdd01Icon} />
-          Invite someone
-        </div>
-        <div>
-          <p className="mb-1 font-semibold text-[#86868b] text-[11px]">
-            Can tap you
-          </p>
-          {(
-            [
-              ["Alex", "cobalt", "Active 5m ago"],
-              ["Rosa", "rose", "Active yesterday"],
-            ] as const
-          ).map(([name, c, meta]) => (
-            <div className="flex items-center gap-2.5 py-1" key={name}>
-              <span
-                className="grid size-6 place-items-center rounded-full font-bold font-sans text-[11px]"
-                style={{ background: swatches[c].base, color: swatches[c].ink }}
-              >
-                {name[0]}
-              </span>
-              <div className="leading-tight">
-                <div className="font-semibold">{name}</div>
-                <div className="text-[#86868b] text-[11px]">{meta}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MiniPhone({ scene }: { scene: Scene }) {
-  return (
-    <div
-      aria-hidden="true"
-      className="frame-fill grid w-64 grid-rows-[2.25rem_1fr] rounded-[2.25rem] px-1.5 pb-1.5 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
-    >
-      <div className="flex items-center justify-between px-6 pt-1 font-semibold text-xs">
-        <InkText className="tabular-nums">7:41</InkText>
-        <span className="h-5 w-20 rounded-full bg-black" />
-        <InkText>5G</InkText>
-      </div>
-      <div className="flex flex-col gap-4 rounded-[1.875rem] bg-paper px-4 pt-5 pb-5 text-ink">
-        <div className="flex items-start justify-between">
-          <b className="font-extrabold text-2xl leading-none tracking-[-0.035em]">
-            Tap {RECIPIENT}
-          </b>
-          <span className="flex items-center gap-1.5 pt-1 font-semibold text-[11px] text-tone">
-            <i className="size-1.5 rounded-full bg-live" />
-            Live
-          </span>
-        </div>
-        <div className="min-h-20 rounded-2xl bg-faint px-3.5 py-3 text-[15px]">
-          <Swept id={scene.who}>{scene.message}</Swept>
-        </div>
-        <div className="pill pill-fill frame-fill pill-sm w-full">
-          <InkIcon className="size-4" icon={SentIcon} />
-          <InkText>Send tap</InkText>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MiniOverlay({ scene }: { scene: Scene }) {
-  return (
-    <div
-      aria-hidden="true"
-      className="frame-fill relative aspect-[16/10] w-full max-w-[30rem] rounded-2xl px-3 pt-9 pb-3 text-frame-ink shadow-[0_30px_50px_-30px_rgb(0_0_0/0.5)]"
-    >
-      <div className="absolute top-2.5 left-5 flex items-baseline gap-2 font-bold text-sm">
-        <Swept id={scene.who}>
-          <InkText>{scene.who}</InkText>
-        </Swept>
-        <InkText className="font-medium text-xs opacity-75">just now</InkText>
-      </div>
-      <div className="flex h-full flex-col justify-between rounded-xl bg-paper px-6 pt-8 pb-5 text-ink">
-        <b className="font-extrabold text-[2.25rem] leading-[0.95] tracking-[-0.04em]">
-          <Swept id={scene.who}>{scene.message}</Swept>
-        </b>
-        <div className="flex gap-1.5">
-          <span className="pill pill-fill frame-fill h-7 gap-1.5 px-3 text-xs">
-            <InkIcon className="size-3.5" icon={Tick02Icon} />
-            <InkText>On it</InkText>
-          </span>
-          <span className="pill h-7 gap-1.5 px-3 text-xs">
-            <HugeiconsIcon className="size-3.5" icon={Clock01Icon} />
-            In 10 min
-          </span>
-          <span className="pill h-7 gap-1.5 px-3 text-xs">
-            <HugeiconsIcon className="size-3.5" icon={BubbleChatIcon} />
-            Reply
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MiniAnswer({ scene, earlier }: { scene: Scene; earlier: Scene }) {
-  return (
-    <div
-      aria-hidden="true"
-      className="flex w-full max-w-sm flex-col gap-5 rounded-[1.5rem] bg-paper p-5 shadow-[0_0_0_1.5px_var(--line)]"
-    >
-      <div className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between">
-          <b className="font-bold text-xl tracking-[-0.02em]">
-            <Swept id={scene.who}>{scene.message}</Swept>
-          </b>
-          <span className="text-[13px] text-tone">now</span>
-        </div>
-        <div className="grid grid-cols-3 gap-1">
-          <i className="frame-fill h-[5px] rounded-full" />
-          <i className="frame-fill h-[5px] animate-[pulse-soft_1.6s_ease-in-out_infinite] rounded-full" />
-          <i className="h-[5px] rounded-full bg-faint" />
-        </div>
-        <div className="grid grid-cols-3 gap-1 font-semibold text-tone text-xs">
-          <span className="text-ink">Sent</span>
-          <span>On screen</span>
-          <span>Answered</span>
-        </div>
-      </div>
-      <div className="flex flex-col gap-3 border-line border-t pt-5">
-        <div className="flex items-baseline justify-between">
-          <b className="font-bold text-xl tracking-[-0.02em]">
-            <Swept id={scene.who}>{earlier.message}</Swept>
-          </b>
-          <span className="text-[13px] text-tone">13m</span>
-        </div>
-        <div className="flex items-center gap-2.5 rounded-2xl bg-faint px-3.5 py-3">
-          <HugeiconsIcon className="size-5" icon={Tick02Icon} />
-          <b className="font-bold">On it</b>
-          <span className="ml-auto text-right text-[13px] text-tone tabular-nums leading-tight">
-            8s later
-            <br />
-            on Studio
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Consent() {
-  const facts = [
-    {
-      icon: UserAdd01Icon,
-      text: "Only people you invite can tap you. Invite links work once and expire after a week.",
-    },
-    {
-      icon: ComputerIcon,
-      text: "Remove anyone from the menu bar at any time, and they can't tap you again.",
-    },
-    {
-      icon: Tick02Icon,
-      text: "Every tap ends with an answer, so nobody has to wonder if you saw it.",
-    },
-  ];
-  return (
-    <section className="bg-faint px-6 py-20 md:px-[72px] md:py-28">
-      <h2 className="mb-12 max-w-[18ch] text-balance font-extrabold text-[2.5rem] leading-none tracking-[-0.04em] md:mb-16 md:text-[3.5rem]">
-        Built for the people you live with, on your terms.
-      </h2>
-      <ul className="grid gap-8 md:grid-cols-3 md:gap-12">
-        {facts.map((fact) => (
-          <li className="flex flex-col gap-4" key={fact.text}>
-            <HugeiconsIcon className="size-7" icon={fact.icon} />
-            <p className="max-w-[32ch] text-[1.0625rem] leading-relaxed md:text-lg">
-              {fact.text}
-            </p>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/** Creem's review requires the price to be easy to find on the site. */
-function Pricing() {
-  const points = [
-    "Every feature from day one: unlimited taps, every Mac you own, and up to 20 people who can tap you.",
-    "The people who tap you never pay. They use any iPhone with Safari.",
-    "Not for you? Ask for a full refund within 14 days of buying.",
-  ];
-  return (
-    <section
-      aria-labelledby="pricing"
-      className="flex scroll-mt-4 flex-col gap-10 px-6 py-20 md:px-[72px] md:py-28"
-    >
-      <h2
-        className="max-w-[16ch] text-balance font-extrabold text-[2.75rem] leading-[0.98] tracking-[-0.04em] md:text-[4.5rem]"
-        id="pricing"
-      >
-        Free for a week. Then $5, once.
-      </h2>
-      <div className="grid gap-10 md:grid-cols-[auto_1fr] md:gap-16">
-        <div className="flex flex-col gap-2">
-          <p className="font-extrabold text-[4rem] leading-none tracking-[-0.045em] md:text-[5.5rem]">
-            $5
-          </p>
-          <p className="text-[1.0625rem] text-tone md:text-lg">
-            One-time purchase, plus tax where it applies.
-            <br />
-            No subscription.
-          </p>
-        </div>
-        <ul className="flex max-w-xl flex-col gap-4">
-          <li className="text-[1.0625rem] leading-relaxed md:text-lg">
-            Try everything free for 7 days. Then unlock Shouldertap on your Mac
-            for good.
-          </li>
-          {points.map((point) => (
-            <li
-              className="text-[1.0625rem] text-tone leading-relaxed md:text-lg"
-              key={point}
-            >
-              {point}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </section>
-  );
-}
-
-function Close() {
-  return (
-    <section className="flex flex-col gap-10 px-6 pt-24 pb-10 md:px-[72px] md:pt-36">
-      <p className="max-w-[12ch] text-balance font-extrabold text-[3.5rem] leading-[0.92] tracking-[-0.045em] md:text-[7rem]">
-        Dinner's ready. Really.
-      </p>
-      <div className="flex flex-wrap items-center gap-4">
-        <MacDownloadLink className="pill pill-ink">
-          <HugeiconsIcon className="size-5" icon={Download04Icon} />
-          Download for Mac
-        </MacDownloadLink>
-        <span className="text-[0.9375rem] text-tone">
-          Free for 7 days, then $5 once. Mac app plus any iPhone with Safari.
-        </span>
-      </div>
-      <footer className="mt-16 flex flex-wrap items-center justify-between gap-4 border-line border-t-[1.5px] pt-6 text-sm text-tone">
-        <Wordmark className="text-ink text-lg" />
-        <DocLinks />
-        <span>Made for households.</span>
-      </footer>
-    </section>
-  );
-}
+};

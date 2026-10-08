@@ -1,11 +1,10 @@
-import {
-  type AcknowledgeRequest,
-  Authorization,
-  type CreateInboxRequest,
-  type CredentialKind,
-  type RedeemInviteRequest,
-  type SendTapRequest,
-  ShouldertapApi,
+import { Authorization, ShouldertapApi } from "@shouldertap/domain";
+import type {
+  AcknowledgeRequest,
+  CreateInboxRequest,
+  CredentialKind,
+  RedeemInviteRequest,
+  SendTapRequest,
 } from "@shouldertap/domain";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -58,8 +57,8 @@ export class ApiError extends Error {
   }
 }
 
-const TRAILING_SLASH = /\/$/;
-const HTTP_SCHEME = /^http/;
+const TRAILING_SLASH = /\/$/u;
+const HTTP_SCHEME = /^http/u;
 
 const domainErrors: Record<string, { code: ApiErrorCode; status: number }> = {
   InvalidRequest: { code: "invalid_request", status: 400 },
