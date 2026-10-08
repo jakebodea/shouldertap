@@ -1,32 +1,34 @@
 import {
-  type AcknowledgeRequest,
-  type ActivityTokenRequest,
   Conflict,
-  type ConnectTicket,
-  type CreateInboxRequest,
-  type CreateInviteRequest,
-  type Credential,
-  type CredentialGrant,
-  type CredentialKind,
-  type DevicePlatform,
   Expired,
   fallbackColor,
   formatToken,
   InvalidRequest,
-  type Invite,
   NotFound,
-  type ParsedToken,
   PaymentRequired,
-  type PersonColor,
   parseToken,
-  type RedeemInviteRequest,
-  type RegisterPushRequest,
-  type SendTapRequest,
-  type ServerEvent,
-  type Snapshot,
-  type Tap,
   TooManyRequests,
   Unauthorized,
+} from "@shouldertap/domain";
+import type {
+  AcknowledgeRequest,
+  ActivityTokenRequest,
+  ConnectTicket,
+  CreateInboxRequest,
+  CreateInviteRequest,
+  Credential,
+  CredentialGrant,
+  CredentialKind,
+  DevicePlatform,
+  Invite,
+  ParsedToken,
+  PersonColor,
+  RedeemInviteRequest,
+  RegisterPushRequest,
+  SendTapRequest,
+  ServerEvent,
+  Snapshot,
+  Tap,
 } from "@shouldertap/domain";
 import type { RuntimeContext } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
@@ -39,17 +41,16 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
 import migrations from "../drizzle/migrations.js";
 import {
-  type ApnsRequest,
   answeredNotificationPayload,
   endActivityPayload,
   isDeadToken,
   notificationPayload,
-  type PushContext,
   removedActivityPayload,
   resolvedPayload,
   sendPush,
   startActivityPayload,
 } from "./apns";
+import type { ApnsRequest, PushContext } from "./apns";
 import { isObjectionable } from "./content";
 import { planOf, requireActivePlan, TRIAL_MS } from "./plan";
 import { retentionFilters } from "./retention";
@@ -244,7 +245,7 @@ const now = Effect.sync(() => Date.now());
 
 const randomId = (bytes = 12) =>
   Effect.sync(() =>
-    btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(bytes))))
+    btoa(String.fromCodePoint(...crypto.getRandomValues(new Uint8Array(bytes))))
       .replaceAll("+", "-")
       .replaceAll("/", "_")
       .replaceAll("=", "")
@@ -275,7 +276,7 @@ const orDieOnStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         error !== null &&
         "_tag" in error &&
         (error._tag === "EffectDrizzleQueryError" || error._tag === "SqlError"),
-      (error) => Effect.die(error)
+      (defect) => Effect.die(defect)
     )
   ) as Effect.Effect<
     A,
@@ -307,27 +308,53 @@ const checkInvite = (
   return Effect.succeed(invite);
 };
 
+const toTap = ({
+  tap,
+  senderName,
+  senderColor,
+}: {
+  tap: typeof taps.$inferSelect;
+  senderName: string;
+  senderColor: typeof credentials.$inferSelect.color;
+}): Tap => ({
+  id: tap.id,
+  senderId: tap.senderId,
+  senderName,
+  senderColor: senderColor ?? fallbackColor(tap.senderId),
+  body: tap.body,
+  createdAt: tap.createdAt,
+  state: tap.state,
+  displayedAt: tap.displayedAt,
+  acknowledgedAt: tap.acknowledgedAt,
+  acknowledgedBy: tap.acknowledgedBy,
+  response: tap.response,
+  sequence: tap.sequence,
+});
+
+const send = (socket: Cloudflare.WebSocket, event: ServerEvent) =>
+  // A dead socket is cleaned up by the runtime; clients resync on reconnect.
+  socket.send(JSON.stringify(event)).pipe(Effect.ignore);
+
+/** Active (non-revoked) pairings of one kind. */
+const isActive = (kind: CredentialKind) =>
+  and(eq(credentials.kind, kind), isNull(credentials.revokedAt));
+
+const unauthorized = (message: string) =>
+  HttpServerResponse.text(message, { status: 401 });
+
 export const InboxLive = Inbox.make(
-  Effect.gen(function* () {
+  Effect.gen(function* inboxSetup() {
     const state = yield* Cloudflare.DurableObjectState;
 
-    return Effect.gen(function* () {
+    return Effect.gen(function* inboxMethods() {
       const db = yield* Drizzle.DurableObject({ migrations });
       // Keep-alive pings are answered without waking the object.
       yield* state.setWebSocketAutoResponse(
-        // biome-ignore lint/correctness/noUndeclaredVariables: Workers runtime global
+        // oxlint-disable-next-line no-undef -- Workers runtime global
         new WebSocketRequestResponsePair("ping", "pong")
       );
 
       // Reads
-
-      const tapRows = (
-        where: Parameters<ReturnType<typeof selectTaps>["where"]>[0]
-      ) =>
-        selectTaps()
-          .where(where)
-          .orderBy(desc(taps.createdAt))
-          .limit(HISTORY_LIMIT * 2);
 
       const selectTaps = () =>
         db
@@ -339,28 +366,13 @@ export const InboxLive = Inbox.make(
           .from(taps)
           .innerJoin(credentials, eq(credentials.id, taps.senderId));
 
-      const toTap = ({
-        tap,
-        senderName,
-        senderColor,
-      }: {
-        tap: typeof taps.$inferSelect;
-        senderName: string;
-        senderColor: typeof credentials.$inferSelect.color;
-      }): Tap => ({
-        id: tap.id,
-        senderId: tap.senderId,
-        senderName,
-        senderColor: senderColor ?? fallbackColor(tap.senderId),
-        body: tap.body,
-        createdAt: tap.createdAt,
-        state: tap.state,
-        displayedAt: tap.displayedAt,
-        acknowledgedAt: tap.acknowledgedAt,
-        acknowledgedBy: tap.acknowledgedBy,
-        response: tap.response,
-        sequence: tap.sequence,
-      });
+      const tapRows = (
+        where: Parameters<ReturnType<typeof selectTaps>["where"]>[0]
+      ) =>
+        selectTaps()
+          .where(where)
+          .orderBy(desc(taps.createdAt))
+          .limit(HISTORY_LIMIT * 2);
 
       const getTap = (tapId: string) =>
         tapRows(eq(taps.id, tapId)).pipe(
@@ -384,50 +396,48 @@ export const InboxLive = Inbox.make(
         .orderBy(credentials.createdAt)
         .pipe(
           Effect.map((rows) =>
-            rows.map(
-              (row): Credential => ({
-                id: row.id,
-                kind: row.kind,
-                name: row.name,
-                color:
-                  row.kind === "sender"
-                    ? (row.color ?? fallbackColor(row.id))
-                    : null,
-                platform: platformFor(row.kind, row.platform ?? undefined),
-                createdAt: row.createdAt,
-                lastSeenAt: row.lastSeenAt,
-              })
-            )
+            rows.map((row): Credential => ({
+              id: row.id,
+              kind: row.kind,
+              name: row.name,
+              color:
+                row.kind === "sender"
+                  ? (row.color ?? fallbackColor(row.id))
+                  : null,
+              platform: platformFor(row.kind, row.platform ?? undefined),
+              createdAt: row.createdAt,
+              lastSeenAt: row.lastSeenAt,
+            }))
           )
         );
 
-      const authenticate = Effect.fn("Inbox.authenticate")(function* (
-        token: ParsedToken
-      ) {
-        const secretHash = yield* hashSecret(token.secret);
-        const [row] = yield* db
-          .select()
-          .from(credentials)
-          .where(
-            and(eq(credentials.id, token.id), isNull(credentials.revokedAt))
-          );
-        if (!row || row.secretHash !== secretHash) {
-          return yield* new Unauthorized({
-            message: "This pairing is no longer valid",
-          });
+      const authenticate = Effect.fn("Inbox.authenticate")(
+        function* authenticate(token: ParsedToken) {
+          const secretHash = yield* hashSecret(token.secret);
+          const [row] = yield* db
+            .select()
+            .from(credentials)
+            .where(
+              and(eq(credentials.id, token.id), isNull(credentials.revokedAt))
+            );
+          if (!row || row.secretHash !== secretHash) {
+            return yield* new Unauthorized({
+              message: "This pairing is no longer valid",
+            });
+          }
+          const at = yield* now;
+          if ((row.lastSeenAt ?? 0) < at - LAST_SEEN_WRITE_INTERVAL_MS) {
+            yield* db
+              .update(credentials)
+              .set({ lastSeenAt: at })
+              .where(eq(credentials.id, row.id));
+          }
+          return row;
         }
-        const at = yield* now;
-        if ((row.lastSeenAt ?? 0) < at - LAST_SEEN_WRITE_INTERVAL_MS) {
-          yield* db
-            .update(credentials)
-            .set({ lastSeenAt: at })
-            .where(eq(credentials.id, row.id));
-        }
-        return row;
-      });
+      );
 
       const requireKind = (kind: CredentialKind, message: string) =>
-        Effect.fn(function* (token: ParsedToken) {
+        Effect.fn(function* requireCredential(token: ParsedToken) {
           const actor = yield* authenticate(token);
           if (actor.kind !== kind) {
             return yield* new Unauthorized({ message });
@@ -445,7 +455,7 @@ export const InboxLive = Inbox.make(
 
       // Events
 
-      const sessions = Effect.gen(function* () {
+      const sessions = Effect.gen(function* sessions() {
         const sockets = yield* state.getWebSockets();
         return sockets.flatMap((socket) => {
           const session = decodeSession(socket.deserializeAttachment());
@@ -455,15 +465,11 @@ export const InboxLive = Inbox.make(
         });
       });
 
-      const send = (socket: Cloudflare.WebSocket, event: ServerEvent) =>
-        // A dead socket is cleaned up by the runtime; clients resync on reconnect.
-        socket.send(JSON.stringify(event)).pipe(Effect.ignore);
-
       const broadcast = (
         event: ServerEvent,
         to: (session: SocketSession) => boolean
       ) =>
-        Effect.gen(function* () {
+        Effect.gen(function* broadcastToSessions() {
           for (const { socket, session } of yield* sessions) {
             if (to(session)) {
               yield* send(socket, event);
@@ -494,7 +500,7 @@ export const InboxLive = Inbox.make(
         .returning({ sequence: inbox.sequence })
         .pipe(Effect.map(([row]) => row?.sequence ?? 0));
 
-      const issueCredential = Effect.fn(function* (
+      const issueCredential = Effect.fn(function* issueCredential(
         kind: CredentialKind,
         name: string
       ) {
@@ -504,10 +510,6 @@ export const InboxLive = Inbox.make(
         const createdAt = yield* now;
         return { row: { id, kind, name, secretHash, createdAt }, secret };
       });
-
-      /** Active (non-revoked) pairings of one kind. */
-      const isActive = (kind: CredentialKind) =>
-        and(eq(credentials.kind, kind), isNull(credentials.revokedAt));
 
       // Push: linked iPhones get each tap over APNs, in the background so
       // the sender's request doesn't wait on Apple.
@@ -524,7 +526,7 @@ export const InboxLive = Inbox.make(
         .pipe(Effect.map((rows) => rows.map((row) => row.registration)));
 
       /** Sends one push and forgets the token if APNs says it's dead. */
-      const deliver = Effect.fn("Inbox.push")(function* (
+      const deliver = Effect.fn("Inbox.push")(function* deliver(
         push: PushContext,
         request: ApnsRequest,
         forget: Effect.Effect<unknown, unknown>
@@ -553,9 +555,10 @@ export const InboxLive = Inbox.make(
 
       /** A new tap: a Live Activity where we can start one, else a notification. */
       const notifyArrival = (tap: Tap, push: PushContext) =>
-        Effect.gen(function* () {
+        Effect.gen(function* deliverArrival() {
           const at = yield* now;
           const targets = yield* pushTargets;
+          // oxlint-disable-next-line unicorn/no-array-for-each -- Effect.forEach, not Array#forEach
           yield* Effect.forEach(
             targets,
             (target) => {
@@ -597,17 +600,18 @@ export const InboxLive = Inbox.make(
 
       /** An answered tap: end its Live Activities and clear the rest. */
       const notifyResolution = (tap: Tap, push: PushContext) =>
-        Effect.gen(function* () {
+        Effect.gen(function* deliverResolution() {
           const at = yield* now;
           const targets = yield* pushTargets;
           const activities = yield* db
             .select()
             .from(activityTokens)
             .where(eq(activityTokens.tapId, tap.id));
+          // oxlint-disable-next-line unicorn/no-array-for-each -- Effect.forEach, not Array#forEach
           yield* Effect.forEach(
             targets,
             (target) =>
-              Effect.gen(function* () {
+              Effect.gen(function* resolveTarget() {
                 const base = {
                   environment: target.environment,
                   topic: target.topic,
@@ -674,13 +678,14 @@ export const InboxLive = Inbox.make(
         activities: readonly (typeof activityTokens.$inferSelect)[],
         push: PushContext
       ) =>
-        Effect.gen(function* () {
+        Effect.gen(function* deliverRemoval() {
           const at = yield* now;
           const targets = yield* pushTargets;
+          // oxlint-disable-next-line unicorn/no-array-for-each -- Effect.forEach, not Array#forEach
           yield* Effect.forEach(
             targets,
             (target) =>
-              Effect.gen(function* () {
+              Effect.gen(function* removeTarget() {
                 const base = {
                   environment: target.environment,
                   topic: target.topic,
@@ -727,7 +732,7 @@ export const InboxLive = Inbox.make(
         state
       );
 
-      const ensureRetention = Effect.gen(function* () {
+      const ensureRetention = Effect.gen(function* ensureRetention() {
         const events = yield* Cloudflare.Workers.listEvents;
         if (events.some((event) => event.id === RETENTION_EVENT)) {
           return;
@@ -741,10 +746,10 @@ export const InboxLive = Inbox.make(
         );
       }).pipe(withState);
 
-      const pruneExpired = Effect.gen(function* () {
+      const pruneExpired = Effect.gen(function* pruneExpiredRows() {
         const filters = retentionFilters(yield* now);
         yield* db.transaction((tx) =>
-          Effect.gen(function* () {
+          Effect.gen(function* pruneInTransaction() {
             yield* tx.delete(taps).where(filters.taps);
             yield* tx.delete(invites).where(filters.invites);
             yield* tx.delete(tickets).where(filters.tickets);
@@ -759,7 +764,7 @@ export const InboxLive = Inbox.make(
       }
 
       const rpc: InboxRpc = {
-        initialize: Effect.fn("Inbox.initialize")(function* (
+        initialize: Effect.fn("Inbox.initialize")(function* initialize(
           inboxId,
           request,
           trialEndsAt
@@ -774,7 +779,7 @@ export const InboxLive = Inbox.make(
           );
           const createdAt = yield* now;
           yield* db.transaction((tx) =>
-            Effect.gen(function* () {
+            Effect.gen(function* insertInbox() {
               yield* tx.insert(inbox).values({
                 id: 1,
                 inboxId,
@@ -801,7 +806,7 @@ export const InboxLive = Inbox.make(
           };
         }, orDieOnStorage),
 
-        snapshot: Effect.fn("Inbox.snapshot")(function* (token) {
+        snapshot: Effect.fn("Inbox.snapshot")(function* snapshot(token) {
           const actor = yield* authenticate(token);
           const row = yield* inboxRow;
           const recipientName = row?.recipientName ?? "";
@@ -830,13 +835,15 @@ export const InboxLive = Inbox.make(
             credentialId: actor.id,
             recipientName,
             sequence,
-            taps: [...byId.values()].sort((a, b) => b.createdAt - a.createdAt),
+            taps: [...byId.values()].toSorted(
+              (a, b) => b.createdAt - a.createdAt
+            ),
             credentials: yield* listCredentials,
             plan: planOf(row, yield* now),
           };
         }, orDieOnStorage),
 
-        createInvite: Effect.fn("Inbox.createInvite")(function* (
+        createInvite: Effect.fn("Inbox.createInvite")(function* createInvite(
           token,
           request
         ) {
@@ -874,7 +881,7 @@ export const InboxLive = Inbox.make(
           };
         }, orDieOnStorage),
 
-        redeemInvite: Effect.fn("Inbox.redeemInvite")(function* (
+        redeemInvite: Effect.fn("Inbox.redeemInvite")(function* redeemInvite(
           code,
           request
         ) {
@@ -882,7 +889,7 @@ export const InboxLive = Inbox.make(
           const credential = yield* issueCredential("sender", request.name);
           const at = yield* now;
           const grant = yield* db.transaction((tx) =>
-            Effect.gen(function* () {
+            Effect.gen(function* redeemInTransaction() {
               const [invite] = yield* tx
                 .select()
                 .from(invites)
@@ -930,7 +937,11 @@ export const InboxLive = Inbox.make(
           return grant;
         }, orDieOnStorage),
 
-        sendTap: Effect.fn("Inbox.sendTap")(function* (token, request, push) {
+        sendTap: Effect.fn("Inbox.sendTap")(function* sendTap(
+          token,
+          request,
+          push
+        ) {
           const actor = yield* requireSender(token);
           if (isObjectionable(request.body)) {
             return yield* new InvalidRequest({
@@ -941,7 +952,7 @@ export const InboxLive = Inbox.make(
           const id = yield* randomId();
           const createdAt = yield* now;
           const tapId = yield* db.transaction((tx) =>
-            Effect.gen(function* () {
+            Effect.gen(function* insertTap() {
               const [existing] = yield* tx
                 .select()
                 .from(taps)
@@ -1008,7 +1019,7 @@ export const InboxLive = Inbox.make(
           return tap;
         }, orDieOnStorage),
 
-        markDisplayed: Effect.fn("Inbox.markDisplayed")(function* (
+        markDisplayed: Effect.fn("Inbox.markDisplayed")(function* markDisplayed(
           token,
           tapId
         ) {
@@ -1028,7 +1039,7 @@ export const InboxLive = Inbox.make(
           return updated;
         }, orDieOnStorage),
 
-        acknowledge: Effect.fn("Inbox.acknowledge")(function* (
+        acknowledge: Effect.fn("Inbox.acknowledge")(function* acknowledge(
           token,
           tapId,
           request,
@@ -1053,7 +1064,7 @@ export const InboxLive = Inbox.make(
           // First committed acknowledgement wins; retries and other Macs get it back.
           const changed = yield* db
             .transaction((tx) =>
-              Effect.gen(function* () {
+              Effect.gen(function* acknowledgeInTransaction() {
                 const [row] = yield* tx
                   .update(inbox)
                   .set({ sequence: sql`${inbox.sequence} + 1` })
@@ -1092,7 +1103,7 @@ export const InboxLive = Inbox.make(
           return tap;
         }, orDieOnStorage),
 
-        registerPush: Effect.fn("Inbox.registerPush")(function* (
+        registerPush: Effect.fn("Inbox.registerPush")(function* registerPush(
           token,
           request
         ) {
@@ -1115,7 +1126,7 @@ export const InboxLive = Inbox.make(
           return { registered: true as const };
         }, orDieOnStorage),
 
-        activityToken: Effect.fn("Inbox.activityToken")(function* (
+        activityToken: Effect.fn("Inbox.activityToken")(function* activityToken(
           token,
           tapId,
           request
@@ -1137,7 +1148,10 @@ export const InboxLive = Inbox.make(
           return { saved: true as const };
         }, orDieOnStorage),
 
-        revoke: Effect.fn("Inbox.revoke")(function* (token, credentialId) {
+        revoke: Effect.fn("Inbox.revoke")(function* revoke(
+          token,
+          credentialId
+        ) {
           // A device can remove anyone; a sender can only unpair itself.
           const actor = yield* authenticate(token);
           if (actor.kind === "sender" && actor.id !== credentialId) {
@@ -1147,7 +1161,7 @@ export const InboxLive = Inbox.make(
           }
           const at = yield* now;
           const revoked = yield* db.transaction((tx) =>
-            Effect.gen(function* () {
+            Effect.gen(function* revokeInTransaction() {
               const devices = yield* tx
                 .select({ id: credentials.id, platform: credentials.platform })
                 .from(credentials)
@@ -1201,7 +1215,11 @@ export const InboxLive = Inbox.make(
           return { revoked: true as const };
         }, orDieOnStorage),
 
-        deleteTap: Effect.fn("Inbox.deleteTap")(function* (token, tapId, push) {
+        deleteTap: Effect.fn("Inbox.deleteTap")(function* deleteTap(
+          token,
+          tapId,
+          push
+        ) {
           const actor = yield* authenticate(token);
           const tap = yield* getTap(tapId);
           // Someone else's tap is none of a sender's business, so: not found.
@@ -1209,7 +1227,7 @@ export const InboxLive = Inbox.make(
             return yield* new NotFound({ message: "No such tap" });
           }
           const { sequence, activities } = yield* db.transaction((tx) =>
-            Effect.gen(function* () {
+            Effect.gen(function* deleteTapInTransaction() {
               const [row] = yield* tx
                 .update(inbox)
                 .set({ sequence: sql`${inbox.sequence} + 1` })
@@ -1234,10 +1252,12 @@ export const InboxLive = Inbox.make(
           return { deleted: true as const };
         }, orDieOnStorage),
 
-        deleteSender: Effect.fn("Inbox.deleteSender")(function* (token) {
+        deleteSender: Effect.fn("Inbox.deleteSender")(function* deleteSender(
+          token
+        ) {
           const actor = yield* requireSender(token);
           yield* db.transaction((tx) =>
-            Effect.gen(function* () {
+            Effect.gen(function* deleteInTransaction() {
               yield* tx.delete(taps).where(eq(taps.senderId, actor.id));
               yield* tx
                 .delete(tickets)
@@ -1256,44 +1276,52 @@ export const InboxLive = Inbox.make(
           return { deleted: true as const };
         }, orDieOnStorage),
 
-        checkoutContext: Effect.fn("Inbox.checkoutContext")(function* (token) {
-          yield* requireDevice(token);
-          const row = yield* inboxRow;
-          if ((row?.paidAt ?? null) !== null) {
-            return yield* new Conflict({
-              message: "Shouldertap is already unlocked for this inbox.",
-            });
-          }
-          return {
-            inboxId: token.inboxId,
-            recipientName: row?.recipientName ?? "",
-          };
-        }, orDieOnStorage),
+        checkoutContext: Effect.fn("Inbox.checkoutContext")(
+          function* checkoutContext(token) {
+            yield* requireDevice(token);
+            const row = yield* inboxRow;
+            if ((row?.paidAt ?? null) !== null) {
+              return yield* new Conflict({
+                message: "Shouldertap is already unlocked for this inbox.",
+              });
+            }
+            return {
+              inboxId: token.inboxId,
+              recipientName: row?.recipientName ?? "",
+            };
+          },
+          orDieOnStorage
+        ),
 
-        recordPurchase: Effect.fn("Inbox.recordPurchase")(function* (purchase) {
-          // Webhooks retry and can repeat: only an unpaid inbox, or the same
-          // order again, is updated. A second purchase keeps the first.
-          const updated = yield* db
-            .update(inbox)
-            .set({
-              paidAt: purchase.at,
-              orderId: purchase.orderId,
-              purchaseEmail: purchase.email,
-            })
-            .where(
-              and(
-                eq(inbox.id, 1),
-                sql`(${inbox.paidAt} IS NULL OR ${inbox.orderId} = ${purchase.orderId})`
+        recordPurchase: Effect.fn("Inbox.recordPurchase")(
+          function* recordPurchase(purchase) {
+            // Webhooks retry and can repeat: only an unpaid inbox, or the same
+            // order again, is updated. A second purchase keeps the first.
+            const updated = yield* db
+              .update(inbox)
+              .set({
+                paidAt: purchase.at,
+                orderId: purchase.orderId,
+                purchaseEmail: purchase.email,
+              })
+              .where(
+                and(
+                  eq(inbox.id, 1),
+                  sql`(${inbox.paidAt} IS NULL OR ${inbox.orderId} = ${purchase.orderId})`
+                )
               )
-            )
-            .returning({ id: inbox.id });
-          if (updated.length > 0) {
-            yield* broadcastCredentials;
-          }
-          return { applied: updated.length > 0 };
-        }, orDieOnStorage),
+              .returning({ id: inbox.id });
+            if (updated.length > 0) {
+              yield* broadcastCredentials;
+            }
+            return { applied: updated.length > 0 };
+          },
+          orDieOnStorage
+        ),
 
-        recordRefund: Effect.fn("Inbox.recordRefund")(function* (orderId) {
+        recordRefund: Effect.fn("Inbox.recordRefund")(function* recordRefund(
+          orderId
+        ) {
           const updated = yield* db
             .update(inbox)
             .set({ paidAt: null })
@@ -1305,7 +1333,9 @@ export const InboxLive = Inbox.make(
           return { applied: updated.length > 0 };
         }, orDieOnStorage),
 
-        createTicket: Effect.fn("Inbox.createTicket")(function* (token) {
+        createTicket: Effect.fn("Inbox.createTicket")(function* createTicket(
+          token
+        ) {
           const actor = yield* authenticate(token);
           const id = yield* randomId();
           const secret = yield* randomId(24);
@@ -1325,14 +1355,11 @@ export const InboxLive = Inbox.make(
         }, orDieOnStorage),
       };
 
-      const unauthorized = (message: string) =>
-        HttpServerResponse.text(message, { status: 401 });
-
       return {
         ...rpc,
 
         // `GET /v1/connect?ticket=…`, forwarded by the Worker.
-        fetch: Effect.gen(function* () {
+        fetch: Effect.gen(function* fetch() {
           const request = yield* HttpServerRequest;
           const query = request.url.includes("?")
             ? request.url.slice(request.url.indexOf("?") + 1)
@@ -1377,7 +1404,7 @@ export const InboxLive = Inbox.make(
         }).pipe(Effect.orDie),
 
         alarm: () =>
-          Effect.gen(function* () {
+          Effect.gen(function* alarm() {
             if (!(yield* inboxRow)) {
               // Never initialized: nothing to keep, so stop the schedule.
               return yield* Cloudflare.Workers.cancelEvent(RETENTION_EVENT);

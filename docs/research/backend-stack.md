@@ -27,18 +27,18 @@ The user-requested [Alchemy llms.txt](https://alchemy.run/llms.txt) was explicit
 
 Published npm metadata on the checked date:
 
-| Package | Published lane | Verified version |
-| --- | --- | --- |
-| `alchemy` | `latest`, **beta** | `2.0.0-beta.79` |
-| `effect` | `latest`, stable | `3.22.2` |
-| `effect` | `rc`, **release candidate** | `4.0.0-rc.118` |
-| `create-better-t-stack` | `latest` | `3.44.2` |
-| `ultracite` | `latest` | `7.12.2` |
-| `better-auth` | `latest` | `1.7.6` |
-| `@effect/sql-d1` | `latest`, Effect 3 driver | `0.50.0` |
-| `@effect/sql-d1` | `rc`, Effect 4 driver | `4.0.0-rc.118` |
-| `@effect/sql-sqlite-do` | `rc`, Effect 4 driver | `4.0.0-rc.118` |
-| `@alchemy.run/better-auth` | `latest`, **beta** | `2.0.0-beta.79` |
+| Package                    | Published lane              | Verified version |
+| -------------------------- | --------------------------- | ---------------- |
+| `alchemy`                  | `latest`, **beta**          | `2.0.0-beta.79`  |
+| `effect`                   | `latest`, stable            | `3.22.2`         |
+| `effect`                   | `rc`, **release candidate** | `4.0.0-rc.118`   |
+| `create-better-t-stack`    | `latest`                    | `3.44.2`         |
+| `ultracite`                | `latest`                    | `7.12.2`         |
+| `better-auth`              | `latest`                    | `1.7.6`          |
+| `@effect/sql-d1`           | `latest`, Effect 3 driver   | `0.50.0`         |
+| `@effect/sql-d1`           | `rc`, Effect 4 driver       | `4.0.0-rc.118`   |
+| `@effect/sql-sqlite-do`    | `rc`, Effect 4 driver       | `4.0.0-rc.118`   |
+| `@alchemy.run/better-auth` | `latest`, **beta**          | `2.0.0-beta.79`  |
 
 Sources: publisher-owned [Alchemy metadata](https://registry.npmjs.org/alchemy), [Effect metadata](https://registry.npmjs.org/effect), [Better T Stack metadata](https://registry.npmjs.org/create-better-t-stack), [Ultracite metadata](https://registry.npmjs.org/ultracite), [Better Auth metadata](https://registry.npmjs.org/better-auth), [D1 driver metadata](https://registry.npmjs.org/@effect%2Fsql-d1), [DO driver metadata](https://registry.npmjs.org/@effect%2Fsql-sqlite-do), [Alchemy auth metadata](https://registry.npmjs.org/@alchemy.run%2Fbetter-auth).
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import * as Effect from "effect/Effect";
 
 import { claimTrial, planOf, requireActivePlan, TRIAL_MS } from "../src/plan";

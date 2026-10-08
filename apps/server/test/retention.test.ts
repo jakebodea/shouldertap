@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
+
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import {
@@ -12,19 +13,19 @@ import {
 } from "../src/retention";
 import { credentials, invites, taps, tickets } from "../src/schema";
 
-const MIGRATIONS = join(import.meta.dir, "../drizzle");
+const MIGRATIONS = path.join(import.meta.dir, "../drizzle");
 const NOW = Date.UTC(2026, 9, 1);
-const MIGRATION_DIR = /^\d/;
+const MIGRATION_DIR = /^\d/u;
 
 /** The Inbox's schema, from the same migrations the Durable Object applies. */
 const freshDb = () => {
   const sqlite = new Database(":memory:");
   for (const dir of readdirSync(MIGRATIONS)
     .filter((d) => MIGRATION_DIR.test(d))
-    .sort()) {
+    .toSorted()) {
     const migration = readFileSync(
-      join(MIGRATIONS, dir, "migration.sql"),
-      "utf8"
+      path.join(MIGRATIONS, dir, "migration.sql"),
+      "utf-8"
     );
     for (const statement of migration.split("--> statement-breakpoint")) {
       sqlite.run(statement);
@@ -75,7 +76,7 @@ const prune = (db: ReturnType<typeof freshDb>, now: number) => {
   db.delete(credentials).where(filters.revokedCredentials).run();
 };
 
-const ids = (rows: { id: string }[]) => rows.map((row) => row.id).sort();
+const ids = (rows: { id: string }[]) => rows.map((row) => row.id).toSorted();
 
 describe("retention", () => {
   test("deletes taps older than 90 days and keeps newer ones", () => {
@@ -97,7 +98,7 @@ describe("retention", () => {
         .from(taps)
         .all()
         .map((t) => t.sequence)
-        .sort()
+        .toSorted()
     ).toEqual([2, 3]);
   });
 

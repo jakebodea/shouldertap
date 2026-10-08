@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import type { Tap } from "@shouldertap/domain";
 
 import {
@@ -39,7 +40,7 @@ describe("provider token", () => {
     const der = new Uint8Array(
       (await crypto.subtle.exportKey("pkcs8", pair.privateKey)) as ArrayBuffer
     );
-    const p8 = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...der))}\n-----END PRIVATE KEY-----\n`;
+    const p8 = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCodePoint(...der))}\n-----END PRIVATE KEY-----\n`;
 
     const jwt = await signProviderToken(
       { p8, keyId: "ABC123DEFG", teamId: "6C46GY4Z38" },
@@ -55,7 +56,7 @@ describe("provider token", () => {
 
     const raw = Uint8Array.from(
       atob(signature.replaceAll("-", "+").replaceAll("_", "/")),
-      (char) => char.charCodeAt(0)
+      (char) => char.codePointAt(0) ?? 0
     );
     const valid = await crypto.subtle.verify(
       { name: "ECDSA", hash: "SHA-256" },

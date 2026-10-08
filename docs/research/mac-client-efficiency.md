@@ -46,7 +46,7 @@ The prototype is one Swift file of about 420 lines in Swift 6 language mode:
 
 Build: `swiftc -O -wmo`, arm64 and x86_64 sliced with `lipo`, `strip -x`, ad-hoc signed. A demo tap was sent through the echo server, decoded as a real `ServerEvent`, and raised the overlays.
 
-| | Current RN app (Release, universal) | Native prototype (Release, universal) |
+|  | Current RN app (Release, universal) | Native prototype (Release, universal) |
 | --- | --- | --- |
 | Installed size | 40 MB (27 MB binary, 9.3 MB `hermesvm.framework`, 3.9 MB Hermes bytecode) | **792 KB** (measured): 504 KB binary, 270 KB of fonts |
 | Per-arch binary | arm64 13.7 MB + 4.9 MB Hermes; x86_64 14.1 MB + 4.9 MB (measured, `lipo -detailed_info`) | arm64 248 KB, x86_64 224 KB (measured) |
@@ -68,6 +68,7 @@ Notes on the measurements:
 ## Measured: GPUI vs native Swift
 
 Same Mac (M4, two displays: 4K external and built-in Retina), same script for both: idle, popover open for 2 seconds, a demo tap through `wss://echo.websocket.org` covering both displays for about 9 seconds, then idle. The GPUI prototype mirrors the Swift one:
+
 - `gpui` 0.2.2 from crates.io, with `gpui-tray` 0.1.4 for the menu bar item and a pop-up window for the popover.
 - One pop-up window per display, lifted to the screen-saver level through its raw AppKit handle.
 - `async-tungstenite` on smol's kqueue reactor, so the socket never polls.
@@ -88,6 +89,7 @@ Same Mac (M4, two displays: 4K external and built-in Retina), same script for bo
 The overlay difference is GPU memory: each full-screen Metal window holds several drawables (`footprint` showed 127 MB of IOSurface and 64 MB of IOAccelerator). SwiftUI's solid fills and text layers need far less. It lasts only while a tap is on screen.
 
 GPUI rendered the design faithfully: custom fonts, rounded pills and colors. Gaps found:
+
 - There is no letter-spacing API, so the message's tight tracking is lost.
 - The overlay stopped below the menu bar, which needs fixing.
 - GPUI has no text field; its own input example is about 750 lines.
@@ -97,7 +99,7 @@ Verdict: Swift wins on download size (12 times smaller), on overlay memory (abou
 
 ## Options compared
 
-| | (a) RN, trimmed | (b) Native Swift | (c) Rust core + Swift UI (UniFFI) | (d) Tauri 2 | (e) Slint / iced / egui |
+|  | (a) RN, trimmed | (b) Native Swift | (c) Rust core + Swift UI (UniFFI) | (d) Tauri 2 | (e) Slint / iced / egui |
 | --- | --- | --- | --- | --- | --- |
 | Install size (universal) | Estimate ≥ 34 MB; about 20 MB if arm64-only | **0.8 MB; about 3.6 MB with Sparkle** (measured) | Native plus Rust: +0.47 MB floor (measured), realistically several MB with tokio, TLS, WebSocket and serde (estimate; no primary figure found) | About 5 MB on macOS arm64 ([Elanis benchmark](https://github.com/Elanis/web-to-desktop-framework-comparison), Sep 2026); "can be less than 600KB" ([Tauri](https://v2.tauri.app/start/)) | Not published; expect several MB (own renderer and text stack) |
 | Idle memory | Estimate 30–35 MB (Hermes heap and RN runtime stay) | **13 MB** (measured) | About native + 1–5 MB (estimate) | About 95 MB (Elanis, main-process tree; WebKit's WebContent and Networking are separate XPC processes, [WebKit architecture](https://docs.webkit.org/Deep%20Dive/Architecture/WebKit2.html), probably not counted) | Unmeasured |

@@ -1,10 +1,5 @@
-import {
-  type CSSProperties,
-  type ReactNode,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 const SWEEP_MS = 760;
 
@@ -18,7 +13,7 @@ const prefersReducedMotion = () =>
  * The circle is centered on the viewport's corner, so each instance measures
  * where it sits and offsets its mask to match.
  */
-export function Swept({
+export const Swept = ({
   id,
   children,
   className,
@@ -26,7 +21,7 @@ export function Swept({
   id: string | number;
   children: ReactNode;
   className?: string;
-}) {
+}) => {
   const ref = useRef<HTMLSpanElement>(null);
   const [state, setState] = useState<{
     id: string | number;
@@ -52,11 +47,12 @@ export function Swept({
       el.style.setProperty("--ox", `${-rect.left}px`);
       el.style.setProperty("--oy", `${-rect.top}px`);
     }
-    const timer = setTimeout(
-      () => setState((s) => ({ ...s, previous: null })),
-      SWEEP_MS
-    );
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      setState((s) => ({ ...s, previous: null }));
+    }, SWEEP_MS);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [state.previous]);
 
   const sweeping = state.previous !== null;
@@ -74,4 +70,4 @@ export function Swept({
       </span>
     </span>
   );
-}
+};

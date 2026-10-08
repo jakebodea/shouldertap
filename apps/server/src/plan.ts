@@ -1,4 +1,5 @@
-import { PaymentRequired, type Plan } from "@shouldertap/domain";
+import { PaymentRequired } from "@shouldertap/domain";
+import type { Plan } from "@shouldertap/domain";
 import * as Effect from "effect/Effect";
 
 /** How long a new inbox delivers taps before it needs paying for. */

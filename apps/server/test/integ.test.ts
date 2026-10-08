@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
+
 import { makeShouldertapClient } from "@shouldertap/client";
-import { ServerEvent, type Tap } from "@shouldertap/domain";
+import { ServerEvent } from "@shouldertap/domain";
+import type { Tap } from "@shouldertap/domain";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Bun";
 import * as Effect from "effect/Effect";
@@ -28,14 +30,23 @@ const stack = beforeAll(
 );
 afterAll.skipIf(!!existing || !!process.env.NO_DESTROY)(destroy(Stack));
 
-const HTTP_SCHEME = /^http/;
+const HTTP_SCHEME = /^http/u;
 const decodeEvent = Schema.decodeUnknownSync(ServerEvent);
+
+const deleted = (id: string) => (event: ServerEvent) =>
+  event.type === "deleted" && event.tapId === id;
+
+/** Random per run, so reruns against a long-lived stack start fresh. */
+const fingerprint = () =>
+  Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
 
 const client = (url: string, token: string | null = null) =>
   makeShouldertapClient(url, token);
 
 /** A Mac, a second Mac and a sender, paired to a fresh inbox. */
-const pairedInbox = Effect.fn(function* (url: string) {
+const pairedInbox = Effect.fn(function* pairedInbox(url: string) {
   const anon = yield* client(url);
   const macA = yield* anon.pairing.createInbox({
     payload: { recipientName: "Jake", deviceName: "Studio Mac" },
@@ -57,7 +68,7 @@ const pairedInbox = Effect.fn(function* (url: string) {
 });
 
 /** Opens a live connection and collects decoded events into a queue. */
-const listen = Effect.fn(function* (url: string, token: string) {
+const listen = Effect.fn(function* listen(url: string, token: string) {
   const { ticket } = yield* (yield* client(url, token)).inbox.connectTicket();
   const events = yield* Queue.unbounded<ServerEvent>();
   yield* Effect.acquireRelease(
@@ -72,12 +83,17 @@ const listen = Effect.fn(function* (url: string, token: string) {
           );
         }
       });
-      socket.addEventListener("open", () => resume(Effect.succeed(socket)));
-      socket.addEventListener("error", () =>
-        resume(Effect.fail(new Error("WebSocket failed")))
-      );
+      socket.addEventListener("open", () => {
+        resume(Effect.succeed(socket));
+      });
+      socket.addEventListener("error", () => {
+        resume(Effect.fail(new Error("WebSocket failed")));
+      });
     }),
-    (socket) => Effect.sync(() => socket.close())
+    (socket) =>
+      Effect.sync(() => {
+        socket.close();
+      })
   );
   const next = (match: (event: ServerEvent) => boolean) =>
     Queue.take(events).pipe(
@@ -94,7 +110,7 @@ const tapEvent = (id: string, state?: Tap["state"]) => (event: ServerEvent) =>
 
 test(
   "pairs devices and senders with one-time invites, and links iPhones",
-  Effect.gen(function* () {
+  Effect.gen(function* pairingFlow() {
     const url = (yield* stack).server;
     yield* Test.getWhenReady(url);
     const { anon, macA, macB, sender, senderInvite } = yield* pairedInbox(url);
@@ -261,7 +277,7 @@ test(
 
 test(
   "delivers a tap live, first acknowledgement wins, everyone sees it",
-  Effect.gen(function* () {
+  Effect.gen(function* liveDelivery() {
     const url = (yield* stack).server;
     const { macA, macB, sender } = yield* pairedInbox(url);
     const a = yield* listen(url, macA.token);
@@ -329,8 +345,6 @@ test(
 
     // Deleting: a device deletes any tap, a sender only their own, and it's
     // gone for everyone.
-    const deleted = (id: string) => (event: ServerEvent) =>
-      event.type === "deleted" && event.tapId === id;
     const invite = yield* macApi.inbox.createInvite({
       payload: { kind: "sender" },
     });
@@ -378,25 +392,26 @@ test(
 
 test(
   "connect tickets are one-time and revocation disconnects",
-  Effect.gen(function* () {
+  Effect.gen(function* connectTickets() {
     const url = (yield* stack).server;
     const { macA, sender } = yield* pairedInbox(url);
     const s = yield* listen(url, sender.token);
 
-    const reuseOpened = yield* Effect.promise(
-      () =>
-        new Promise<boolean>((resolve) => {
-          const socket = new WebSocket(
-            `${url.replace(HTTP_SCHEME, "ws")}/v1/connect?ticket=${encodeURIComponent(s.ticket)}`
-          );
-          socket.addEventListener("open", () => {
-            socket.close();
-            resolve(true);
-          });
-          socket.addEventListener("error", () => resolve(false));
-          socket.addEventListener("close", () => resolve(false));
-        })
-    );
+    const reuseOpened = yield* Effect.callback<boolean>((resume) => {
+      const socket = new WebSocket(
+        `${url.replace(HTTP_SCHEME, "ws")}/v1/connect?ticket=${encodeURIComponent(s.ticket)}`
+      );
+      socket.addEventListener("open", () => {
+        socket.close();
+        resume(Effect.succeed(true));
+      });
+      socket.addEventListener("error", () => {
+        resume(Effect.succeed(false));
+      });
+      socket.addEventListener("close", () => {
+        resume(Effect.succeed(false));
+      });
+    });
     expect(reuseOpened).toBe(false);
 
     yield* (yield* client(url, macA.token)).inbox.revoke({
@@ -416,7 +431,7 @@ test(
 
 test(
   "a sender can unpair itself, and only itself",
-  Effect.gen(function* () {
+  Effect.gen(function* senderUnpair() {
     const url = (yield* stack).server;
     const { anon, macA, sender } = yield* pairedInbox(url);
     const mac = yield* client(url, macA.token);
@@ -452,7 +467,7 @@ test(
 
 test(
   "limits each sender to 30 taps an hour, retries still succeed",
-  Effect.gen(function* () {
+  Effect.gen(function* senderRateLimit() {
     const url = (yield* stack).server;
     const { sender } = yield* pairedInbox(url);
     const senderApi = yield* client(url, sender.token);
@@ -460,9 +475,10 @@ test(
       senderApi.inbox.sendTap({ payload: { requestId, body } });
 
     const requestIds = Array.from({ length: 30 }, () => crypto.randomUUID());
-    const sent = yield* Effect.forEach(requestIds, (requestId, i) =>
-      send(requestId, `tap ${i}`)
-    );
+    const sent: Tap[] = [];
+    for (const [i, requestId] of requestIds.entries()) {
+      sent.push(yield* send(requestId, `tap ${i}`));
+    }
     const limited = yield* send(crypto.randomUUID(), "one more").pipe(
       Effect.flip
     );
@@ -478,7 +494,7 @@ test(
 
 test(
   "caps an inbox at 20 senders and 10 devices",
-  Effect.gen(function* () {
+  Effect.gen(function* inboxCaps() {
     const url = (yield* stack).server;
     const { anon, macA } = yield* pairedInbox(url);
     const mac = yield* client(url, macA.token);
@@ -488,13 +504,10 @@ test(
       anon.pairing.redeemInvite({ payload: { code, name } });
 
     // pairedInbox has 1 sender and 2 Macs. Fill senders to 19.
-    yield* Effect.forEach(
-      Array.from({ length: 18 }, (_, i) => i),
-      (i) =>
-        invite("sender").pipe(
-          Effect.flatMap(({ code }) => redeem(code, `Sender ${i}`))
-        )
-    );
+    for (let i = 0; i < 18; i += 1) {
+      const { code } = yield* invite("sender");
+      yield* redeem(code, `Sender ${i}`);
+    }
     // Two invites made at 19; the second can't be redeemed at 20…
     const last = yield* invite("sender");
     const spare = yield* invite("sender");
@@ -511,13 +524,10 @@ test(
     expect(later.kind).toBe("sender");
 
     // Macs: 2 paired, fill to 10.
-    yield* Effect.forEach(
-      Array.from({ length: 8 }, (_, i) => i),
-      (i) =>
-        invite("device").pipe(
-          Effect.flatMap(({ code }) => redeem(code, `Mac ${i}`))
-        )
-    );
+    for (let i = 0; i < 8; i += 1) {
+      const { code } = yield* invite("device");
+      yield* redeem(code, `Mac ${i}`);
+    }
     const tooManyMacs = yield* invite("device").pipe(Effect.flip);
     expect(tooManyMacs._tag).toBe("Conflict");
     expect(tooManyMacs.message).toContain("10 devices");
@@ -528,15 +538,10 @@ test(
 
 test(
   "a Mac keeps its first trial when it sets up again",
-  Effect.gen(function* () {
+  Effect.gen(function* trialReuse() {
     const url = (yield* stack).server;
     const anon = yield* client(url);
-    // Random per run, so reruns against a long-lived stack start fresh.
-    const fingerprint = () =>
-      Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
-        byte.toString(16).padStart(2, "0")
-      ).join("");
-    const trialEndsAt = Effect.fn(function* (
+    const trialEndsAt = Effect.fn(function* trialEndsAt(
       fromMachine: string,
       platform?: "windows"
     ) {
@@ -592,7 +597,7 @@ test(
 // Runs last: it exhausts this IP's inbox-creation budget for the next minute.
 test(
   "sender deletion removes messages, invalidates access and preserves other senders",
-  Effect.gen(function* () {
+  Effect.gen(function* senderDeletion() {
     const url = (yield* stack).server;
     const { anon, macA, sender } = yield* pairedInbox(url);
     const mac = yield* client(url, macA.token);
@@ -651,7 +656,7 @@ test(
 
 test(
   "rate-limits inbox creation per client",
-  Effect.gen(function* () {
+  Effect.gen(function* creationRateLimit() {
     const url = (yield* stack).server;
     const anon = yield* client(url);
     const create = anon.pairing

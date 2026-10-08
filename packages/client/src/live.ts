@@ -1,7 +1,9 @@
-import { ServerEvent, type Tap } from "@shouldertap/domain";
+import { ServerEvent } from "@shouldertap/domain";
+import type { Tap } from "@shouldertap/domain";
 import * as Schema from "effect/Schema";
 
-import { type ApiClient, ApiError } from "./api";
+import { ApiError } from "./api";
+import type { ApiClient } from "./api";
 
 export type LiveStatus = "connecting" | "live" | "offline";
 
@@ -58,7 +60,7 @@ export const connectLive = (
     }
   };
 
-  const scheduleRetry = () => {
+  const scheduleRetry = (reconnect: () => void) => {
     if (closed) {
       return;
     }
@@ -66,7 +68,7 @@ export const connectLive = (
     const delay =
       BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)] ?? 30_000;
     attempt += 1;
-    retryTimer = setTimeout(open, delay);
+    retryTimer = setTimeout(reconnect, delay);
   };
 
   const stop = () => {
@@ -76,7 +78,7 @@ export const connectLive = (
     socket = null;
   };
 
-  async function open() {
+  const open = async (): Promise<void> => {
     clearTimers();
     if (closed) {
       return;
@@ -91,7 +93,7 @@ export const connectLive = (
         handlers.onRevoked?.();
         return;
       }
-      scheduleRetry();
+      scheduleRetry(open);
       return;
     }
     if (closed) {
@@ -102,7 +104,7 @@ export const connectLive = (
     );
     socket = next;
 
-    next.onopen = () => {
+    next.addEventListener("open", () => {
       attempt = 0;
       setStatus("live");
       handlers.onResync();
@@ -111,9 +113,9 @@ export const connectLive = (
           next.send("ping");
         }
       }, PING_INTERVAL_MS);
-    };
+    });
 
-    next.onmessage = (message) => {
+    next.addEventListener("message", (message) => {
       if (typeof message.data !== "string" || message.data === "pong") {
         return;
       }
@@ -130,43 +132,48 @@ export const connectLive = (
         return;
       }
       switch (event.value.type) {
-        case "tap":
+        case "tap": {
           handlers.onTap(event.value.tap);
           break;
-        case "deleted":
+        }
+        case "deleted": {
           if (handlers.onTapDeleted) {
             handlers.onTapDeleted(event.value.tapId);
           } else {
             handlers.onResync();
           }
           break;
-        case "credentials":
+        }
+        case "credentials": {
           handlers.onResync();
           break;
-        case "revoked":
+        }
+        case "revoked": {
           stop();
           handlers.onRevoked?.();
           break;
-        default:
+        }
+        default: {
           break;
+        }
       }
-    };
+    });
 
-    next.onclose = () => {
+    next.addEventListener("close", () => {
       if (socket === next) {
         socket = null;
         if (pingTimer) {
           clearInterval(pingTimer);
           pingTimer = null;
         }
-        scheduleRetry();
+        scheduleRetry(open);
       }
-    };
+    });
 
-    next.onerror = () => {
-      // onclose follows and schedules the retry.
-    };
-  }
+    next.addEventListener("error", () => {
+      // The close event follows and schedules the retry.
+    });
+  };
 
   open();
 
@@ -195,7 +202,7 @@ export const mergeTap = (taps: readonly Tap[], incoming: Tap): Tap[] => {
   if (existing && existing.sequence > incoming.sequence) {
     return [...taps];
   }
-  return [incoming, ...taps.filter((tap) => tap.id !== incoming.id)].sort(
+  return [incoming, ...taps.filter((tap) => tap.id !== incoming.id)].toSorted(
     (a, b) => b.createdAt - a.createdAt
   );
 };
@@ -204,13 +211,13 @@ export const mergeTap = (taps: readonly Tap[], incoming: Tap): Tap[] => {
 export const mergeSnapshot = (
   local: readonly Tap[],
   snapshot: readonly Tap[]
-): Tap[] =>
-  local.reduce(
-    (acc, tap) => {
-      const fromServer = acc.find((candidate) => candidate.id === tap.id);
-      return fromServer && fromServer.sequence < tap.sequence
-        ? mergeTap(acc, tap)
-        : acc;
-    },
-    [...snapshot].sort((a, b) => b.createdAt - a.createdAt)
-  );
+): Tap[] => {
+  let merged = snapshot.toSorted((a, b) => b.createdAt - a.createdAt);
+  for (const tap of local) {
+    const fromServer = merged.find((candidate) => candidate.id === tap.id);
+    if (fromServer && fromServer.sequence < tap.sequence) {
+      merged = mergeTap(merged, tap);
+    }
+  }
+  return merged;
+};

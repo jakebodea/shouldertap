@@ -2,14 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import {
   closedPreviewNumbers,
-  type PullRequest,
   previewAllowed,
   previewNumber,
   previewNumbers,
-  type ReadFetch,
   readPullRequest,
   readWorkerNames,
 } from "./previews.ts";
+import type { PullRequest, ReadFetch } from "./previews.ts";
 
 const repository = "jakebodea/shouldertap";
 const current: PullRequest = {

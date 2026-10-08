@@ -1,7 +1,8 @@
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig } from "vite";
+import type { Plugin } from "vite";
 
 const INVITE_DESCRIPTION =
   "Pair your iPhone to tap them on the shoulder. Your taps cover their Mac until they answer. Nothing to install.";
@@ -9,12 +10,12 @@ const INVITE_DESCRIPTION =
 /** Swaps a tag's content in index.html, whose meta tags list content first. */
 const meta = (attribute: string, content: string) =>
   [
-    new RegExp(`(<meta\\s+content=")[^"]*("\\s+${attribute})`),
+    new RegExp(`(<meta\\s+content=")[^"]*("\\s+${attribute})`, "u"),
     `$1${content}$2`,
   ] as const;
 
 const INVITE_SWAPS = [
-  [/<title>[^<]*<\/title>/, "<title>You're invited · Shouldertap</title>"],
+  [/<title>[^<]*<\/title>/u, "<title>You're invited · Shouldertap</title>"],
   meta('name="description"', INVITE_DESCRIPTION),
   meta('property="og:title"', "You're invited to Shouldertap"),
   meta('property="og:description"', INVITE_DESCRIPTION),

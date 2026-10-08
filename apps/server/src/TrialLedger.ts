@@ -30,14 +30,14 @@ export class TrialLedger extends Cloudflare.DurableObject<
 >()("TrialLedgers") {}
 
 export const TrialLedgerLive = TrialLedger.make(
-  Effect.gen(function* () {
+  Effect.gen(function* TrialLedgerLive() {
     const state = yield* Cloudflare.DurableObjectState;
 
     return Effect.succeed({
       // Durable Objects run one call at a time across storage reads and
       // writes, so two concurrent setups from one Mac can't both start trials.
       claim: () =>
-        Effect.gen(function* () {
+        Effect.gen(function* claimAndRecord() {
           const recorded = yield* state.storage.get<number>(TRIAL_ENDS_AT);
           const claim = claimTrial(recorded, Date.now());
           if (claim.isNew) {

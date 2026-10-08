@@ -1,4 +1,4 @@
-const physicalNameHash = /^[a-z0-9]+$/;
+const physicalNameHash = /^[a-z0-9]+$/u;
 
 export const previewNumber = (stage: string): number | undefined => {
   const number = Number(stage.slice(3));
@@ -40,7 +40,7 @@ export const previewNumbers = (workerNames: readonly string[]): number[] =>
         return number === undefined ? [] : [number];
       })
     ),
-  ].sort((a, b) => a - b);
+  ].toSorted((a, b) => a - b);
 
 export interface PullRequest {
   head: string;
@@ -141,7 +141,7 @@ export const readWorkerNames = async (
   return body.result.map((worker: unknown) => {
     const { id } = object(worker);
     if (typeof id !== "string") {
-      throw new Error("Worker is missing its name");
+      throw new TypeError("Worker is missing its name");
     }
     return id;
   });

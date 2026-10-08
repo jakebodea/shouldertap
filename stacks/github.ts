@@ -23,7 +23,7 @@ export default Alchemy.Stack(
     providers: Layer.mergeAll(Cloudflare.providers(), GitHub.providers()),
     state: Cloudflare.state(),
   },
-  Effect.gen(function* () {
+  Effect.gen(function* stack() {
     const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
     const account = `com.cloudflare.api.account.${accountId}` as const;
 

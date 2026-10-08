@@ -23,9 +23,8 @@ import { personColors, swatches } from "@shouldertap/domain";
 const web = fileURLToPath(new URL("..", import.meta.url));
 const font = await readFile(
   fileURLToPath(
-    import.meta.resolve(
-      "@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-standard-normal.woff2"
-    )
+    import.meta
+      .resolve("@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-standard-normal.woff2")
   )
 );
 
@@ -132,15 +131,17 @@ try {
   const page = await browser.newPage({
     viewport: { width: 1200, height: 630 },
   });
+  // One page renders each card in turn.
+  /* oxlint-disable no-await-in-loop */
   for (const [html, file] of [
     [site, "og-image.png"],
     [invite, "og-invite.png"],
   ] as const) {
-    // biome-ignore lint/performance/noAwaitInLoops: one page renders each card in turn.
     await page.setContent(html);
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: `${web}public/${file}` });
   }
+  /* oxlint-enable no-await-in-loop */
 } finally {
   await browser.close();
 }

@@ -10,13 +10,13 @@ Every sender picks a color when they pair. **Their color frames a calm paper pag
 
 Neutrals (paper world):
 
-| Token | Value | Use |
-| --- | --- | --- |
-| `paper` | `#f6f5f1` | Page ground inside every frame |
+| Token   | Value     | Use                               |
+| ------- | --------- | --------------------------------- |
+| `paper` | `#f6f5f1` | Page ground inside every frame    |
 | `faint` | `#ebe9e3` | Fields, answer cards, quiet fills |
-| `line` | `#dedcd5` | Hairlines, outline pills |
-| `tone` | `#6f6e69` | Secondary text on paper |
-| `ink` | `#161616` | Primary text on paper |
+| `line`  | `#dedcd5` | Hairlines, outline pills          |
+| `tone`  | `#6f6e69` | Secondary text on paper           |
+| `ink`   | `#161616` | Primary text on paper             |
 
 Dark mode (web only; the overlay stays paper): page `#18181a`, faint `#232326`, line `#34343a`, tone `#9a9994`, text `#f1f0ec`. Frames keep the person's color.
 

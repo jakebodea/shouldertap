@@ -1,7 +1,6 @@
 {
   "name": "shouldertap",
   "private": true,
-  "type": "module",
   "workspaces": {
     "packages": [
       "apps/server",
@@ -22,6 +21,7 @@
       "effect": "4.0.0-rc.115"
     }
   },
+  "type": "module",
   "scripts": {
     "build": "turbo run build",
     "check": "ultracite check",
@@ -31,17 +31,10 @@
     "dev": "alchemy dev",
     "fix": "ultracite fix",
     "plan": "alchemy plan",
-    "test": "turbo run test"
-  },
-  "overrides": {
-    "@effect/platform-node-shared": "4.0.0-rc.115",
-    "@effect/sql-d1": "4.0.0-rc.115",
-    "@effect/sql-sqlite-do": "4.0.0-rc.115",
-    "@effect/vitest": "4.0.0-rc.115",
-    "effect": "4.0.0-rc.115"
+    "test": "turbo run test",
+    "test:lint": "node --test lint/*.test.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14",
     "@cloudflare/workers-types": "catalog:",
     "@effect/platform-bun": "4.0.0-rc.115",
     "@effect/platform-node": "4.0.0-rc.115",
@@ -50,9 +43,18 @@
     "@types/node": "catalog:",
     "alchemy": "2.0.0-beta.79",
     "effect": "catalog:",
+    "oxfmt": "0.72.0",
+    "oxlint": "1.87.0",
     "turbo": "^2.10.12",
     "typescript": "catalog:",
-    "ultracite": "7.12.2"
+    "ultracite": "7.12.4"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.0-rc.115",
+    "@effect/sql-d1": "4.0.0-rc.115",
+    "@effect/sql-sqlite-do": "4.0.0-rc.115",
+    "@effect/vitest": "4.0.0-rc.115",
+    "effect": "4.0.0-rc.115"
   },
   "packageManager": "bun@1.4.2"
 }

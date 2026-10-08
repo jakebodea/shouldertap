@@ -29,7 +29,7 @@ export default Alchemy.Stack(
       : Cloudflare.providers(),
     state: Cloudflare.state(),
   },
-  Effect.gen(function* () {
+  Effect.gen(function* stack() {
     const server = yield* Server;
     const path = yield* Path;
     const production = isProduction(yield* Alchemy.Stage);

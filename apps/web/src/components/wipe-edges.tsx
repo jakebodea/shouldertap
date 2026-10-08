@@ -1,4 +1,5 @@
-import { type RefObject, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
+import type { RefObject } from "react";
 
 import { wipeEdgeCoverage } from "@/lib/wipe";
 
@@ -12,7 +13,7 @@ const blend = (from: string, to: string, amount: number) => {
 };
 
 /** Safari extends solid fixed edge colors into its native browser chrome. */
-export function WipeEdges({
+export const WipeEdges = ({
   frame,
   from,
   to,
@@ -20,7 +21,7 @@ export function WipeEdges({
   frame: RefObject<HTMLDivElement | null>;
   from: string;
   to: string;
-}) {
+}) => {
   const top = useRef<HTMLDivElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
 
@@ -33,6 +34,8 @@ export function WipeEdges({
       }
       // Read the actual eased radius, so pausing, resizing and interrupting the
       // wipe also control the bars. There is no second animation clock.
+      // The registered --wipe property is a <length> such as "12.5px", which Number() reads as NaN.
+      // oxlint-disable-next-line unicorn/prefer-number-coercion -- parseFloat is needed to drop the px unit
       const radius = Number.parseFloat(
         getComputedStyle(root).getPropertyValue("--wipe")
       );
@@ -52,7 +55,9 @@ export function WipeEdges({
       }
     };
     paint();
-    return () => cancelAnimationFrame(request);
+    return () => {
+      cancelAnimationFrame(request);
+    };
   }, [frame, from, to]);
 
   return (
@@ -71,4 +76,4 @@ export function WipeEdges({
       />
     </>
   );
-}
+};

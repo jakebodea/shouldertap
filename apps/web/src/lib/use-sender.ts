@@ -2,16 +2,17 @@ import {
   ApiError,
   connectLive,
   isRetryable,
-  type LiveStatus,
   mergeSnapshot,
   mergeTap,
 } from "@shouldertap/client";
+import type { LiveStatus } from "@shouldertap/client";
 import type { PersonColor, Tap } from "@shouldertap/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./api";
 import { newRequestId } from "./ids";
-import { outboxKey, type Pairing } from "./pairing";
+import { outboxKey } from "./pairing";
+import type { Pairing } from "./pairing";
 
 export interface OutgoingTap {
   readonly body: string;
@@ -60,7 +61,9 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   );
   const outboxRef = useRef(outbox);
   const revokedRef = useRef(onRevoked);
-  revokedRef.current = onRevoked;
+  useEffect(() => {
+    revokedRef.current = onRevoked;
+  });
 
   const updateOutbox = useCallback(
     (update: (current: OutgoingTap[]) => OutgoingTap[]) => {
@@ -133,12 +136,17 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
 
   useEffect(() => {
     const live = connectLive(client, {
-      onTap: (tap) => setTaps((current) => mergeTap(current, tap)),
-      onTapDeleted: (tapId) =>
-        setTaps((current) => current.filter((tap) => tap.id !== tapId)),
+      onTap: (tap) => {
+        setTaps((current) => mergeTap(current, tap));
+      },
+      onTapDeleted: (tapId) => {
+        setTaps((current) => current.filter((tap) => tap.id !== tapId));
+      },
       onResync: resync,
       onStatus: setStatus,
-      onRevoked: () => revokedRef.current(),
+      onRevoked: () => {
+        revokedRef.current();
+      },
     });
     const wake = () => {
       if (document.visibilityState === "visible") {
@@ -169,10 +177,11 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   );
 
   const discard = useCallback(
-    (requestId: string) =>
+    (requestId: string) => {
       updateOutbox((current) =>
         current.filter((o) => o.requestId !== requestId)
-      ),
+      );
+    },
     [updateOutbox]
   );
 

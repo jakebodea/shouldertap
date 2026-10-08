@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 /** Frames are downscaled to this many pixels on their long side to decode. */
 const DECODE_SIZE = 640;
 
+const loadJsQr = () => import("jsqr");
+
 const cameraError = (caught: unknown) =>
   caught instanceof DOMException && caught.name === "NotAllowedError"
     ? "Camera access is off. Allow it in Settings, or paste the link instead."
@@ -12,11 +14,17 @@ const cameraError = (caught: unknown) =>
  * A live camera view that decodes QR codes. `onScan` gets each decoded
  * value and returns true to accept it, which stops the camera.
  */
-export function QrScanner({ onScan }: { onScan: (value: string) => boolean }) {
+export const QrScanner = ({
+  onScan,
+}: {
+  onScan: (value: string) => boolean;
+}) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const onScanRef = useRef(onScan);
-  onScanRef.current = onScan;
-  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    onScanRef.current = onScan;
+  });
+  const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
     let stopped = false;
@@ -27,12 +35,14 @@ export function QrScanner({ onScan }: { onScan: (value: string) => boolean }) {
 
     const start = async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setError("This browser can't use the camera. Paste the link instead.");
+        setProblem(
+          "This browser can't use the camera. Paste the link instead."
+        );
         return;
       }
       try {
         const [{ default: jsQR }, media] = await Promise.all([
-          import("jsqr"),
+          loadJsQr(),
           navigator.mediaDevices.getUserMedia({
             audio: false,
             video: { facingMode: "environment" },
@@ -72,9 +82,9 @@ export function QrScanner({ onScan }: { onScan: (value: string) => boolean }) {
           frame = requestAnimationFrame(tick);
         };
         tick();
-      } catch (caught) {
+      } catch (error) {
         if (!stopped) {
-          setError(cameraError(caught));
+          setProblem(cameraError(error));
         }
       }
     };
@@ -89,16 +99,16 @@ export function QrScanner({ onScan }: { onScan: (value: string) => boolean }) {
     };
   }, []);
 
-  if (error) {
+  if (problem) {
     return (
-      <p className="rounded-2xl bg-faint px-4 py-3 text-[0.9375rem] leading-snug">
-        {error}
+      <p className="bg-faint rounded-2xl px-4 py-3 text-[0.9375rem] leading-snug">
+        {problem}
       </p>
     );
   }
 
   return (
-    <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-ink">
+    <div className="bg-ink relative aspect-square w-full overflow-hidden rounded-2xl">
       <video
         aria-label="Camera view for scanning the invite QR code"
         className="size-full object-cover"
@@ -112,4 +122,4 @@ export function QrScanner({ onScan }: { onScan: (value: string) => boolean }) {
       />
     </div>
   );
-}
+};

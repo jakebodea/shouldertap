@@ -5,7 +5,7 @@ import {
   requiredEnv,
 } from "./previews.ts";
 
-const [, , mode] = process.argv;
+const [mode] = process.argv.slice(2);
 if (mode !== "deploy" && mode !== "cleanup") {
   throw new Error(
     "Usage: bun scripts/cloudflare/preview-gate.ts deploy|cleanup"
