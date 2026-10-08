@@ -1,10 +1,9 @@
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { drizzle } from "drizzle-orm/node-sqlite";
 import { describe, expect, it } from "vitest";
 
+import bundle from "../drizzle/migrations.js";
 import {
   INVITE_GRACE_MS,
   REVOKED_RETENTION_MS,
@@ -13,20 +12,12 @@ import {
 } from "../src/retention";
 import { credentials, invites, taps, tickets } from "../src/schema";
 
-const MIGRATIONS = path.join(import.meta.dirname, "../drizzle");
 const NOW = Date.UTC(2026, 9, 1);
-const MIGRATION_DIR = /^\d/u;
 
-/** The Inbox's schema, from the same migrations the Durable Object applies. */
+/** The Inbox's schema, from the migrations bundle the Durable Object applies. */
 const freshDb = () => {
   const sqlite = new DatabaseSync(":memory:");
-  for (const dir of readdirSync(MIGRATIONS)
-    .filter((d) => MIGRATION_DIR.test(d))
-    .toSorted()) {
-    const migration = readFileSync(
-      path.join(MIGRATIONS, dir, "migration.sql"),
-      "utf-8"
-    );
+  for (const migration of Object.values(bundle.migrations)) {
     for (const statement of migration.split("--> statement-breakpoint")) {
       sqlite.exec(statement);
     }
