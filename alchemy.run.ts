@@ -27,7 +27,14 @@ export default Alchemy.Stack(
     providers: pullRequest
       ? Layer.mergeAll(Cloudflare.providers(), GitHub.providers())
       : Cloudflare.providers(),
-    state: Cloudflare.state(),
+    // Local workerd tests/dev must never bootstrap the shared cloud state Worker.
+    state: Layer.unwrap(
+      Alchemy.AlchemyContext.pipe(
+        Effect.map(({ dev }) =>
+          dev ? Alchemy.localState() : Cloudflare.state()
+        )
+      )
+    ),
   },
   Effect.gen(function* stack() {
     const server = yield* Server;

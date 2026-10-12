@@ -7,7 +7,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, reopened, synchronize]
+    types: [opened, reopened, synchronize, ready_for_review]
 
 env:
   STAGE: >-
@@ -33,12 +33,18 @@ jobs:
       # Vitest and Oxlint's JS plugins run on Node.
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version: "24.11.1"
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run check-types
-      # Unit tests only: the server's integration test deploys a stack and runs after the preview deploy.
+      # Unit tests, then offline workerd integration; live tests run after an approved preview deploy.
       - run: bun run test
+      - name: Local Durable Object integration tests
+        working-directory: apps/server
+        run: bun run test:local
+        env:
+          ALCHEMY_HOME: ${{ runner.temp }}/alchemy-offline
+          ALCHEMY_TELEMETRY_DISABLED: "1"
 
   # Runs beside `check` in Playwright's image, which already has WebKit and its system
   # libraries. `playwright install --with-deps` fetched those from Ubuntu's mirror on every run:
@@ -83,10 +89,11 @@ jobs:
 
   deploy:
     needs: [check, e2e]
-    # Fork PRs get no secrets, so they're checked but not previewed.
+    # Draft and fork PRs are checked without deploying shared Cloudflare state.
     if: >-
       (github.event_name == 'push'
-        || github.event.pull_request.head.repo.full_name == github.repository)
+        || (github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.draft == false))
     runs-on: ubuntu-latest
     # Cleanup uses this same group, including when a PR merges into main.
     concurrency:
