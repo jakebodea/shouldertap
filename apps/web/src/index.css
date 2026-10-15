@@ -227,15 +227,23 @@
  * when the next person's color sweeps in from the corner it passes through
  * the frame and the pills, avatars, and illustrations at the same moment.
  */
-.wipe-edge {
+/*
+ * Mobile Safari tints its status bar and toolbar from solid fixed strips at
+ * the viewport edges. It ignores strips no more than 10px tall and needs at
+ * least 5px of one on screen, so each strip is 12px or taller and any extra
+ * height sits beyond the viewport.
+ */
+.safari-edge {
   position: fixed;
   left: 0;
   z-index: 10;
   width: 100%;
-  /* Safari ignores fixed backgrounds no more than 10px tall. Only the 6px
-     outer frame margin is visible; the rest sits beyond the viewport. */
-  height: 12px;
   pointer-events: none;
+}
+
+/* Landing: only the 6px outer frame margin shows. */
+.wipe-edge {
+  height: 12px;
 }
 
 .wipe-edge-top {
@@ -244,6 +252,18 @@
 
 .wipe-edge-bottom {
   bottom: -6px;
+}
+
+/* Frame: shows exactly the frame's padding, max(9px, safe area), so the
+   frame stays put as a bezel while the paper page scrolls beneath it. */
+.frame-edge-top {
+  top: -3px;
+  height: calc(max(9px, env(safe-area-inset-top)) + 3px);
+}
+
+.frame-edge-bottom {
+  bottom: -3px;
+  height: calc(max(9px, env(safe-area-inset-bottom)) + 3px);
 }
 
 .landing-header {
