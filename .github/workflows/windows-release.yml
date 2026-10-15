@@ -1,6 +1,6 @@
 # Pushing a `windows-v<version>` tag builds Shouldertap.exe on Windows from
 # that commit, attests that the exe came from this workflow (verify with
-# `gh attestation verify <exe> --repo jakebodea/shouldertap`), and attaches it
+# `gh attestation verify <exe> --repo jbolabs/shouldertap`), and attaches it
 # to a GitHub release. Tags with a pre-release suffix (windows-v1.0.0-beta.1)
 # make pre-releases: the beta channel for testers. The signed production
 # channel is scripts/release-windows.sh to download.shouldertap.app.
@@ -59,6 +59,6 @@ jobs:
           - Can't see the icon? Windows 11 hides new tray icons: click **^** next to the clock, or drag the Shouldertap mark onto the taskbar.
           - To get a tap, choose **Invite someone** and open the link on an iPhone. The sender uses Safari; nothing to install.
 
-          Beta builds don't update themselves: grab the newest one from the [releases page](https://github.com/jakebodea/shouldertap/releases).
-          Built by [this workflow](https://github.com/jakebodea/shouldertap/actions/workflows/windows-release.yml) from the tagged commit; check it with `gh attestation verify <exe> --repo jakebodea/shouldertap`.
+          Beta builds don't update themselves: grab the newest one from the [releases page](https://github.com/jbolabs/shouldertap/releases).
+          Built by [this workflow](https://github.com/jbolabs/shouldertap/actions/workflows/windows-release.yml) from the tagged commit; check it with `gh attestation verify <exe> --repo jbolabs/shouldertap`.
           NOTES
