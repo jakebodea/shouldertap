@@ -10,7 +10,7 @@ import {
 } from "./previews.ts";
 import type { PullRequest, ReadFetch } from "./previews.ts";
 
-const repository = "jakebodea/shouldertap";
+const repository = "jbolabs/shouldertap";
 const current: PullRequest = {
   state: "open",
   head: "current-head",
@@ -143,7 +143,7 @@ describe("provider reads fail closed", () => {
       readPullRequest({ ...context, fetchImpl }, 25)
     ).resolves.toStrictEqual({ ...current, state: "closed" });
     expect(reads).toStrictEqual([
-      "https://github.test/repos/jakebodea/shouldertap/pulls/25",
+      "https://github.test/repos/jbolabs/shouldertap/pulls/25",
     ]);
   });
 

@@ -89,7 +89,7 @@ export default Alchemy.Stack(
     // The fixed logical ID makes each push update the same comment.
     if (pullRequest) {
       yield* GitHub.Comment("preview-comment", {
-        owner: "jakebodea",
+        owner: "jbolabs",
         repository: "shouldertap",
         issueNumber: Number(pullRequest),
         body: Output.interpolate`
