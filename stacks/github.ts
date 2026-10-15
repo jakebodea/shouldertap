@@ -7,7 +7,7 @@ import * as Redacted from "effect/Redacted";
 
 import { zoneId } from "../domains.ts";
 
-const repo = { owner: "jakebodea", repository: "shouldertap" } as const;
+const repo = { owner: "jbolabs", repository: "shouldertap" } as const;
 
 /**
  * The repo's CI setup as code: mints a Cloudflare API token scoped to what
