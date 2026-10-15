@@ -64,13 +64,13 @@ export const WipeEdges = ({
     <>
       <div
         aria-hidden="true"
-        className="wipe-edge wipe-edge-top"
+        className="safari-edge wipe-edge wipe-edge-top"
         ref={top}
         style={{ backgroundColor: from }}
       />
       <div
         aria-hidden="true"
-        className="wipe-edge wipe-edge-bottom"
+        className="safari-edge wipe-edge wipe-edge-bottom"
         ref={bottom}
         style={{ backgroundColor: from }}
       />
