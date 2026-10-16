@@ -26,7 +26,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "check": "ultracite check",
+    "check": "ultracite check && bun scripts/check-protocol-sync.ts",
     "check-types": "tsc --noEmit && turbo run check-types",
     "deploy": "alchemy deploy",
     "destroy": "alchemy destroy",

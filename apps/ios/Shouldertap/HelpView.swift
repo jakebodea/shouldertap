@@ -12,7 +12,7 @@ struct HelpButton: View {
     .buttonStyle(FrameButtonStyle(iconOnly: true))
     .accessibilityLabel("Help and privacy")
     .accessibilityIdentifier("help-button")
-    .sheet(isPresented: $showing) { HelpView(store: store) }
+    .sheet(isPresented: $showing) { HelpView(store: store).sheetOnPaper() }
   }
 }
 
@@ -81,8 +81,6 @@ struct HelpView: View {
         Button("OK", role: .cancel) {}
       } message: { Text(error ?? "") }
     }
-    // Sheets inherit the frame bar's ink; use the sheet's own appearance.
-    .foregroundStyle(Color.primary)
   }
 }
 

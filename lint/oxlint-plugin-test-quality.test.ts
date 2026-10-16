@@ -2,6 +2,7 @@ import { RuleTester } from "oxlint/plugins-dev";
 import { describe, it } from "vitest";
 
 import {
+  noBrowserChromeE2eRule,
   noSelfReferentialExpectedRule,
   noWeakOnlyAssertionsRule,
   requireSubjectCallRule,
@@ -209,6 +210,52 @@ ruleTester.run(
           expect(parse(format("web"))).toStrictEqual(parse(format("web")));
         });`,
         errors: [{ messageId: "sameExpression" }],
+      },
+    ],
+  }
+);
+
+ruleTester.run(
+  "no-browser-chrome-e2e",
+  noBrowserChromeE2eRule as RuleUnderTest,
+  {
+    valid: [
+      {
+        name: "user-visible download flow",
+        filename: "/repo/apps/web/e2e/download.spec.ts",
+        code: `import { expect, test } from "@playwright/test";
+        test("starts download", async ({ page }) => {
+          await page.goto("/");
+          await expect(page.getByRole("link", { name: /Download/u })).toBeVisible();
+        });`,
+      },
+      {
+        name: "unit tests may use getComputedStyle",
+        filename: "/repo/apps/web/src/wipe.test.ts",
+        code: `it("measures", () => {
+          getComputedStyle(document.body);
+        });`,
+      },
+    ],
+    invalid: [
+      {
+        name: "safari tint via getComputedStyle",
+        filename: "/repo/apps/web/e2e/mobile-frame.spec.ts",
+        code: `import { test } from "@playwright/test";
+        test("tint", async ({ page }) => {
+          await page.goto("/");
+          getComputedStyle(document.body);
+        });`,
+        errors: [{ messageId: "browserChrome" }],
+      },
+      {
+        name: "screenshot-only regression",
+        filename: "/repo/apps/web/e2e/frame.spec.ts",
+        code: `import { expect, test } from "@playwright/test";
+        test("looks right", async ({ page }) => {
+          await expect(page).toHaveScreenshot();
+        });`,
+        errors: [{ messageId: "browserChrome" }],
       },
     ],
   }

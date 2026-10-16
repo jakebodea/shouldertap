@@ -422,11 +422,54 @@ const noSelfReferentialExpectedRule = {
   },
 };
 
+const E2E_CHROME_CALLEES = new Set(["getComputedStyle"]);
+
+const noBrowserChromeE2eRule = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Playwright cannot observe mobile Safari chrome; do not add style-only e2e for tint or frame edges.",
+    },
+    messages: {
+      browserChrome:
+        "Playwright cannot see Safari's status bar or toolbar. Fix frame edges in `FrameSafariEdgeStrips` / `index.css` instead of `{{name}}` in e2e.",
+    },
+    schema: [],
+  },
+  create(context) {
+    const filename = context.filename ?? "";
+    if (!filename.includes("/e2e/")) {
+      return {};
+    }
+    const reportChrome = (node, name) => {
+      context.report({ node, messageId: "browserChrome", data: { name } });
+    };
+    return {
+      CallExpression(node) {
+        const name = calleeName(node.callee);
+        if (name !== null && E2E_CHROME_CALLEES.has(name)) {
+          reportChrome(node, name);
+        }
+      },
+      MemberExpression(node) {
+        if (
+          node.property.type === "Identifier" &&
+          node.property.name === "toHaveScreenshot"
+        ) {
+          reportChrome(node.property, "toHaveScreenshot");
+        }
+      },
+    };
+  },
+};
+
 export default {
   meta: {
     name: "test-quality",
   },
   rules: {
+    "no-browser-chrome-e2e": noBrowserChromeE2eRule,
     "no-self-referential-expected": noSelfReferentialExpectedRule,
     "no-weak-only-assertions": noWeakOnlyAssertionsRule,
     "require-subject-call": requireSubjectCallRule,
@@ -434,6 +477,7 @@ export default {
 };
 
 export {
+  noBrowserChromeE2eRule,
   noSelfReferentialExpectedRule,
   noWeakOnlyAssertionsRule,
   requireSubjectCallRule,

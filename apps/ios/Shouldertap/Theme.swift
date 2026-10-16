@@ -455,3 +455,17 @@ struct StatusLabel: View {
     }
   }
 }
+
+/// System sheets opened from a colored frame bar inherit its ink. Reset to
+/// paper-style primary text for the sheet content.
+struct SheetOnPaper: ViewModifier {
+  func body(content: Content) -> some View {
+    content.foregroundStyle(Color.primary)
+  }
+}
+
+extension View {
+  func sheetOnPaper() -> some View {
+    modifier(SheetOnPaper())
+  }
+}
