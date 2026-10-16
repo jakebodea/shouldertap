@@ -1,0 +1,39 @@
+# Swift and Rust protocol mirrors: run when native or shared contracts change.
+name: Native
+
+on:
+  pull_request:
+    paths:
+      - "packages/domain/**"
+      - "apps/server/**"
+      - "apps/macos/**"
+      - "apps/ios/**"
+      - "apps/windows/**"
+      - "scripts/check-protocol-sync.ts"
+  push:
+    branches: [main]
+    paths:
+      - "packages/domain/**"
+      - "apps/server/**"
+      - "apps/macos/**"
+      - "apps/ios/**"
+      - "apps/windows/**"
+      - "scripts/check-protocol-sync.ts"
+
+jobs:
+  swift:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: ShouldertapCore tests
+        run: cd apps/macos && swift test
+
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: shouldertap-core tests
+        run: cd apps/windows && cargo test --workspace

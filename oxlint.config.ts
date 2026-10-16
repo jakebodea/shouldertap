@@ -83,6 +83,7 @@ export default defineConfig({
         "vitest/consistent-test-filename": "off",
         "vitest/prefer-each": "off",
         "vitest/prefer-importing-vitest-globals": "off",
+        "test-quality/no-browser-chrome-e2e": "error",
       },
     },
     {

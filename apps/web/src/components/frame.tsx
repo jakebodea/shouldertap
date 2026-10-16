@@ -2,6 +2,7 @@ import { swatches } from "@shouldertap/domain";
 import type { PersonColor } from "@shouldertap/domain";
 import type { ReactNode } from "react";
 
+import { FrameSafariEdgeStrips } from "@/components/safari-edge-strips";
 import { frameStyle, useThemeColor } from "@/lib/frame";
 
 /**
@@ -21,16 +22,7 @@ export const Frame = ({
       className="bg-frame min-h-svh px-[9px] pt-[max(9px,env(safe-area-inset-top))] pb-[max(9px,env(safe-area-inset-bottom))] transition-colors duration-500"
       style={frameStyle(color)}
     >
-      {/* Fixed frame edges, so Safari paints its bars in the frame color
-          wherever the page is scrolled. */}
-      <div
-        aria-hidden="true"
-        className="safari-edge frame-edge-top bg-frame transition-colors duration-500"
-      />
-      <div
-        aria-hidden="true"
-        className="safari-edge frame-edge-bottom bg-frame transition-colors duration-500"
-      />
+      <FrameSafariEdgeStrips />
       <main className="bg-paper text-ink mx-auto flex min-h-[calc(100svh-18px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-xl flex-col gap-6 rounded-[2.25rem] px-[22px] pt-7 pb-6">
         {children}
       </main>
