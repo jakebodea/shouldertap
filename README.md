@@ -103,9 +103,11 @@ cd apps/windows && scripts/build.sh            # dev build, prints the .exe path
 
 ## Deploy
 
+Read the [beta 82 rollout notes](docs/alchemy-beta-82.md) before using any Alchemy command with Cloudflare state. Cloud deploys, plans, integration tests, and cleanup can bootstrap the shared state Worker. Draft PRs run checks only; marking a PR ready enables its preview deployment.
+
 Production is the `prod` stage: the site at `https://shouldertap.app` (`www` redirects), the API at `https://api.shouldertap.app`, and Mac downloads at `https://download.shouldertap.app`. Hostnames live in `domains.ts`; other stages stay on `workers.dev`. The domain is registered with Cloudflare Registrar on the same account (auto-renew off, renews 2027-09-30).
 
-GitHub Actions (`.github/workflows/deploy.yml`) lints and type-checks every push and PR (`check`), runs the download-flow browser tests in Playwright's container image (`e2e`, beside `check`), deploys `main` to `prod`, and deploys each PR to a `pr-<number>` preview, runs the integration tests against it, comments the links on the PR, and destroys it when the PR closes. Its Cloudflare token is minted by `stacks/github.ts` and stored as repo secrets; deploy that under the `admin` profile once, and again to rotate or rescope the token:
+GitHub Actions (`.github/workflows/deploy.yml`) lints and type-checks every push and PR (`check`), runs the download-flow browser tests in Playwright's container image (`e2e`, beside `check`), deploys `main` to `prod`, and deploys each ready PR to a `pr-<number>` preview, runs the integration tests against it, comments the links on the PR, and destroys it when the PR closes. Its Cloudflare token is minted by `stacks/github.ts` and stored as repo secrets; deploy that under the `admin` profile once, and again to rotate or rescope the token:
 
 ```bash
 bun alchemy deploy --config stacks/github.ts --profile admin

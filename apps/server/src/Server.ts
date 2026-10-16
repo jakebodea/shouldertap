@@ -12,15 +12,15 @@ import { Stage } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
+import * as Etag from "effect/http/Etag";
+import * as HttpPlatform from "effect/http/HttpPlatform";
+import * as HttpRouter from "effect/http/HttpRouter";
+import { HttpServerRequest } from "effect/http/HttpServerRequest";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
-import * as Etag from "effect/unstable/http/Etag";
-import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
-import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
-import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import { domains, isProduction } from "../../../domains.ts";
 import { makeProviderTokens } from "./apns";
@@ -63,7 +63,11 @@ export default class Server extends Cloudflare.Worker<Server>()(
     return {
       main: import.meta.url,
       compatibility: { date: "2026-08-31" },
-      observability: { enabled: true },
+      observability: {
+        enabled: true,
+        logs: { enabled: true, invocationLogs: true },
+        issues: { enabled: true },
+      },
       domain: production ? domains.api : undefined,
       dev: { port: 3000 },
     };

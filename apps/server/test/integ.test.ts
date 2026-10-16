@@ -1,6 +1,7 @@
 import { makeShouldertapClient } from "@shouldertap/client";
 import { ServerEvent } from "@shouldertap/domain";
 import type { Tap } from "@shouldertap/domain";
+import { localState } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Vitest";
 import * as Effect from "effect/Effect";
@@ -16,7 +17,8 @@ import Stack from "../../../alchemy.run.ts";
  */
 const { test, beforeAll, afterAll, deploy, destroy } = Test.make({
   providers: Cloudflare.providers(),
-  state: Cloudflare.state(),
+  // Harness bookkeeping is local even when testing an existing preview URL.
+  state: localState(),
 });
 
 // STACK_URL=<server url> runs the suite against an existing deployment.
