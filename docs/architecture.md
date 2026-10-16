@@ -74,7 +74,7 @@ Do not add `apps/api` (server is `apps/server`). Do not share server auth packag
 - **TypeScript:** `bun run check` (Ultracite + protocol sync), `bun run check-types`, `bun run test`.
 - **Integration:** Alchemy `Test` harness in `apps/server/test` (local + PR preview deploy).
 - **Browser:** Playwright download flow only (`apps/web/e2e`); scope documented in `apps/web/e2e/README.md`.
-- **Native:** `swift test` in `apps/macos` and `cargo test --workspace` in `apps/windows` on path-filtered CI (`.github/workflows/native.yml`).
+- **Native:** `swift test` in `apps/macos` and `cargo test -p shouldertap-core` in `apps/windows` on path-filtered CI (`.github/workflows/native.yml`; full workspace on Windows in `windows-release.yml`).
 
 ## Research and history
 

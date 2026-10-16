@@ -35,5 +35,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      # GPUI app deps do not build on Linux; protocol tests live in core only.
       - name: shouldertap-core tests
-        run: cd apps/windows && cargo test --workspace
+        run: cd apps/windows && cargo test -p shouldertap-core
