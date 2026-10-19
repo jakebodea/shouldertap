@@ -111,7 +111,7 @@ jobs:
         with:
           method: oidc
           identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
-          oidc-audience: https://github.com/jakebodea
+          oidc-audience: https://github.com/jbolabs
           domain: https://app.infisical.com
           project-slug: shouldertap-qp-dq
           env-slug: prod
