@@ -1,6 +1,7 @@
 # Pushes to main deploy prod; pull requests deploy a pr-<number> preview.
 # preview-cleanup.yml destroys closed PRs. Cloudflare credentials come from
-# stacks/github.ts; app secrets for prod come from Infisical.
+# stacks/github.ts; app secrets for prod come from the Infisical project
+# shouldertap-prod (slug shouldertap-qp-dq).
 name: Deploy
 
 on:

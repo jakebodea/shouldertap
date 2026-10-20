@@ -1,7 +1,8 @@
 # Uploads the iOS app to TestFlight when a pull request labeled release:beta
 # lands on main, or on demand (Actions > TestFlight > Run workflow). It runs on
 # the push to main rather than on the PR, so it builds exactly what merged and
-# Infisical (which only trusts main) hands it the App Store Connect key.
+# Infisical (shouldertap-prod, which only trusts main) hands it the App Store
+# Connect key.
 name: TestFlight
 
 on:

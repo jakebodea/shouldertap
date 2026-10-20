@@ -111,16 +111,16 @@ GitHub Actions (`.github/workflows/deploy.yml`) lints and type-checks every push
 bun alchemy deploy --config stacks/github.ts --profile admin
 ```
 
-App secrets (`SUPPORT_FORWARD_TO`, a comma-separated list of addresses `support@` forwards to; payment and analytics keys to come) live in the Infisical project `shouldertap` (`.infisical.json`). CI loads the `prod` environment through the `INFISICAL_IDENTITY_ID` machine identity, which trusts GitHub OIDC tokens from `main` only.
+App secrets (`SUPPORT_FORWARD_TO`, a comma-separated list of addresses `support@` forwards to; payment and analytics keys to come) are split across two Infisical projects, because on the free plan the project is the only access boundary. `shouldertap-prod` (id `2ea55940-47f3-4632-ad30-1b8ebdf9daeb`, envs `preview` and `prod`) holds deployed values; CI loads `prod` through the `INFISICAL_IDENTITY_ID` machine identity (`ci-prod`), which trusts GitHub OIDC tokens from `main` only. `shouldertap-dev` (env `dev`) holds development credentials and is the only project agents can read (see [AGENTS.md](AGENTS.md)). `.infisical.json` points at `shouldertap-dev`, so a bare `infisical run` only ever loads dev.
 
-To deploy by hand, with prod's secrets injected:
+To deploy by hand, with prod's secrets injected (name the prod project explicitly):
 
 ```bash
-infisical run --env prod -- bun run plan -- --stage prod
+infisical run --projectId 2ea55940-47f3-4632-ad30-1b8ebdf9daeb --env prod -- bun run plan -- --stage prod
 ```
 
 ```bash
-infisical run --env prod -- bun run deploy -- --stage prod --yes
+infisical run --projectId 2ea55940-47f3-4632-ad30-1b8ebdf9daeb --env prod -- bun run deploy -- --stage prod --yes
 ```
 
 `dev` is a scratch stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev`, API `https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev`.
@@ -133,7 +133,7 @@ Archive, sign for App Store distribution (team `6C46GY4Z38`, automatic signing t
 scripts/release-ios.sh
 ```
 
-Or label a pull request `release:beta`: when it merges, `.github/workflows/testflight.yml` runs the same script on a macOS runner from the merged `main` and comments the build number on the PR. Actions > TestFlight > Run workflow releases `main` on demand. CI signs with an App Store Connect API key (Admin role, so it can create the distribution certificate) from Infisical `prod`: `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (the `.p8` file's contents).
+Or label a pull request `release:beta`: when it merges, `.github/workflows/testflight.yml` runs the same script on a macOS runner from the merged `main` and comments the build number on the PR. Actions > TestFlight > Run workflow releases `main` on demand. CI signs with an App Store Connect API key (Admin role, so it can create the distribution certificate) from Infisical `shouldertap-prod` (`prod`): `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (the `.p8` file's contents).
 
 The version is `MARKETING_VERSION` in the Xcode project; bump it for a new version. The build number is the commit count (`git rev-list --count HEAD`), so it rises with every commit on `main` and needs no bumping; set `BUILD_NUMBER` to override. Releasing the same commit twice fails, since App Store Connect rejects a repeated build number. `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
 

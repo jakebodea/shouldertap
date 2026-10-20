@@ -29,3 +29,11 @@ Native apps are outside the Bun workspace: run `swift test` / `cargo test` when 
 - `lint/oxlint-plugin-test-quality.mjs` catches the common shapes in `bun run check`: tests whose only assertions are weak, expected values computed by the module under test, and tests that run no code. Disable a rule only with a written reason.
 - Prefer the tests that run the real thing: `apps/server` integration tests against a deployed preview and the Playwright download flows in `apps/web/e2e` (download flow only; see `apps/web/e2e/README.md`).
 - Preview deploy/cleanup: extend `scripts/cloudflare/previews.ts` and its tests; do not parse Alchemy worker names in workflow YAML alone.
+
+## Agent secrets (Infisical)
+
+- Each repo has two Infisical projects. `shouldertap-dev` (env `dev`, id `fcaaebbd-83e7-4945-911f-cedba3ff25a3`) holds development credentials; `shouldertap-prod` (envs `preview`, `prod`, id `2ea55940-47f3-4632-ad30-1b8ebdf9daeb`) holds deployed-tier values.
+- Identities are trust tiers: `agent-dev` (Universal Auth; `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` in the agent environment) is Viewer on every `*-dev` project only. `ci-prod` (GitHub OIDC, `main` of any jbolabs repo) is Viewer on every `*-prod` project. Agents never get `*-prod` access.
+- The free plan has no environment-scoped roles: the project is the access boundary. Never put prod or preview values in a `*-dev` project, or add a non-`dev` environment to one.
+- Deploy jobs load `shouldertap-prod` through `ci-prod` and Alchemy writes the values into Cloudflare.
+- Agent run: `export INFISICAL_TOKEN=$(infisical login --method=universal-auth --client-id=$INFISICAL_CLIENT_ID --client-secret=$INFISICAL_CLIENT_SECRET --silent --plain)`, then `infisical run --projectId fcaaebbd-83e7-4945-911f-cedba3ff25a3 --env=dev -- <cmd>`.
