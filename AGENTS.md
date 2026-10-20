@@ -29,3 +29,12 @@ Native apps are outside the Bun workspace: run `swift test` / `cargo test` when 
 - `lint/oxlint-plugin-test-quality.mjs` catches the common shapes in `bun run check`: tests whose only assertions are weak, expected values computed by the module under test, and tests that run no code. Disable a rule only with a written reason.
 - Prefer the tests that run the real thing: `apps/server` integration tests against a deployed preview and the Playwright download flows in `apps/web/e2e` (download flow only; see `apps/web/e2e/README.md`).
 - Preview deploy/cleanup: extend `scripts/cloudflare/previews.ts` and its tests; do not parse Alchemy worker names in workflow YAML alone.
+
+## Agent secrets (Infisical)
+
+- Secrets come from Infisical through Alchemy (`Infisical.Secrets` in each stack). `stacks/secrets.ts` holds the project ids and maps stage → source: `prod` reads `shouldertap-prod`, `pr-*`/CI previews read nothing from Infisical, everything else reads `shouldertap-dev`.
+- Who can read what: Alchemy `default` profile = `agent-dev` (`*-dev` only); `admin` profile = `operator` (all; the owner's Mac only, pass `--profile admin`); CI = `ci-prod` via GitHub OIDC, only in jobs using the `production` environment (main only).
+- Agent setup, once per machine: export `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`, then `bun run setup:infisical`.
+- Never add prod values to `shouldertap-dev`, never give a PR job the `production` environment, and never read secrets via `process.env` in stacks (use `Config`).
+- `stacks/github.ts` owns the `production` environment (main only) and its `INFISICAL_IDENTITY_ID`/`INFISICAL_OIDC_AUDIENCE` variables; `stacks/secrets.test.ts` fails if it allows another branch. In `deploy.yml` only the `deploy` (prod) job uses it, never `preview`.
+- `testflight.yml` isn't an Alchemy stack: its `release` job uses the `production` environment and `Infisical/secrets-action` for the App Store Connect key.

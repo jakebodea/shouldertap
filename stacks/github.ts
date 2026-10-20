@@ -10,9 +10,28 @@ import { zoneId } from "../domains.ts";
 const repo = { owner: "jbolabs", repository: "shouldertap" } as const;
 
 /**
+ * The only GitHub environment that can read prod secrets. Infisical's
+ * `ci-prod` identity trusts only OIDC tokens from jobs in it, and only main
+ * may deploy to it, so PR jobs can never reach shouldertap-prod.
+ */
+export const productionEnvironment = (target: typeof repo) => ({
+  ...target,
+  name: "production",
+  deploymentBranchPolicy: { customBranchPolicies: ["main"] },
+});
+
+/** How jobs in `production` log in to Infisical, as environment variables. */
+export const productionVariables = {
+  // ci-prod, Viewer on every *-prod Infisical project.
+  INFISICAL_IDENTITY_ID: "23fa16cc-a7a1-4e35-8011-2f24b0e037ba",
+  INFISICAL_OIDC_AUDIENCE: "https://github.com/jbolabs",
+} as const;
+
+/**
  * The repo's CI setup as code: mints a Cloudflare API token scoped to what
- * `alchemy.run.ts` deploys, stores it as GitHub Actions secrets, and protects
- * main. Deploy from a laptop to rotate or rescope the token or to change the
+ * `alchemy.run.ts` deploys, stores it as GitHub Actions secrets, creates the
+ * main-only `production` environment that prod jobs read Infisical through,
+ * and protects main. Deploy from a laptop to rotate or rescope the token or to change the
  * protection:
  *
  *   bun alchemy deploy --config stacks/github.ts --profile admin
@@ -75,6 +94,14 @@ export default Alchemy.Stack(
       name: "CLOUDFLARE_ACCOUNT_ID",
       value: Redacted.make(accountId),
     });
+
+    const environment = yield* GitHub.Environment(
+      "production",
+      productionEnvironment(repo)
+    );
+    for (const [name, value] of Object.entries(productionVariables)) {
+      yield* GitHub.Variable(name, { ...repo, environment, name, value });
+    }
 
     // Changes reach main only through a pull request whose `check` and `e2e`
     // jobs (in .github/workflows/deploy.yml) passed. Nobody can bypass it, admins

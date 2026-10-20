@@ -40,7 +40,7 @@ bun install
 ```
 
 ```bash
-bun run dev            # alchemy dev: API on :3000, web on :3001, Workers and DOs in local workerd
+bun run dev            # alchemy dev: API on :3000, web on :3001, Workers and DOs in local workerd; reads shouldertap-dev (see Deploy)
 ```
 
 ```bash
@@ -105,22 +105,40 @@ cd apps/windows && scripts/build.sh            # dev build, prints the .exe path
 
 Production is the `prod` stage: the site at `https://shouldertap.app` (`www` redirects), the API at `https://api.shouldertap.app`, and Mac downloads at `https://download.shouldertap.app`. Hostnames live in `domains.ts`; other stages stay on `workers.dev`. The domain is registered with Cloudflare Registrar on the same account (auto-renew off, renews 2027-09-30).
 
-GitHub Actions (`.github/workflows/deploy.yml`) lints and type-checks every push and PR (`check`), runs the download-flow browser tests in Playwright's container image (`e2e`, beside `check`), deploys `main` to `prod`, and deploys each PR to a `pr-<number>` preview, runs the integration tests against it, comments the links on the PR, and destroys it when the PR closes. Its Cloudflare token is minted by `stacks/github.ts` and stored as repo secrets; deploy that under the `admin` profile once, and again to rotate or rescope the token:
+GitHub Actions (`.github/workflows/deploy.yml`) lints and type-checks every push and PR (`check`), runs the download-flow browser tests in Playwright's container image (`e2e`, beside `check`), deploys `main` to `prod` (`deploy`), and deploys each PR to a `pr-<number>` preview (`preview`), runs the integration tests against it, comments the links on the PR, and destroys it when the PR closes. Its Cloudflare token is minted by `stacks/github.ts` and stored as repo secrets; the same stack creates the `production` environment below and protects `main`. Deploy it under the `admin` profile once, and again to rotate or rescope the token or change the environment:
 
 ```bash
 bun alchemy deploy --config stacks/github.ts --profile admin
 ```
 
-App secrets (`SUPPORT_FORWARD_TO`, a comma-separated list of addresses `support@` forwards to; payment and analytics keys to come) live in the Infisical project `shouldertap` (`.infisical.json`). CI loads the `prod` environment through the `INFISICAL_IDENTITY_ID` machine identity, which trusts GitHub OIDC tokens from `main` only.
+App secrets (`SUPPORT_FORWARD_TO`, a comma-separated list of addresses `support@` forwards to; `CREEM_*` and `APNS_*`) live in Infisical, split across two projects because on the free plan the project is the only access boundary. `alchemy.run.ts` loads them itself through `Config`; `stacks/secrets.ts` holds the project ids and picks the source per stage:
 
-To deploy by hand, with prod's secrets injected:
+| Stage | Infisical project | Read by |
+| --- | --- | --- |
+| `prod` | `shouldertap-prod`, env `prod` | CI as `ci-prod`, only in jobs using the `production` environment (main only); the operator's `admin` profile |
+| `pr-<number>`, or any other stage deployed from GitHub Actions | none: previews run without app secrets |  |
+| anything else (local dev) | `shouldertap-dev`, env `dev` | the `default` profile (`agent-dev`) |
+
+`stacks/github.ts` creates the `production` GitHub environment (deployable from `main` only) with the variables `INFISICAL_IDENTITY_ID` (`ci-prod`) and `INFISICAL_OIDC_AUDIENCE`. In `deploy.yml` only the `deploy` (prod) job uses it; Alchemy logs in to Infisical with that job's OIDC token. `testflight.yml`'s `release` job uses it too, loading the App Store Connect key with `Infisical/secrets-action`.
+
+Locally Alchemy uses the selected profile's Infisical identity. Set one up once per machine, with that identity's `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` exported:
 
 ```bash
-infisical run --env prod -- bun run plan -- --stage prod
+bun run setup:infisical                      # default profile: agent-dev, for dev stages
 ```
 
 ```bash
-infisical run --env prod -- bun run deploy -- --stage prod --yes
+bun run setup:infisical -- --profile admin   # admin profile: operator, for prod (the owner's Mac only)
+```
+
+To plan or deploy prod by hand:
+
+```bash
+bun alchemy plan --stage prod --profile admin
+```
+
+```bash
+bun alchemy deploy --stage prod --profile admin --yes
 ```
 
 `dev` is a scratch stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev`, API `https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev`.
@@ -133,7 +151,7 @@ Archive, sign for App Store distribution (team `6C46GY4Z38`, automatic signing t
 scripts/release-ios.sh
 ```
 
-Or label a pull request `release:beta`: when it merges, `.github/workflows/testflight.yml` runs the same script on a macOS runner from the merged `main` and comments the build number on the PR. Actions > TestFlight > Run workflow releases `main` on demand. CI signs with an App Store Connect API key (Admin role, so it can create the distribution certificate) from Infisical `prod`: `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (the `.p8` file's contents).
+Or label a pull request `release:beta`: when it merges, `.github/workflows/testflight.yml` runs the same script on a macOS runner from the merged `main` and comments the build number on the PR. Actions > TestFlight > Run workflow releases `main` on demand. CI signs with an App Store Connect API key (Admin role, so it can create the distribution certificate) from Infisical `shouldertap-prod` (`prod`): `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (the `.p8` file's contents).
 
 The version is `MARKETING_VERSION` in the Xcode project; bump it for a new version. The build number is the commit count (`git rev-list --count HEAD`), so it rises with every commit on `main` and needs no bumping; set `BUILD_NUMBER` to override. Releasing the same commit twice fails, since App Store Connect rejects a repeated build number. `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
 

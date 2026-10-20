@@ -9,9 +9,9 @@
     "test:integ": "vitest run test/integ.test.ts"
   },
   "dependencies": {
-    "@effect/sql-sqlite-do": "4.0.0-rc.115",
+    "@effect/sql-sqlite-do": "4.0.4",
     "@shouldertap/domain": "workspace:*",
-    "alchemy": "2.0.0-beta.79",
+    "alchemy": "2.0.0-beta.82",
     "creem": "1.13.0",
     "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "effect": "catalog:"
