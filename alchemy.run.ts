@@ -11,7 +11,7 @@ import * as Redacted from "effect/Redacted";
 import Server from "./apps/server/src/Server.ts";
 import Support, { parseForwardTo } from "./apps/server/src/Support.ts";
 import { domains, isProduction, macDownloadUrl, zoneId } from "./domains.ts";
-import { stageSecrets } from "./secrets.ts";
+import { stageSecrets } from "./stacks/secrets.ts";
 
 /** Set by .github/workflows/deploy.yml for preview deploys. */
 const pullRequest = process.env.PULL_REQUEST;
@@ -32,7 +32,7 @@ export default Alchemy.Stack(
       : Cloudflare.providers(),
     state: Cloudflare.state(),
     // App secrets (SUPPORT_FORWARD_TO, CREEM_*, APNS_*) from Infisical, read
-    // through Config; see secrets.ts for which project each stage uses.
+    // through Config; see stacks/secrets.ts for which project each stage uses.
     secrets: stageSecrets,
   },
   Effect.gen(function* stack() {

@@ -105,27 +105,33 @@ cd apps/windows && scripts/build.sh            # dev build, prints the .exe path
 
 Production is the `prod` stage: the site at `https://shouldertap.app` (`www` redirects), the API at `https://api.shouldertap.app`, and Mac downloads at `https://download.shouldertap.app`. Hostnames live in `domains.ts`; other stages stay on `workers.dev`. The domain is registered with Cloudflare Registrar on the same account (auto-renew off, renews 2027-09-30).
 
-GitHub Actions (`.github/workflows/deploy.yml`) lints and type-checks every push and PR (`check`), runs the download-flow browser tests in Playwright's container image (`e2e`, beside `check`), deploys `main` to `prod`, and deploys each PR to a `pr-<number>` preview, runs the integration tests against it, comments the links on the PR, and destroys it when the PR closes. Its Cloudflare token is minted by `stacks/github.ts` and stored as repo secrets; deploy that under the `admin` profile once, and again to rotate or rescope the token:
+GitHub Actions (`.github/workflows/deploy.yml`) lints and type-checks every push and PR (`check`), runs the download-flow browser tests in Playwright's container image (`e2e`, beside `check`), deploys `main` to `prod` (`deploy`), and deploys each PR to a `pr-<number>` preview (`preview`), runs the integration tests against it, comments the links on the PR, and destroys it when the PR closes. Its Cloudflare token is minted by `stacks/github.ts` and stored as repo secrets; the same stack creates the `production` environment below and protects `main`. Deploy it under the `admin` profile once, and again to rotate or rescope the token or change the environment:
 
 ```bash
 bun alchemy deploy --config stacks/github.ts --profile admin
 ```
 
-App secrets (`SUPPORT_FORWARD_TO`, a comma-separated list of addresses `support@` forwards to; `CREEM_*` and `APNS_*`) live in Infisical, split across two projects because on the free plan the project is the only access boundary. `alchemy.run.ts` loads them itself (`secrets.ts` maps stages to projects):
+App secrets (`SUPPORT_FORWARD_TO`, a comma-separated list of addresses `support@` forwards to; `CREEM_*` and `APNS_*`) live in Infisical, split across two projects because on the free plan the project is the only access boundary. `alchemy.run.ts` loads them itself through `Config`; `stacks/secrets.ts` holds the project ids and picks the source per stage:
 
 | Stage | Infisical project | Read by |
 | --- | --- | --- |
-| `prod` | `shouldertap-prod` (`2ea55940-47f3-4632-ad30-1b8ebdf9daeb`), env `prod` | CI as `ci-prod` (GitHub OIDC, `main` only); the operator's `admin` profile |
-| `pr-<number>` | none: previews run without app secrets |  |
-| anything else (local dev) | `shouldertap-dev` (`fcaaebbd-83e7-4945-911f-cedba3ff25a3`), env `dev` | the default profile (`agent-dev` on agent machines) |
+| `prod` | `shouldertap-prod`, env `prod` | CI as `ci-prod`, only in jobs using the `production` environment (main only); the operator's `admin` profile |
+| `pr-<number>`, or any other stage deployed from GitHub Actions | none: previews run without app secrets |  |
+| anything else (local dev) | `shouldertap-dev`, env `dev` | the `default` profile (`agent-dev`) |
 
-Alchemy authenticates with `INFISICAL_TOKEN` if set, else `INFISICAL_IDENTITY_ID` plus the CI platform's OIDC token (how `deploy.yml` does it), else the selected profile's Infisical identity. Add one to a profile with:
+`stacks/github.ts` creates the `production` GitHub environment (deployable from `main` only) with the variables `INFISICAL_IDENTITY_ID` (`ci-prod`) and `INFISICAL_OIDC_AUDIENCE`. In `deploy.yml` only the `deploy` (prod) job uses it; Alchemy logs in to Infisical with that job's OIDC token. `testflight.yml`'s `release` job uses it too, loading the App Store Connect key with `Infisical/secrets-action`.
+
+Locally Alchemy uses the selected profile's Infisical identity. Set one up once per machine, with that identity's `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` exported:
 
 ```bash
-bun alchemy profile edit --profile admin --add Infisical --method universal-auth --set clientId=env:INFISICAL_CLIENT_ID --set clientSecret=env:INFISICAL_CLIENT_SECRET
+bun run setup:infisical                      # default profile: agent-dev, for dev stages
 ```
 
-(`admin` holds the `operator` identity; drop `--profile admin` and use `agent-dev`'s credentials for the default profile.) To plan or deploy prod by hand:
+```bash
+bun run setup:infisical -- --profile admin   # admin profile: operator, for prod (the owner's Mac only)
+```
+
+To plan or deploy prod by hand:
 
 ```bash
 bun alchemy plan --stage prod --profile admin
@@ -134,8 +140,6 @@ bun alchemy plan --stage prod --profile admin
 ```bash
 bun alchemy deploy --stage prod --profile admin --yes
 ```
-
-`.infisical.json` points the Infisical CLI at `shouldertap-dev`, so a bare `infisical run` only ever loads dev. `testflight.yml` isn't an Alchemy stack, so it still loads the App Store Connect key with `Infisical/secrets-action` as `ci-prod`.
 
 `dev` is a scratch stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev`, API `https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev`.
 

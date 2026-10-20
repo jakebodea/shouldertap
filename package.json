@@ -33,6 +33,7 @@
     "dev": "alchemy dev",
     "fix": "ultracite fix",
     "plan": "alchemy plan",
+    "setup:infisical": "alchemy profile edit --add Infisical --method universal-auth --set clientId=env:INFISICAL_CLIENT_ID --set clientSecret=env:INFISICAL_CLIENT_SECRET --no-input",
     "test": "turbo run test //#test:root",
     "test:root": "vitest run"
   },

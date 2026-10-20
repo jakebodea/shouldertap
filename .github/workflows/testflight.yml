@@ -1,8 +1,8 @@
 # Uploads the iOS app to TestFlight when a pull request labeled release:beta
 # lands on main, or on demand (Actions > TestFlight > Run workflow). It runs on
 # the push to main rather than on the PR, so it builds exactly what merged and
-# Infisical (shouldertap-prod, which only trusts main) hands it the App Store
-# Connect key.
+# Infisical (shouldertap-prod, through the main-only `production` environment)
+# hands it the App Store Connect key.
 name: TestFlight
 
 on:
@@ -31,11 +31,6 @@ jobs:
         id: pr
         run: |
           if [ "${{ github.event_name }}" = workflow_dispatch ]; then
-            # Infisical's ci-prod identity only trusts refs/heads/main.
-            if [ "${{ github.ref }}" != refs/heads/main ]; then
-              echo "::error::TestFlight releases main only; run it from main."
-              exit 1
-            fi
             echo "release=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -55,6 +50,9 @@ jobs:
     needs: find
     if: needs.find.outputs.release == 'true'
     runs-on: macos-26
+    # ci-prod only trusts jobs in this environment, which only main may use,
+    # so a run dispatched from another branch stops here.
+    environment: production
     permissions:
       contents: read
       pull-requests: write
@@ -70,7 +68,7 @@ jobs:
         with:
           method: oidc
           identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
-          oidc-audience: https://github.com/jbolabs
+          oidc-audience: ${{ vars.INFISICAL_OIDC_AUDIENCE }}
           domain: https://app.infisical.com
           project-slug: shouldertap-qp-dq
           env-slug: prod
