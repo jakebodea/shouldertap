@@ -18,9 +18,9 @@
       "@types/react": "^19.2.18",
       "@types/react-dom": "^19.2.7",
       "tailwindcss": "^4.3.3",
-      "effect": "4.0.0-rc.115",
+      "effect": "4.0.4",
       "vitest": "^5.0.3",
-      "@effect/vitest": "4.0.0-rc.115"
+      "@effect/vitest": "4.0.4"
     }
   },
   "type": "module",
@@ -38,12 +38,12 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
-    "@effect/platform-bun": "4.0.0-rc.115",
-    "@effect/platform-node": "4.0.0-rc.115",
+    "@effect/platform-bun": "4.0.4",
+    "@effect/platform-node": "4.0.4",
     "@shouldertap/config": "workspace:*",
     "@types/bun": "^1.4.2",
     "@types/node": "catalog:",
-    "alchemy": "2.0.0-beta.79",
+    "alchemy": "2.0.0-beta.82",
     "effect": "catalog:",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
@@ -53,11 +53,11 @@
     "vitest": "catalog:"
   },
   "overrides": {
-    "@effect/platform-node-shared": "4.0.0-rc.115",
-    "@effect/sql-d1": "4.0.0-rc.115",
-    "@effect/sql-sqlite-do": "4.0.0-rc.115",
-    "@effect/vitest": "4.0.0-rc.115",
-    "effect": "4.0.0-rc.115"
+    "@effect/platform-node-shared": "4.0.4",
+    "@effect/sql-d1": "4.0.4",
+    "@effect/sql-sqlite-do": "4.0.4",
+    "@effect/vitest": "4.0.4",
+    "effect": "4.0.4"
   },
   "packageManager": "bun@1.4.2"
 }

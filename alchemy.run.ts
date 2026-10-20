@@ -2,13 +2,16 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as GitHub from "alchemy/GitHub";
 import * as Output from "alchemy/Output";
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { Path } from "effect/Path";
+import * as Redacted from "effect/Redacted";
 
 import Server from "./apps/server/src/Server.ts";
 import Support, { parseForwardTo } from "./apps/server/src/Support.ts";
 import { domains, isProduction, macDownloadUrl, zoneId } from "./domains.ts";
+import { stageSecrets } from "./secrets.ts";
 
 /** Set by .github/workflows/deploy.yml for preview deploys. */
 const pullRequest = process.env.PULL_REQUEST;
@@ -28,6 +31,9 @@ export default Alchemy.Stack(
       ? Layer.mergeAll(Cloudflare.providers(), GitHub.providers())
       : Cloudflare.providers(),
     state: Cloudflare.state(),
+    // App secrets (SUPPORT_FORWARD_TO, CREEM_*, APNS_*) from Infisical, read
+    // through Config; see secrets.ts for which project each stage uses.
+    secrets: stageSecrets,
   },
   Effect.gen(function* stack() {
     const server = yield* Server;
@@ -75,7 +81,9 @@ export default Alchemy.Stack(
       // support@ forwards to each of these (Gmail, the Slack channel's email
       // address). Cloudflare emails each a verification link on creation;
       // mail isn't delivered to an address until its link is clicked.
-      const forwardTo = parseForwardTo(process.env.SUPPORT_FORWARD_TO ?? "");
+      const forwardTo = parseForwardTo(
+        Redacted.value(yield* Config.Redacted("SUPPORT_FORWARD_TO"))
+      );
       if (forwardTo.length === 0) {
         return yield* Effect.die("SUPPORT_FORWARD_TO is required for prod");
       }

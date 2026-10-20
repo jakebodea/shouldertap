@@ -9,10 +9,10 @@ import type {
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
-import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
-import * as HttpApiMiddleware from "effect/unstable/httpapi/HttpApiMiddleware";
+import * as HttpApiClient from "effect/http-api/HttpApiClient";
+import * as HttpApiMiddleware from "effect/http-api/HttpApiMiddleware";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 
 /** A typed client for the Shouldertap API, derived from the shared spec. */
 export const makeShouldertapClient = (baseUrl: string, token: string | null) =>

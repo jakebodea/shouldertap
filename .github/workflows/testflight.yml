@@ -31,6 +31,11 @@ jobs:
         id: pr
         run: |
           if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            # Infisical's ci-prod identity only trusts refs/heads/main.
+            if [ "${{ github.ref }}" != refs/heads/main ]; then
+              echo "::error::TestFlight releases main only; run it from main."
+              exit 1
+            fi
             echo "release=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
