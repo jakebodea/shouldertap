@@ -5,6 +5,7 @@ import { createHmac } from "node:crypto";
 import * as Schema from "effect/Schema";
 
 import {
+  Appearance,
   CredentialGrant,
   Invite,
   Snapshot,
@@ -32,10 +33,11 @@ const call = async <S extends Schema.ConstraintDecoder<unknown>>(
   path: string,
   schema: S,
   token?: string,
-  body?: unknown
+  body?: unknown,
+  method?: string
 ) => {
   const response = await fetch(`${target}/v1${path}`, {
-    method: body === undefined ? "GET" : "POST",
+    method: method ?? (body === undefined ? "GET" : "POST"),
     headers: {
       "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -128,11 +130,41 @@ assert.deepEqual(await patron(), {
   canSubscribe: false,
   legacySupporter: false,
 });
+// Exercise the paid settings through the deployed API, then inspect the
+// device snapshot again after cancellation/refund/recovery below.
+for (const theme of ["broadsheet", "billboard", "terminal", "note"] as const) {
+  // oxlint-disable-next-line no-await-in-loop -- Writes share one inbox; the final saved Note must precede lifecycle checks.
+  const saved = await call(
+    "/appearance",
+    Appearance,
+    device.token,
+    { theme, motion: "reduced" },
+    "PUT"
+  );
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.data, {
+    theme,
+    shownTheme: theme,
+    motion: "reduced",
+    canChooseTheme: true,
+  });
+}
+const expectAppearance = async (active: boolean) => {
+  const snapshot = await call("/me", Snapshot, device.token);
+  assert.ok(snapshot.data.kind === "device");
+  assert.deepEqual(snapshot.data.appearance, {
+    theme: "note",
+    shownTheme: active ? "note" : "default",
+    motion: "reduced",
+    canChooseTheme: active,
+  });
+};
 await deliver(paid);
 await expectPatron("paidUntil", 1_824_076_800_000);
 await deliver(payload("subscription.canceled", 4, subscription));
 await expectPatron("status", "ending");
 await expectPatron("active", true);
+await expectAppearance(true);
 await deliver(
   payload("refund.created", 5, {
     status: "succeeded",
@@ -141,6 +173,7 @@ await deliver(
   })
 );
 await expectPatron("active", false);
+await expectAppearance(false);
 await deliver(paid);
 await expectPatron("active", false);
 await deliver(payload("subscription.paid", 5.5, subscription));
@@ -157,6 +190,7 @@ const renewal = {
 await deliver(payload("subscription.paid", 6, renewal));
 await expectPatron("status", "active");
 await expectPatron("paidUntil", 1_855_699_200_000);
+await expectAppearance(true);
 await deliver(
   payload("refund.created", 7, {
     status: "succeeded",
@@ -179,8 +213,10 @@ await checkFailure(9, "subscription.unpaid");
 await checkFailure(10, "subscription.expired");
 await deliver(payload("subscription.paused", 11, renewal));
 await expectPatron("active", false);
+await expectAppearance(false);
 await deliver(payload("subscription.paid", 12, renewal));
 await expectPatron("active", true);
+await expectAppearance(true);
 await deliver(payload("subscription.scheduled_cancel", 13, renewal));
 await expectPatron("status", "ending");
 await deliver(
@@ -191,6 +227,7 @@ await deliver(
   })
 );
 await expectPatron("active", false);
+await expectAppearance(false);
 // A refund delivered before the first (previously unseen) paid event is sticky.
 const delayed = {
   ...subscription,
@@ -231,6 +268,6 @@ assert.equal(reply.data.state, "acknowledged");
 assert.ok(reply.data.response?.kind === "text");
 assert.equal(reply.data.response.text, "Still free");
 console.log(
-  "SIGNED FIXTURES: renewal, old-refund ordering, failures do not extend, pause, recovery, scheduled cancel, free send/reply after refund passed"
+  "SIGNED FIXTURES: renewal, old-refund ordering, failures do not extend, pause, recovery, scheduled cancel, free send/reply after refund, paid theme selection and appearance fallback/recovery passed"
 );
 console.log("Synthetic inbox:", inboxId);
