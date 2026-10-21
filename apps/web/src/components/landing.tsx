@@ -313,8 +313,8 @@ const Consent = () => {
 const Pricing = () => {
   const points = [
     "Core messaging is free. Safety limits and recipient controls apply to everyone.",
-    "The people who tap you never pay. They use any iPhone with Safari.",
-    "Optional patron support helps cover running costs. While it's active, you can choose a tap theme for your own computers.",
+    "Nobody has to pay to tap or be tapped. Senders use any iPhone with Safari.",
+    "Patrons help cover running costs and can send their taps in a theme, to everyone they tap. The people they tap never pay to see it, and can always choose plain.",
   ];
   return (
     <section
@@ -342,8 +342,8 @@ const Pricing = () => {
         <ul className="flex max-w-xl flex-col gap-4">
           <li className="text-[1.0625rem] leading-relaxed md:text-lg">
             Send and receive taps for free. If Shouldertap helps your household,
-            you can become a patron from the app’s Support Shouldertap menu.
-            Cancel renewal in the billing portal; tapping stays free.
+            you can become a patron from Style in the web sender. Cancel renewal
+            in the billing portal; tapping stays free.
           </li>
           {points.map((point) => (
             <li

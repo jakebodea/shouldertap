@@ -28,14 +28,18 @@ const TermsComponent = () => (
         <li>
           Optional patron support costs US$24/year: $2/month, billed $24
           annually, plus applicable tax. It renews annually until canceled. It
-          helps cover running costs. While it is active, the recipient can
-          choose a tap theme for their own computers; themes end with support,
-          screens return to the free Default, and saved choices return if
-          support resumes. It does not buy messaging features, control over
-          anyone else’s screen, or future themes. It is not a tax-deductible
-          donation. Cancel renewal in the Creem billing portal through “Manage
-          or cancel support” in the app. Support continues through the paid
-          period; core messaging stays free after cancellation. Historical $5
+          helps cover running costs. It belongs to the person sending taps:
+          while it is active, the taps they send can use a theme (Broadsheet,
+          Billboard, Terminal or Note), to everyone they tap, with no extra
+          charge per person. Recipients never pay to see it and can always show
+          every tap plain. A tap keeps the theme it was sent with; after support
+          ends, new taps send in the free Default. It does not buy messaging
+          features, delivery, control over anyone’s settings, or future themes.
+          It is not a tax-deductible donation. Manage or cancel renewal from Tap
+          style in the web sender, through the Creem billing portal. Support
+          continues through the paid period; core messaging stays free after
+          cancellation. Annual support bought from a recipient’s computer before
+          October 2026 can still be managed or canceled there. Historical $5
           purchases remain recorded and do not become subscriptions.
         </li>
         <li>

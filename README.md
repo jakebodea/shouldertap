@@ -20,6 +20,7 @@ Alchemy is the source of truth for infrastructure and backend structure: one Sta
 alchemy.run.ts          Composition root: Server Worker + Safari sender site
 apps/server/src/Server.ts   Cloudflare.Worker: Effect HttpApi + WebSocket forwarding
 apps/server/src/Inbox.ts    Cloudflare.DurableObject: one per recipient, Drizzle over its SQLite
+apps/server/src/SenderPatron.ts Cloudflare.DurableObject: one per sender patron identity (keys, billing facts), its own SQLite in apps/server/drizzle-patron
 apps/server/src/TrialLedger.ts  Cloudflare.DurableObject: historical trial records, retained but no longer consulted
 apps/server/src/schema.ts   Drizzle schema; migrations in apps/server/drizzle (drizzle-kit, durable-sqlite)
 apps/server/test/           Alchemy Test harness: deploys the Stack, drives the protocol
@@ -55,10 +56,14 @@ cd apps/server && bun run test:local         # integration suite against a local
 cd apps/server && bun run test:integ         # same suite, deployed to the test_$USER stage and destroyed after
 ```
 
-Schema changes: edit `apps/server/src/schema.ts`, then generate and commit a migration. Each Inbox applies pending migrations when it activates.
+Schema changes: edit `apps/server/src/schema.ts` (Inbox) or `apps/server/src/patron-schema.ts` (SenderPatron), then generate and commit a migration. Each Durable Object applies pending migrations when it activates.
 
 ```bash
 cd apps/server && bun run db:generate
+```
+
+```bash
+cd apps/server && bun run db:generate:patron
 ```
 
 Mac app (needs Xcode; `DEVELOPER_DIR` avoids `sudo xcode-select`). Tests, then a debug build that talks to the local stack:
@@ -197,7 +202,7 @@ Releases are unsigned until Azure Artifact Signing is set up, so SmartScreen war
 - The Windows app has been built and run only on a Mac (the shared UI and protocol, against the local stack). Its Windows-only parts (tray, overlays above full-screen apps, keyboard focus, Credential Manager, install and update) compile but haven't run on Windows yet. GPUI has no screen reader support yet, unlike the Mac app's SwiftUI.
 - Handled in code but not yet tested by hand: Durable Object hibernation, sleep/wake, display hot-plug, full-screen apps/Spaces, and replying while offline. Tested: overlays on two displays, replying from the overlay, cross-Mac dismissal, and the protocol via the Alchemy integration suite.
 - Sender history is capped at 50 recent taps.
-- Core messaging is free. Legacy plan snapshots emit `paid` solely to keep old desktops usable; historical trials and purchases remain stored. Optional patron support is $2/month, billed $24 annually. See [patron billing and rollout](docs/patrons.md) for the implementation, prompt cadence, provider configuration and verification limits.
-- Tap themes (Broadsheet, Billboard, Terminal, Note) render on the Mac and Windows apps for active patrons; everything else, including Default and reduced motion, is free. The Windows renderers and Appearance window have been run only on a Mac (GPUI), like the rest of the Windows app. See [patrons.md](docs/patrons.md#tap-themes).
+- Core messaging is free. Legacy plan snapshots emit `paid` solely to keep old desktops usable; historical trials and purchases remain stored. Optional patron support is $2/month, billed $24 annually, and belongs to the sender. See [patron billing and rollout](docs/patrons.md) for the implementation, identity, provider configuration and verification limits.
+- Sender themes: a patron's taps carry a theme (Broadsheet, Billboard, Terminal, Note) chosen on the web sender's Style page; Mac and Windows draw each tap in its sender's theme, and recipients can always choose plain and reduced motion for free. The iPhone sender sends Default (no in-app purchase). Patron identities have no self-service recovery if every linked device is lost. The Windows renderers and Appearance window have been run only on a Mac (GPUI). See [patrons.md](docs/patrons.md#sender-themes).
 - Limits, enforced by the Inbox: 30 taps per sender per rolling hour (`TooManyRequests`, 429; retries of an existing request id still succeed), and 20 active senders and 10 active devices per inbox (`Conflict`, 409, from `createInvite` and `redeemInvite`).
 - Retention: a daily Durable Object alarm (Alchemy's `scheduleEvent`, armed at inbox creation and on any activation) deletes taps older than 90 days, invites a day after they expire, expired connect tickets, and removed pairings 90 days after removal once none of their taps remain. See `apps/server/src/retention.ts`. On the Workers Free plan each alarm run counts toward the 100,000 Durable Object requests per day, so that's one request per inbox per day.
