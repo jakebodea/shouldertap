@@ -25,6 +25,11 @@ public struct ActiveTap: Equatable, Sendable {
   public var tap: Tap
   /// Other taps waiting behind this one.
   public var queued: Int
+
+  public init(tap: Tap, queued: Int) {
+    self.tap = tap
+    self.queued = queued
+  }
 }
 
 public struct SenderInvite: Sendable {

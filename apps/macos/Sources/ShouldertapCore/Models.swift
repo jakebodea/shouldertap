@@ -111,6 +111,25 @@ public struct Tap: Sendable, Codable, Identifiable, Hashable {
   public var acknowledgedBy: String?
   public var response: TapResponse?
   public var sequence: Int
+
+  public init(
+    id: String, senderId: String, senderName: String, senderColor: PersonColor, body: String, createdAt: Timestamp,
+    state: State = .pending, displayedAt: Timestamp? = nil, acknowledgedAt: Timestamp? = nil,
+    acknowledgedBy: String? = nil, response: TapResponse? = nil, sequence: Int = 0
+  ) {
+    self.id = id
+    self.senderId = senderId
+    self.senderName = senderName
+    self.senderColor = senderColor
+    self.body = body
+    self.createdAt = createdAt
+    self.state = state
+    self.displayedAt = displayedAt
+    self.acknowledgedAt = acknowledgedAt
+    self.acknowledgedBy = acknowledgedBy
+    self.response = response
+    self.sequence = sequence
+  }
 }
 
 public struct Credential: Sendable, Codable, Identifiable, Hashable {

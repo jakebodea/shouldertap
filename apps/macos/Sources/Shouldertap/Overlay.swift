@@ -28,13 +28,22 @@ final class OverlayModel {
   var active: ActiveTap
   var replying = false
   var reply = ""
-  let reduceMotion: Bool
-  @ObservationIgnored let respond: (_ tapId: String, TapResponse) -> Void
+  /// The recipient's theme, as of when this tap appeared.
+  var theme: TapTheme
+  /// The system's Reduce Motion, or the recipient's own "Always reduce".
+  var reduceMotion: Bool
+  /// Bumped to play the arrival again (the Appearance preview's Replay).
+  var arrival = 0
+  @ObservationIgnored var respond: (_ tapId: String, TapResponse) -> Void
 
-  init(active: ActiveTap, respond: @escaping (_ tapId: String, TapResponse) -> Void) {
+  init(
+    active: ActiveTap, theme: TapTheme = .default, reduceMotion: Bool,
+    respond: @escaping (_ tapId: String, TapResponse) -> Void
+  ) {
     self.active = active
+    self.theme = theme
+    self.reduceMotion = reduceMotion
     self.respond = respond
-    reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
   }
 
   func answer(_ response: TapResponse) {
@@ -82,6 +91,9 @@ final class OverlayController {
           if newTap {
             entry.model.replying = false
             entry.model.reply = ""
+            // A new tap picks up a theme or motion change made meanwhile.
+            entry.model.theme = store.themeOnScreen()
+            entry.model.reduceMotion = reduceMotion
           }
         }
       }
@@ -90,11 +102,16 @@ final class OverlayController {
     store.didDisplay(tapId: active.tap.id)
   }
 
+  private var reduceMotion: Bool {
+    store.appearance.reducesMotion(systemSetting: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+  }
+
   private func rebuild(_ active: ActiveTap) {
     tearDown()
     for screen in NSScreen.screens {
       let window = OverlayWindow(screen: screen)
-      let model = OverlayModel(active: active) { [weak store] tapId, response in
+      let model = OverlayModel(active: active, theme: store.themeOnScreen(), reduceMotion: reduceMotion) {
+        [weak store] tapId, response in
         store?.respond(tapId: tapId, response: response)
       }
       let host = NSHostingView(rootView: OverlayView(model: model))
@@ -191,9 +208,31 @@ final class OverlayController {
 
 // MARK: - Views
 
-/// "Frame": the sender's color covers the display and holds a calm paper page
-/// with the message (docs/design.md, "Surfaces").
+/// One display's tap, in the recipient's theme. Each theme is a whole
+/// composition (ThemeViews.swift); a new tap or a replay rebuilds it so its
+/// arrival plays from the start.
 struct OverlayView: View {
+  let model: OverlayModel
+
+  var body: some View {
+    Group {
+      switch model.theme {
+      case .default: DefaultTapView(model: model)
+      case .broadsheet: BroadsheetTapView(model: model).id(arrivalKey)
+      case .billboard: BillboardTapView(model: model).id(arrivalKey)
+      case .terminal: TerminalTapView(model: model).id(arrivalKey)
+      case .note: NoteTapView(model: model).id(arrivalKey)
+      }
+    }
+    .id("\(model.theme)-\(model.arrival)-\(model.reduceMotion)")
+  }
+
+  private var arrivalKey: String { model.active.tap.id }
+}
+
+/// "Frame", the Default theme: the sender's color covers the display and
+/// holds a calm paper page with the message (docs/design.md, "Surfaces").
+struct DefaultTapView: View {
   let model: OverlayModel
   @State private var arrived = false
 

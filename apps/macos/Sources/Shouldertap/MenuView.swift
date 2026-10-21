@@ -8,6 +8,7 @@ import SwiftUI
 struct MenuView: View {
   let store: ReceiverStore
   let updates: Updates
+  let openAppearance: () -> Void
   @State private var contentHeight: CGFloat = 0
 
   var body: some View {
@@ -19,7 +20,7 @@ struct MenuView: View {
         switch store.phase {
         case .loading: ProgressView().frame(maxWidth: .infinity, minHeight: 120)
         case .setup: SetupView(store: store, updates: updates)
-        case .ready: ReadyView(store: store, updates: updates)
+        case .ready: ReadyView(store: store, updates: updates, openAppearance: openAppearance)
         }
       }
       .padding(14)
@@ -110,6 +111,7 @@ private struct SetupView: View {
 private struct ReadyView: View {
   let store: ReceiverStore
   let updates: Updates
+  let openAppearance: () -> Void
   @State private var showSupportAsk = false
 
   var body: some View {
@@ -133,6 +135,16 @@ private struct ReadyView: View {
       Section(title: "Your devices") {
         ForEach(devices) { PairingRow(store: store, credential: $0, isSelf: $0.id == store.credentialId) }
         AddDevice(store: store)
+      }
+
+      Section(title: "Appearance") {
+        Row(action: openAppearance) { _ in
+          Text("Tap appearance").font(.system(size: 13, weight: .medium))
+          Spacer(minLength: 0)
+          Text(store.themeOnScreen().label).font(.system(size: 12)).foregroundStyle(.secondary)
+          Text("›").font(.system(size: 13)).foregroundStyle(.tertiary)
+        }
+        .accessibilityLabel("Tap appearance, \(store.themeOnScreen().label)")
       }
 
       Section(title: "Recent") {
@@ -177,7 +189,7 @@ private struct PatronView: View {
   var body: some View {
     DisclosureGroup("Support Shouldertap") {
       VStack(alignment: .leading, spacing: 8) {
-        Muted("Shouldertap is free. Optional patron support helps cover running costs. No extra messaging features or promised rewards.")
+        Muted("Shouldertap is free. Optional patron support helps cover running costs. While it's active you can choose a tap theme for your computers; messaging, Default and accessibility settings never need it.")
         if store.patron?.legacySupporter == true { Muted("Thank you for your original purchase. It is preserved; you have not been enrolled in a subscription.") }
         if let patron = store.patron, patron.active {
           Text(patron.status == "ending" ? "Thank you. Your support ends at the paid period's end." : "Thank you for supporting Shouldertap.")
