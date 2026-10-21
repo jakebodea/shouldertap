@@ -106,7 +106,7 @@ private struct CameraView: UIViewRepresentable {
     var onValue: (String) -> Void
     private var last: String?
     // startRunning and stopRunning block, so they run off the main thread.
-    private let queue = DispatchQueue(label: "app.shouldertap.ios.camera")
+    private let queue = DispatchQueue(label: "app.shouldertap.iphone.camera")
 
     init(onValue: @escaping (String) -> Void) {
       self.onValue = onValue

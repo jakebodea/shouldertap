@@ -202,7 +202,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
   @Test func checkoutOpensTheReturnedURL() async throws {
     let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
-      guard request.url!.path == "/v1/checkout", request.httpMethod == "POST" else { return (503, "") }
+      guard request.url!.path == "/v1/patron/checkout", request.httpMethod == "POST" else { return (503, "") }
       return (201, #"{"url":"https://checkout.test/ch_1"}"#)
     }
     store.start()
@@ -214,7 +214,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
       .replacingOccurrences(of: #""status":"trial""#, with: #""status":"paid""#)
     let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
       switch request.url!.path {
-      case "/v1/checkout": (409, #"{"_tag":"Conflict","message":"Shouldertap is already unlocked for this inbox."}"#)
+      case "/v1/patron/checkout": (409, #"{"_tag":"Conflict","message":"Shouldertap is already unlocked for this inbox."}"#)
       case "/v1/me": (200, paid)
       default: (503, "")
       }
@@ -248,6 +248,21 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     var expected = ["recipientName": "Jake", "deviceName": "Test Mac"]
     expected["machine"] = machine
     #expect(sent.body == expected)
+  }
+
+  @Test func anIPhoneCreatesItsOwnInboxAndPersistsIt() async throws {
+    let sent = Sent()
+    let persistence = MemoryPersistence()
+    let store = makeStore(persistence: persistence, platform: .iphone) { request in
+      guard request.url!.path == "/v1/inboxes" else { return (503, "") }
+      sent.body = jsonBody(request)
+      return (201, #"{"kind":"device","credentialId":"p1","token":"inbox.p1.secret","recipientName":"Ari"}"#)
+    }
+    store.start()
+    try await store.createInbox(recipientName: "Ari")
+    #expect(sent.body == ["recipientName": "Ari", "deviceName": "iPhone", "platform": "iphone"])
+    #expect(persistence.loadCredential() == "inbox.p1.secret")
+    #expect(store.phase == .ready)
   }
 
   @Test func anIPhoneLinksAsAnIPhone() async throws {

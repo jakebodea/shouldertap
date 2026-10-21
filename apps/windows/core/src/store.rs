@@ -61,6 +61,7 @@ pub struct StoreState {
     /// Trial, paid or expired; None until the first snapshot, or from a server
     /// older than payments.
     pub plan: Option<Plan>,
+    pub patron: Option<crate::Patron>,
     /// Newest first.
     pub taps: Vec<Tap>,
     pub status: LiveStatus,
@@ -76,6 +77,7 @@ impl Default for StoreState {
             credential_id: None,
             credentials: Vec::new(),
             plan: None,
+            patron: None,
             taps: Vec::new(),
             status: LiveStatus::Connecting,
             pending_acks: BTreeMap::new(),
@@ -204,6 +206,10 @@ impl ReceiverStore {
         }
     }
 
+    pub fn manage_patron_url(&self) -> Result<String, ApiError> {
+        self.inner.api().manage_patron().map(|checkout| checkout.url)
+    }
+
     // Overlay
 
     /// The overlay put this tap on screen; tell the sender once.
@@ -252,7 +258,7 @@ impl ReceiverStore {
             .api()
             .redeem_invite(&code, &self.inner.safe_device_name(), None, Some(platform))?;
         if grant.kind != CredentialKind::Device {
-            return Err(ApiError::invalid(if platform.shows_taps() {
+            return Err(ApiError::invalid(if platform.shows_desktop_overlay() {
                 "That's a sender invite. Open it on the phone that will send taps."
             } else {
                 "That's an invite to tap someone. To link your computer, use the code under Your devices."
@@ -304,8 +310,7 @@ impl ReceiverStore {
     }
 
     /// Removing this device forgets it here even if the server can't be
-    /// reached, except when the server refuses (the inbox's last computer
-    /// while an iPhone is still linked): then it stays, and the error says why.
+    /// reached, except when the server explicitly refuses with a conflict.
     pub fn revoke(&self, credential_id: &str) -> Result<(), ApiError> {
         if self.state().credential_id.as_deref() == Some(credential_id) {
             if let Err(error) = self.inner.api().revoke(credential_id) {
@@ -395,6 +400,7 @@ impl Inner {
                     state.credential_id = Some(snapshot.credential_id);
                     state.credentials = snapshot.credentials;
                     state.plan = snapshot.plan;
+                    state.patron = snapshot.patron;
                     state.taps = merge_snapshot(&state.taps, &snapshot.taps);
                 }),
                 Ok(Snapshot::Sender(_)) => return,

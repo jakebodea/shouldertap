@@ -245,9 +245,9 @@ const HowItWorks = ({ scene, earlier }: { scene: Scene; earlier: Scene }) => (
     >
       Harder to miss than a text. Kinder than yelling up the stairs.
     </h2>
-    <Step art={<MiniMenuBar />} title="Invite them from your Mac">
-      Shouldertap lives in your menu bar. Create an invite link and they scan it
-      with their iPhone camera. Only people you invite can tap you.
+    <Step art={<MiniMenuBar />} title="Invite them from your iPhone or Mac">
+      Create an inbox in the iPhone app or your Mac menu bar. Share an invite
+      link or QR code. Only people you invite can tap you.
     </Step>
     <Step
       art={<MiniPhone scene={scene} />}
@@ -259,11 +259,11 @@ const HowItWorks = ({ scene, earlier }: { scene: Scene; earlier: Scene }) => (
     </Step>
     <Step
       art={<MiniOverlay scene={scene} />}
-      title="It covers your screens until you answer"
+      title="Receive a tap, send an answer"
     >
-      Every display on every paired Mac, above full-screen apps. Answer with On
-      it, In 10 min, or a quick reply. Answer on one Mac and it clears from all
-      of them.
+      On iPhone, receive notifications and Live Activities, or a full-screen tap
+      while the app is open. Add a Mac to cover every display, above full-screen
+      apps. Answer on any device and it clears from the others.
     </Step>
     <Step
       art={<MiniAnswer earlier={earlier} scene={scene} />}
@@ -313,9 +313,9 @@ const Consent = () => {
 /** Creem's review requires the price to be easy to find on the site. */
 const Pricing = () => {
   const points = [
-    "Every feature from day one: unlimited taps, every Mac you own, and up to 20 people who can tap you.",
+    "Core messaging is free. Safety limits and recipient controls apply to everyone.",
     "The people who tap you never pay. They use any iPhone with Safari.",
-    "Not for you? Ask for a full refund within 14 days of buying.",
+    "Optional patron support helps cover running costs. No extra features or promised rewards.",
   ];
   return (
     <section
@@ -326,23 +326,25 @@ const Pricing = () => {
         className="max-w-[16ch] text-[2.75rem] leading-[0.98] font-extrabold tracking-[-0.04em] text-balance md:text-[4.5rem]"
         id="pricing"
       >
-        Free for a week. Then $5, once.
+        Free to use. Supported by patrons.
       </h2>
       <div className="grid gap-10 md:grid-cols-[auto_1fr] md:gap-16">
         <div className="flex flex-col gap-2">
           <p className="text-[4rem] leading-none font-extrabold tracking-[-0.045em] md:text-[5.5rem]">
-            $5
+            Free
           </p>
           <p className="text-tone text-[1.0625rem] md:text-lg">
-            One-time purchase, plus tax where it applies.
+            Optional support: $2/month, billed $24 annually in USD, plus
+            applicable tax.
             <br />
-            No subscription.
+            Renews annually until canceled.
           </p>
         </div>
         <ul className="flex max-w-xl flex-col gap-4">
           <li className="text-[1.0625rem] leading-relaxed md:text-lg">
-            Try everything free for 7 days. Then unlock Shouldertap on your Mac
-            for good.
+            Send and receive taps for free. If Shouldertap helps your household,
+            you can become a patron from the app’s Support Shouldertap menu.
+            Cancel renewal in the billing portal; tapping stays free.
           </li>
           {points.map((point) => (
             <li
@@ -369,7 +371,7 @@ const Close = () => (
         Download for Mac
       </MacDownloadLink>
       <span className="text-tone text-[0.9375rem]">
-        Free for 7 days, then $5 once. Mac app plus any iPhone with Safari.
+        Free on iPhone. Add a Mac for screen takeover. Send from Safari, too.
       </span>
     </div>
     <footer className="border-line text-tone mt-16 flex flex-wrap items-center justify-between gap-4 border-t-[1.5px] pt-6 text-sm">
@@ -628,8 +630,8 @@ export const Landing = () => {
 
           <div className="border-line mt-10 grid gap-6 border-t-[1.5px] pt-8 md:mt-12 md:grid-cols-[1fr_auto] md:items-end md:gap-12 md:pt-9">
             <h1 className="max-w-[30em] text-[1.625rem] leading-[1.12] font-bold tracking-[-0.025em] text-balance md:text-[2.125rem]">
-              When someone at home needs you, their message covers your Mac
-              until you answer.{" "}
+              When someone at home needs you, receive their tap on iPhone or
+              across your Mac screens.{" "}
               <span className="text-tone">
                 They see your reply the moment you send it.
               </span>

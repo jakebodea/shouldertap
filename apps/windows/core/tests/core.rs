@@ -417,3 +417,18 @@ fn keeps_the_file_when_the_vault_fails() {
     );
     let _ = std::fs::remove_dir_all(directory);
 }
+
+#[test]
+fn free_core_plan_is_independent_of_patron_status() {
+    let json = r#"{"kind":"device","credentialId":"d","recipientName":"J","sequence":1,"taps":[],"credentials":[],"plan":{"status":"paid","trialEndsAt":1},"patron":{"active":false,"status":"none","paidUntil":null,"canManage":false,"canSubscribe":true,"legacySupporter":false}}"#;
+    let Snapshot::Receiver(snapshot) = serde_json::from_str(json).unwrap() else {
+        panic!("expected receiver");
+    };
+    assert_eq!(
+        snapshot.plan.unwrap().current_status(1_791_331_200_000.0),
+        PlanStatus::Paid
+    );
+    let patron = snapshot.patron.unwrap();
+    assert_eq!(patron.status, "none");
+    assert!(patron.can_subscribe);
+}

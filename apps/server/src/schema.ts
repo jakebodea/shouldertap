@@ -14,19 +14,43 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+import type { PatronEvent } from "./patron";
+
 /** One row: this inbox's identity, event sequence counter and plan. */
 export const inbox = sqliteTable("inbox", {
   id: integer("id").primaryKey(),
   inboxId: text("inbox_id").notNull(),
   recipientName: text("recipient_name").notNull(),
   sequence: integer("sequence").notNull().default(0),
-  /** Taps stop being delivered after this unless the inbox is paid for. */
+  /** Historical trial metadata, no longer enforces access. */
   trialEndsAt: integer("trial_ends_at"),
   /** Set by Creem's checkout.completed webhook; cleared by a refund. */
   paidAt: integer("paid_at"),
   orderId: text("order_id"),
   /** The buyer's email, kept to restore the purchase on a new Mac. */
   purchaseEmail: text("purchase_email"),
+  firstAnsweredAt: integer("first_answered_at"),
+  answeredCount: integer("answered_count").notNull().default(0),
+  supportAskAfter: integer("support_ask_after").notNull().default(0),
+});
+
+export const patronEvents = sqliteTable("patron_events", {
+  id: text("id").primaryKey(),
+  event: text("event", { mode: "json" }).$type<PatronEvent>().notNull(),
+});
+
+/** One outstanding checkout per inbox, shared by all devices. An uncertain
+ * provider response stays reserved rather than risking a second subscription. */
+export const patronCheckout = sqliteTable("patron_checkout", {
+  id: integer("id").primaryKey(),
+  requestId: text("request_id").notNull(),
+  createdAt: integer("created_at").notNull(),
+  url: text("url"),
+  providerId: text("provider_id"),
+});
+
+export const refundedOrders = sqliteTable("refunded_orders", {
+  id: text("id").primaryKey(),
 });
 
 /** Linked Macs and iPhones ("device") and trusted senders ("sender"). */

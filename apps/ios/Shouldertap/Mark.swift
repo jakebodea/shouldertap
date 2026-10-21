@@ -18,7 +18,7 @@ struct MarkView: View {
       ForEach(0..<MarkGeometry.knocks.count, id: \.self) { index in
         Knock(index: index)
           .stroke(style: StrokeStyle(lineWidth: 3.75 * scale, lineCap: .round))
-          .keyframeAnimator(initialValue: KnockFrame(), trigger: knock) { content, frame in
+          .keyframeAnimator(initialValue: KnockFrame(), trigger: knock) { [reduceMotion] content, frame in
             content
               .scaleEffect(reduceMotion ? 1 : frame.scale, anchor: MarkGeometry.anchor(of: index))
               .opacity(frame.opacity)
@@ -77,7 +77,7 @@ nonisolated private enum MarkGeometry {
   }
 }
 
-private struct MarkFrame: Shape {
+nonisolated private struct MarkFrame: Shape {
   func path(in rect: CGRect) -> Path {
     var frame = Path()
     frame.move(to: CGPoint(x: 4, y: 0))
@@ -93,7 +93,7 @@ private struct MarkFrame: Shape {
   }
 }
 
-private struct Knock: Shape {
+nonisolated private struct Knock: Shape {
   let index: Int
 
   func path(in rect: CGRect) -> Path {

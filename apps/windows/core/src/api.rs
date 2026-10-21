@@ -306,7 +306,11 @@ impl ApiClient {
     /// Where to pay for this inbox. `Conflict` once it's already paid for;
     /// `Unavailable` when the server has no payments set up.
     pub fn create_checkout(&self) -> Result<Checkout, ApiError> {
-        self.send::<(), _>("POST", "/v1/checkout", None)
+        self.send::<(), _>("POST", "/v1/patron/checkout", None)
+    }
+
+    pub fn manage_patron(&self) -> Result<Checkout, ApiError> {
+        self.send::<(), _>("POST", "/v1/patron/manage", None)
     }
 
     pub fn connect_ticket(&self) -> Result<ConnectTicket, ApiError> {

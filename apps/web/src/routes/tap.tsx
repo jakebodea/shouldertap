@@ -94,7 +94,7 @@ const Composer = ({
   const [, setTick] = useState(0);
   const color =
     pairing.color ?? senderColor ?? fallbackColor(pairing.credentialId);
-  // The recipient's trial ended: say so above the composer, once.
+  // Compatibility with an older server during a server-first rollout.
   const paused = outbox.find((item) => item.paused);
 
   useEffect(() => {

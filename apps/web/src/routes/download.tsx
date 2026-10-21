@@ -47,7 +47,7 @@ const DownloadComponent = () => (
         </a>
         <p className="text-tone text-[0.8125rem] leading-relaxed">
           <span className="text-ink block text-sm font-semibold">
-            Free for 7 days, then $5 once
+            Free to use
           </span>
           macOS 14 Sonoma or later · Apple silicon and Intel
         </p>

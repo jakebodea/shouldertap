@@ -88,7 +88,7 @@ export const CreateInboxRequest = Schema.Struct({
   deviceName: Name,
   /** Which computer is setting up, so its trial survives a fresh setup. Older apps omit it. */
   machine: Schema.optionalKey(MachineFingerprint),
-  /** Which kind of computer is setting up. Macs omit it. */
+  /** Which kind of device is setting up. Older Macs omit it. */
   platform: Schema.optionalKey(DevicePlatform),
 });
 export type CreateInboxRequest = typeof CreateInboxRequest.Type;
@@ -183,10 +183,8 @@ export type ConnectTicket = typeof ConnectTicket.Type;
 
 // Reads
 
-/**
- * Whether the inbox delivers taps: during its free trial, once paid for, or
- * neither ("expired").
- */
+/** Legacy compatibility only. Free core servers always emit `paid`, so old
+ * clients do not display a paywall. Membership is the separate Patron fact. */
 export const PlanStatus = Schema.Literals(["trial", "paid", "expired"]);
 export type PlanStatus = typeof PlanStatus.Type;
 
@@ -203,6 +201,22 @@ export const Checkout = Schema.Struct({
 export type Checkout = typeof Checkout.Type;
 
 /** What a paired Mac sees: every pending tap plus recent history. */
+export const Patron = Schema.Struct({
+  active: Schema.Boolean,
+  status: Schema.Literals([
+    "none",
+    "active",
+    "ending",
+    "payment_issue",
+    "inactive",
+  ]),
+  paidUntil: Schema.NullOr(Timestamp),
+  canManage: Schema.Boolean,
+  canSubscribe: Schema.Boolean,
+  legacySupporter: Schema.Boolean,
+});
+export type Patron = typeof Patron.Type;
+
 export const ReceiverSnapshot = Schema.Struct({
   kind: Schema.Literal("device"),
   credentialId: Schema.String,
@@ -211,6 +225,7 @@ export const ReceiverSnapshot = Schema.Struct({
   taps: Schema.Array(Tap),
   credentials: Schema.Array(Credential),
   plan: Plan,
+  patron: Schema.optional(Patron),
 });
 export type ReceiverSnapshot = typeof ReceiverSnapshot.Type;
 

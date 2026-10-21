@@ -74,12 +74,12 @@ public struct APIClient: Sendable {
 
   /// `machine` is this Mac's `MachineFingerprint`, so setting up again keeps
   /// the Mac's original trial; nil when it couldn't be read.
-  public func createInbox(recipientName: String, deviceName: String, machine: String? = nil) async throws
+  public func createInbox(recipientName: String, deviceName: String, machine: String? = nil, platform: DevicePlatform = .mac) async throws
     -> CredentialGrant
   {
     try await send(
       "POST", "/v1/inboxes",
-      body: CreateInbox(recipientName: recipientName, deviceName: deviceName, machine: machine))
+      body: CreateInbox(recipientName: recipientName, deviceName: deviceName, platform: platform == .mac ? nil : platform, machine: machine))
   }
 
   /// `color` is the sender's frame color and `platform` the joining
@@ -144,11 +144,19 @@ public struct APIClient: Sendable {
   /// Macs only: where to pay for this inbox. `conflict` once it's already
   /// paid for; `unavailable` when the server has no payments set up.
   public func createCheckout() async throws -> Checkout {
-    try await send("POST", "/v1/checkout")
+    try await send("POST", "/v1/patron/checkout")
   }
 
   public func connectTicket() async throws -> ConnectTicket {
     try await send("POST", "/v1/connect-tickets")
+  }
+
+  public func managePatron() async throws -> Checkout {
+    try await send("POST", "/v1/patron/manage")
+  }
+
+  public func claimSupportPrompt() async throws -> SupportPrompt {
+    try await send("POST", "/v1/patron/prompt")
   }
 
   /// `ws(s)://…/v1/connect?ticket=…`: the one-time ticket keeps the long-lived
@@ -167,6 +175,7 @@ public struct APIClient: Sendable {
   private struct CreateInbox: Encodable {
     var recipientName: String
     var deviceName: String
+    var platform: DevicePlatform?
     var machine: String?  // omitted when nil, like the optional key in the contract
   }
   private struct Redeem: Encodable {

@@ -16,6 +16,26 @@ const SupportComponent = () => (
     }
     title="Support"
   >
+    <DocSection title="Support Shouldertap">
+      <p>
+        Core messaging is free. Optional patron support helps cover running
+        costs: $2/month, billed $24 annually in USD, plus applicable tax. It
+        renews annually until canceled. There are no extra features or promised
+        rewards. It is not a tax-deductible donation.
+      </p>
+      <p>
+        On your computer, open “Support Shouldertap” in the app menu. Use
+        “Become a patron” to check out with Creem, or “Manage or cancel support”
+        to manage your subscription, payment method, and receipts. Cancellation
+        takes effect at the end of your paid period. Core use stays free. For
+        billing help or a refund within 14 days of a support payment, email{" "}
+        <EmailLink />.
+      </p>
+      <p>
+        If you previously paid $5, thank you. Your purchase is preserved and you
+        have not been enrolled in an annual subscription.
+      </p>
+    </DocSection>
     <DocSection title="How do I pair someone's phone?">
       <p>
         On your Mac, click the Shouldertap mark in the menu bar and choose
