@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Frame } from "@/components/frame";
-import { Mark } from "@/components/mark";
+import { SitePage } from "@/components/site-page";
 
 export const SUPPORT_EMAIL = "support@shouldertap.app";
 
@@ -38,10 +37,7 @@ export const EmailLink = () => (
   </a>
 );
 
-/**
- * A long-form reading page (support, privacy, terms): Shouldertap's own
- * neutral frame around a paper page.
- */
+/** A long-form reading page (support, privacy, terms) on the paper canvas. */
 export const DocPage = ({
   title,
   effective,
@@ -53,43 +49,33 @@ export const DocPage = ({
   intro?: ReactNode;
   children: ReactNode;
 }) => (
-  <Frame color="graphite">
-    <header className="flex items-center justify-between">
-      <a
-        aria-label="Shouldertap home"
-        className="inline-flex items-center gap-2 text-xl font-extrabold tracking-[-0.035em]"
-        href="/"
-      >
-        <Mark className="size-6" />
-        Shouldertap
-      </a>
-    </header>
+  <SitePage>
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 pt-12 sm:pt-20">
+      <div className="flex flex-col gap-3">
+        <h1 className="text-[2.75rem] leading-[0.95] font-extrabold tracking-[-0.04em] text-balance">
+          {title}
+        </h1>
+        {effective ? (
+          <p className="text-tone text-[0.9375rem] tabular-nums">
+            Effective {effective}
+          </p>
+        ) : null}
+        {intro ? (
+          <p className="text-tone pt-2 text-[1.0625rem] leading-relaxed">
+            {intro}
+          </p>
+        ) : null}
+      </div>
 
-    <div className="flex flex-col gap-3 pt-6">
-      <h1 className="text-[2.75rem] leading-[0.95] font-extrabold tracking-[-0.04em] text-balance">
-        {title}
-      </h1>
-      {effective ? (
-        <p className="text-tone text-[0.9375rem] tabular-nums">
-          Effective {effective}
-        </p>
-      ) : null}
-      {intro ? (
-        <p className="text-tone pt-2 text-[1.0625rem] leading-relaxed">
-          {intro}
-        </p>
-      ) : null}
-    </div>
-
-    <div className="divide-line flex flex-col divide-y">{children}</div>
-
-    <footer className="text-tone mt-auto flex flex-col items-center gap-2 pt-2 text-[0.8125rem]">
-      <DocLinks className="justify-center" />
+      <div className="divide-line flex flex-col divide-y">{children}</div>
+    </main>
+    <footer className="text-tone border-line mx-auto mt-12 flex max-w-3xl flex-wrap items-center justify-between gap-4 border-t pt-6 text-[0.8125rem]">
+      <DocLinks />
       <span>
         Questions? <EmailLink />
       </span>
     </footer>
-  </Frame>
+  </SitePage>
 );
 
 /** One titled section of a reading page. */
