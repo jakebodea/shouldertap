@@ -31,7 +31,7 @@ export const SitePage = ({
       }
       style={frameStyle(color)}
     >
-      <div className="mx-auto max-w-6xl px-6 py-10 md:px-[72px] md:py-16">
+      <div className="mx-auto max-w-[90rem] px-6 py-10 md:px-[72px] md:py-16">
         {children}
       </div>
     </PageShell>

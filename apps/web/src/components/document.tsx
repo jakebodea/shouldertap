@@ -18,7 +18,7 @@ export const DocLinks = ({ className }: { className?: string }) => (
   >
     {PAGES.map((page) => (
       <a
-        className="hover:text-ink underline-offset-[3px] hover:underline"
+        className="hover:text-ink inline-flex min-h-11 items-center underline-offset-[3px] hover:underline"
         href={page.href}
         key={page.href}
       >
@@ -50,9 +50,9 @@ export const DocPage = ({
   children: ReactNode;
 }) => (
   <SitePage>
-    <main className="mx-auto flex max-w-3xl flex-col gap-6">
+    <main className="mx-auto flex max-w-3xl flex-col gap-10">
       <div className="flex flex-col gap-3">
-        <h1 className="text-[2.75rem] leading-[0.95] font-extrabold tracking-[-0.04em] text-balance">
+        <h1 className="text-[2.75rem] leading-none font-extrabold tracking-[-0.04em] text-balance md:text-6xl">
           {title}
         </h1>
         {effective ? (
@@ -61,7 +61,7 @@ export const DocPage = ({
           </p>
         ) : null}
         {intro ? (
-          <p className="text-tone pt-2 text-[1.0625rem] leading-relaxed">
+          <p className="text-tone pt-3 text-[1.0625rem] leading-relaxed md:text-xl">
             {intro}
           </p>
         ) : null}
@@ -69,7 +69,7 @@ export const DocPage = ({
 
       <div className="divide-line flex flex-col divide-y">{children}</div>
     </main>
-    <footer className="text-tone border-line mx-auto mt-12 flex max-w-3xl flex-wrap items-center justify-between gap-4 border-t pt-6 text-[0.8125rem]">
+    <footer className="text-tone border-line mx-auto mt-12 flex max-w-3xl flex-wrap items-center justify-between gap-4 border-t pt-4 text-sm">
       <DocLinks />
       <span>
         Questions? <EmailLink />
@@ -86,8 +86,8 @@ export const DocSection = ({
   title: string;
   children: ReactNode;
 }) => (
-  <section className="flex flex-col gap-3 py-6 text-[1rem] leading-relaxed [&_li]:pl-1 [&_ul]:flex [&_ul]:list-disc [&_ul]:flex-col [&_ul]:gap-2 [&_ul]:pl-5">
-    <h2 className="text-[1.25rem] leading-tight font-bold tracking-[-0.02em]">
+  <section className="flex flex-col gap-3 py-8 text-[1.0625rem] leading-relaxed [&_li]:pl-1 [&_ul]:flex [&_ul]:list-disc [&_ul]:flex-col [&_ul]:gap-2 [&_ul]:pl-5">
+    <h2 className="text-[1.375rem] leading-tight font-bold tracking-[-0.02em]">
       {title}
     </h2>
     {children}
