@@ -8,9 +8,9 @@ import SwiftUI
 struct MenuView: View {
   let store: ReceiverStore
   let updates: Updates
+  let account: AccountStore
   let openAppearance: () -> Void
-  @State private var showAccount = false
-  @State private var account = AccountStore(server: Config.endpoints.server, clientID: "shouldertap-mac", vault: KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".account"))
+  let openAccount: () -> Void
   @State private var contentHeight: CGFloat = 0
 
   var body: some View {
@@ -21,16 +21,11 @@ struct MenuView: View {
         #endif
         switch store.phase {
         case .loading: ProgressView().frame(maxWidth: .infinity, minHeight: 120)
-        case .setup: SetupView(store: store, updates: updates)
-        case .ready: ReadyView(store: store, updates: updates, openAppearance: openAppearance)
+        case .setup: SetupView(store: store, updates: updates, openAccount: openAccount)
+        case .ready: ReadyView(store: store, updates: updates, account: account, openAppearance: openAppearance, openAccount: openAccount)
         }
       }
       .padding(14)
-      .safeAreaInset(edge: .bottom) { Button("Account and recovery") { showAccount = true }.padding(8) }
-      .sheet(isPresented: $showAccount) {
-        VStack { AccountView(account: account, inbox: store); Button("Done") { showAccount = false }.padding() }
-          .frame(width: 540, height: 480)
-      }
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
     }
     .scrollBounceBehavior(.basedOnSize)
@@ -59,6 +54,7 @@ struct MenuView: View {
 private struct SetupView: View {
   let store: ReceiverStore
   let updates: Updates
+  let openAccount: () -> Void
   @State private var name = ""
   @State private var code = ""
   @State private var busy = false
@@ -89,6 +85,8 @@ private struct SetupView: View {
           .disabled(busy || trimmed(code).isEmpty)
       }
 
+      MenuButton(title: "Restore with email", kind: .plain, action: openAccount)
+
       if let error { ErrorText(error) }
       if busy { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
       Footer(updates: updates)
@@ -118,7 +116,9 @@ private struct SetupView: View {
 private struct ReadyView: View {
   let store: ReceiverStore
   let updates: Updates
+  let account: AccountStore
   let openAppearance: () -> Void
+  let openAccount: () -> Void
 
   var body: some View {
     let senders = store.credentials.filter { $0.kind == .sender }
@@ -153,6 +153,16 @@ private struct ReadyView: View {
         .accessibilityLabel("Tap motion, \(appearanceLabel)")
       }
 
+      Section(title: "Account") {
+        Row(action: openAccount) { _ in
+          Text("Account and recovery").font(.system(size: 13, weight: .medium))
+          Spacer(minLength: 0)
+          Text(accountLabel).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+          Text("›").font(.system(size: 13)).foregroundStyle(.tertiary)
+        }
+        .accessibilityLabel("Account and recovery, \(accountLabel)")
+      }
+
       Section(title: "Recent") {
         if store.taps.isEmpty {
           Muted("Taps you receive show up here.")
@@ -164,6 +174,10 @@ private struct ReadyView: View {
       PatronView(store: store)
       Footer(updates: updates)
     }
+  }
+
+  private var accountLabel: String {
+    account.signedIn ? (account.email ?? "Signed in") : "Not signed in"
   }
 
   private var appearanceLabel: String {

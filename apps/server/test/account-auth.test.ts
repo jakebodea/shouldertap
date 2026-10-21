@@ -25,7 +25,7 @@ const request = (path: string, body?: object, cookie?: string, from = origin) =>
       },
       body: body ? JSON.stringify(body) : undefined,
     }),
-    { auth, origin, webOrigin, page: accountPage }
+    { auth, origin, webOrigin, page: (url) => accountPage(url, webOrigin) }
   );
 const emailedToken = () => {
   const message = sent.at(-1);
@@ -195,6 +195,26 @@ describe("email account HTTP flow", () => {
     );
     expect(content).toContain("Confirm sign in");
     expect(verification.status).toBe(405);
+  });
+
+  it("shows only the code check when an app opens the device page", async () => {
+    const page = await request("/account/device?user_code=ABCD-EFGH");
+    const content = await page.text();
+    expect(content).toContain('<h1 id="title">Connect your device.</h1>');
+    expect(content).toContain("The code matches my device");
+    expect(content).not.toContain("Delete account");
+    expect(content).not.toContain('id="patron"');
+  });
+
+  it("returns a patron checkout to the web sender's patron account", async () => {
+    const plainPage = await request("/account");
+    const patronPage = await request("/account?section=patron");
+    const plain = await plainPage.text();
+    const patron = await patronPage.text();
+    expect(plain).toContain('href="https://shouldertap.app/account"');
+    expect(patron).toContain(
+      'href="https://shouldertap.app/account?intent=patron"'
+    );
   });
 
   it("issues a native session only after explicit device approval", async () => {

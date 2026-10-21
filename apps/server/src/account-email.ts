@@ -40,7 +40,7 @@ export const accountEmailSender =
           "",
           url,
           "",
-          "This link can be used once. If it has expired, request a new one.",
+          "This link expires in 10 minutes and works once. If it has expired, request a new one.",
           "",
           "If you didn't request this email, you can ignore it.",
         ].join("\n"),

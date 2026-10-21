@@ -119,6 +119,10 @@ test(
       coreMessaging: "free",
       patronCheckoutEnabled: false,
     });
+    const availability = yield* Effect.promise(() =>
+      fetch(`${url}/v1/patrons/availability`).then((r) => r.json())
+    );
+    expect(availability).toStrictEqual({ checkoutEnabled: false });
   })
 );
 

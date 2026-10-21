@@ -9,6 +9,7 @@ import type { FormEvent } from "react";
 import { Frame } from "@/components/frame";
 import { TapPreview } from "@/components/tap-preview/tap-preview";
 import type { PreviewTap } from "@/components/tap-preview/themes";
+import { styleOffer } from "@/lib/account-flow";
 import { isStandalone } from "@/lib/install";
 import { loadPairing } from "@/lib/pairing";
 import { loadDraft, loadStyle, saveStyle } from "@/lib/sender-style";
@@ -29,8 +30,7 @@ const longDate = (at: number) =>
  * The sender's tap style: how their taps look on the computers of everyone
  * they tap. Everyone can browse and replay every theme; sending one other
  * than Default needs the sender's own active patron membership, checked by
- * the server on every send. Recipients never pay to see it and can always
- * choose plain.
+ * the server on every send. Recipients never pay to see it.
  */
 const StyleComponent = () => {
   const pairing = loadPairing();
@@ -80,7 +80,7 @@ const StyleComponent = () => {
       </header>
       <p className="text-tone -mt-2 text-[0.9375rem] leading-snug">
         How your taps look on the screens of everyone you tap. They never pay to
-        see it, and can always switch to plain.
+        see it.
       </p>
 
       <section aria-label={`${THEME_NAMES[selected].name} preview`}>
@@ -180,6 +180,57 @@ const StyleComponent = () => {
   );
 };
 
+/** The call to action for a sender without an active membership. */
+const PatronOffer = ({
+  offer,
+  patron,
+  onManage,
+  onSubscribe,
+}: {
+  offer: ReturnType<typeof styleOffer>;
+  patron: ReturnType<typeof usePatron>;
+  onManage: () => void;
+  onSubscribe: () => void;
+}) => (
+  <>
+    {patron.status?.patron.status === "payment_issue" ? (
+      <p className="text-[0.9375rem] leading-snug font-semibold">
+        Your last payment didn’t go through.
+      </p>
+    ) : null}
+    {offer === "manage" ? (
+      <button
+        className="pill pill-ink w-full"
+        disabled={patron.busy}
+        onClick={onManage}
+        type="button"
+      >
+        Manage billing
+      </button>
+    ) : null}
+    {offer === "subscribe" ? (
+      <>
+        <button
+          className="pill pill-ink w-full"
+          disabled={patron.busy || !patron.loaded}
+          onClick={onSubscribe}
+          type="button"
+        >
+          Become a patron
+        </button>
+        <p className="text-tone text-center text-[0.8125rem]">
+          {PRICE}, plus tax. Renews yearly until canceled.
+        </p>
+      </>
+    ) : null}
+    {offer === "soon" ? (
+      <p className="bg-faint rounded-2xl px-4 py-3 text-[0.9375rem] leading-snug font-semibold">
+        Patron memberships open soon.
+      </p>
+    ) : null}
+  </>
+);
+
 const PatronSection = ({
   patron,
   offerReason,
@@ -193,6 +244,11 @@ const PatronSection = ({
   const [entering, setEntering] = useState(false);
   const [entry, setEntry] = useState("");
   const membership = patron.status?.patron;
+  const offer = styleOffer({
+    canManage: membership?.canManage ?? false,
+    canSubscribe: membership?.canSubscribe ?? true,
+    checkoutEnabled: patron.checkoutEnabled,
+  });
   const handleManage = () => {
     patron.manage();
   };
@@ -267,34 +323,20 @@ const PatronSection = ({
           <p className="text-[0.9375rem] leading-snug">
             {offerReason ? `${offerReason} ` : null}
             Patrons can send their taps in Broadsheet, Billboard, Terminal or
-            Note, to everyone they tap. {PRICE}, plus tax; renews yearly until
-            canceled. Sending, replies and Default stay free.
+            Note, to everyone they tap.
           </p>
-          {membership?.status === "payment_issue" ? (
-            <p className="text-[0.9375rem] leading-snug font-semibold">
-              Your last payment didn’t go through.
-            </p>
-          ) : null}
-          {membership?.canManage && !membership.canSubscribe ? (
-            <button
-              className="pill pill-ink w-full"
-              disabled={patron.busy}
-              onClick={handleManage}
-              type="button"
-            >
-              Manage billing
-            </button>
-          ) : (
-            <button
-              className="pill pill-ink w-full"
-              disabled={patron.busy || !patron.loaded}
-              onClick={handleSubscribe}
-              type="button"
-            >
-              {patron.busy ? "Opening checkout…" : "Become a patron"}
-            </button>
-          )}
-          <p className="text-tone text-center text-[0.8125rem]">{PRICE}</p>
+          <PatronOffer
+            offer={offer}
+            onManage={handleManage}
+            onSubscribe={handleSubscribe}
+            patron={patron}
+          />
+          <a
+            className="text-ink self-center text-[0.875rem] underline underline-offset-[3px]"
+            href="/account?intent=patron"
+          >
+            Already a patron? Restore from your account
+          </a>
           {entering ? (
             <form className="flex gap-2" onSubmit={redeem}>
               <label className="sr-only" htmlFor="patron-code">

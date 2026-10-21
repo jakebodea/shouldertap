@@ -191,7 +191,11 @@ export class ApiClient {
     return this.call((c) => c.inbox.updateAppearance({ payload }));
   }
 
-  // Sender patron membership (needs `withPatronKey`, except the first two).
+  // Sender patron membership (needs `withPatronKey`, except the first three).
+
+  patronAvailability() {
+    return this.call((c) => c.patronSetup.patronAvailability());
+  }
 
   createPatron() {
     return this.call((c) => c.patronSetup.createPatron());

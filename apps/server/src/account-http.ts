@@ -6,7 +6,7 @@ export interface AccountHttpOptions {
   auth: AccountAuth;
   origin: string;
   webOrigin: string;
-  page: () => Response;
+  page: (url: URL) => Response;
   accountRequest?: (userId: string, request: Request) => Promise<Response>;
   deleteAccount?: (userId: string, request: Request) => Promise<Response>;
 }
@@ -129,7 +129,7 @@ export const handleAccountHttp = async (
   }
   const url = new URL(request.url);
   if (isAccountPage(request, url.pathname)) {
-    return finish(options.page());
+    return finish(options.page(url));
   }
   // Email tokens are deliberately never redeemed through a URL query string.
   if (url.pathname === "/api/auth/magic-link/verify") {

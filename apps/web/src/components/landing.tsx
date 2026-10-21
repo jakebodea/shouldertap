@@ -311,54 +311,36 @@ const Consent = () => {
 };
 
 /** Creem's review requires the price to be easy to find on the site. */
-const Pricing = () => {
-  const points = [
-    "Core messaging is free. Safety limits and recipient controls apply to everyone.",
-    "Nobody has to pay to tap or be tapped. Senders use any iPhone with Safari.",
-    "Patrons help cover running costs and can send their taps in a theme, to everyone they tap. The people they tap never pay to see it, and can always choose plain.",
-  ];
-  return (
-    <section
-      aria-labelledby="pricing"
-      className="flex scroll-mt-4 flex-col gap-10 px-6 py-20 md:px-[72px] md:py-28"
+const Pricing = () => (
+  <section
+    aria-labelledby="pricing"
+    className="flex scroll-mt-4 flex-col gap-10 px-6 py-20 md:px-[72px] md:py-28"
+  >
+    <h2
+      className="max-w-[16ch] text-[2.75rem] leading-[0.98] font-extrabold tracking-[-0.04em] text-balance md:text-[4.5rem]"
+      id="pricing"
     >
-      <h2
-        className="max-w-[16ch] text-[2.75rem] leading-[0.98] font-extrabold tracking-[-0.04em] text-balance md:text-[4.5rem]"
-        id="pricing"
-      >
-        Free to use. Supported by patrons.
-      </h2>
-      <div className="grid gap-10 md:grid-cols-[auto_1fr] md:gap-16">
-        <div className="flex flex-col gap-2">
-          <p className="text-[4rem] leading-none font-extrabold tracking-[-0.045em] md:text-[5.5rem]">
-            Free
-          </p>
-          <p className="text-tone text-[1.0625rem] md:text-lg">
-            Optional support: $2/month, billed $24 annually in USD, plus
-            applicable tax.
-            <br />
-            Renews annually until canceled.
-          </p>
-        </div>
-        <ul className="flex max-w-xl flex-col gap-4">
-          <li className="text-[1.0625rem] leading-relaxed md:text-lg">
-            Send and receive taps for free. If Shouldertap helps your household,
-            you can become a patron from Style in the web sender. Cancel renewal
-            in the billing portal; tapping stays free.
-          </li>
-          {points.map((point) => (
-            <li
-              className="text-tone text-[1.0625rem] leading-relaxed md:text-lg"
-              key={point}
-            >
-              {point}
-            </li>
-          ))}
-        </ul>
+      Free to use. Supported by patrons.
+    </h2>
+    <div className="grid gap-10 md:grid-cols-[auto_1fr] md:gap-16">
+      <div className="flex flex-col gap-2">
+        <p className="text-[4rem] leading-none font-extrabold tracking-[-0.045em] md:text-[5.5rem]">
+          $2<span className="text-tone text-[0.4em]">/month</span>
+        </p>
+        <p className="text-tone text-[1.0625rem] md:text-lg">
+          Optional patron support, billed $24 annually in USD, plus applicable
+          tax.
+          <br />
+          Renews annually until canceled.
+        </p>
       </div>
-    </section>
-  );
-};
+      <p className="max-w-xl text-[1.0625rem] leading-relaxed md:text-lg">
+        Patrons help cover running costs and can send their taps in a theme, to
+        everyone they tap. The people they tap never pay to see it.
+      </p>
+    </div>
+  </section>
+);
 
 const Close = () => (
   <section className="flex flex-col gap-10 px-6 pt-24 pb-10 md:px-[72px] md:pt-36">
@@ -371,7 +353,7 @@ const Close = () => (
         Download for Mac
       </MacDownloadLink>
       <span className="text-tone text-[0.9375rem]">
-        Free. Mac app plus any iPhone with Safari.
+        Mac, iPhone, or any phone with Safari.
       </span>
     </div>
     <footer className="border-line text-tone mt-16 flex flex-wrap items-center justify-between gap-4 border-t-[1.5px] pt-6 text-sm">

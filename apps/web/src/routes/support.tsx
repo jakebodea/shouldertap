@@ -9,58 +9,42 @@ const SupportComponent = () => (
     intro={
       <>
         Shouldertap lets the people you live with tap you on the shoulder from
-        their phone. You can receive and answer on an iPhone without a Mac, or
-        on your paired computers. Senders see your answer right away. Stuck?
-        Email <EmailLink />.
+        their phone. You can receive and answer on an iPhone or on your paired
+        computers. Senders see your answer right away. Stuck? Email{" "}
+        <EmailLink />.
       </>
     }
     title="Support"
   >
     <DocSection title="Support Shouldertap">
       <p>
-        Core messaging is free. Optional patron support helps cover running
-        costs: $2/month, billed $24 annually in USD, plus applicable tax. It
-        renews annually until canceled. It belongs to whoever sends taps: while
-        it’s active, your taps can use a theme (Broadsheet, Billboard, Terminal
-        or Note) on the screens of everyone you tap. They never pay to see it,
-        and can always show taps plain. Sending, replies and the Default look
-        never need it, and themes aren’t a permanent purchase. It is not a
-        tax-deductible donation.
+        Optional patron support helps cover running costs: $2/month, billed $24
+        annually in USD, plus applicable tax. It renews annually until canceled.
+        While it’s active, the taps you send can use a theme (Broadsheet,
+        Billboard, Terminal or Note) on the screens of everyone you tap. They
+        never pay to see it. It is not a tax-deductible donation.
       </p>
       <p>
-        In the web sender, open Style under the message field. Preview every
-        theme, then use “Become a patron” to open Account. Sign in by email,
-        save any existing browser membership to your account, and continue to
-        patron support to check out with Creem. “Manage billing” lets you change
-        your payment method, see receipts or cancel. Cancellation takes effect
-        at the end of your paid period; taps already sent keep their theme. Use
-        “Add another device” to add your membership to another phone or browser
-        with a one-time code, or restore an attached membership from Account.
-        After subscribing in Account, return to the sender site&apos;s Account
-        page, load your connections and add your membership to this browser
-        before choosing a theme in Style. For billing help, a lost device, or a
-        refund within 14 days of a support payment, email <EmailLink />.
+        In the web sender, open Style under the message field and choose “Become
+        a patron”. You sign in by email first, so your membership can be
+        restored on another browser or phone from Account. “Manage billing”
+        changes your payment method, shows receipts or cancels; cancellation
+        takes effect at the end of your paid period. For billing help or a
+        refund within 14 days of a payment, email <EmailLink />.
       </p>
       <p>
-        If you bought annual support from your computer before it moved to
-        senders, manage or cancel it there under “Patron themes”.
-      </p>
-      <p>
-        If you previously paid $5, thank you. Your purchase is preserved and you
-        have not been enrolled in an annual subscription.
+        If you bought support from your computer before it moved to senders,
+        manage or cancel it there under “Patron themes”. If you previously paid
+        $5, thank you: your purchase is preserved and you have not been enrolled
+        in a subscription.
       </p>
     </DocSection>
     <DocSection title="Do I need an account or a Mac?">
       <p>
-        Neither is required for messaging. An email account lets you save and
-        recover inboxes, sender connections and patron memberships. Open Account
-        on iPhone or Mac, or follow the Account link on the website. Native apps
-        show a code to confirm in your browser after email sign-in. Explicitly
-        attach this device&apos;s existing connections to make them recoverable.
-        Multiple inboxes remain separate; you can choose a default and select
-        which inbox a receiving device uses. New patron subscriptions require an
-        account. The iPhone app offers external patron signup only for the
-        United States App Store storefront.
+        No. An email account lets you restore your inboxes, the people you tap
+        and your patron membership on a new phone, Mac or browser. Open Account
+        in the app or on this site. Each inbox stays separate; choose which one
+        a device receives.
       </p>
     </DocSection>
     <DocSection title="How do I pair someone's phone?">
@@ -95,12 +79,10 @@ const SupportComponent = () => (
       <p>
         The iPhone app keeps pairing keys in the iOS Keychain; the web sender
         keeps its pairing in Safari’s website data. Clearing Safari data or
-        using a Private tab can remove the web pairing. If a pairing is missing
-        or you switch phones, sign in to Account and restore a connection you
-        previously attached. On the website, return to Account after sign-in,
-        load your connections and add the one you want to this browser. If it
-        was never attached, ask for a new invite and pair again. The recipient
-        can remove old devices or sender connections.
+        using a Private tab can remove the web pairing. If you saved it to your
+        account, sign in to Account and choose “Use here”. Otherwise ask for a
+        new invite and pair again. The recipient can remove old devices or
+        sender connections.
       </p>
     </DocSection>
 

@@ -34,6 +34,13 @@ struct HelpView: View {
           Text("Sending, receiving and replies are free. Receive on iPhone, or add a computer for screen takeover. Replies do not send push notifications.")
             .font(.footnote).foregroundStyle(.secondary)
         }
+        Section("Account") {
+          NavigationLink("Account and recovery") {
+            AccountView(account: Stores.account, inbox: Stores.inbox, senders: store)
+              .navigationTitle("Account")
+          }
+          .accessibilityIdentifier("help-account")
+        }
         Section("Support and privacy") {
           Link("Email support", destination: URL(string: "mailto:support@shouldertap.app")!)
           Link("Privacy Policy", destination: URL(string: "https://shouldertap.app/privacy")!)

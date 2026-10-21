@@ -306,6 +306,12 @@ export const PatronStatus = Schema.Struct({
 });
 export type PatronStatus = typeof PatronStatus.Type;
 
+/** Whether new patron memberships can start here. Public: no key needed. */
+export const PatronAvailability = Schema.Struct({
+  checkoutEnabled: Schema.Boolean,
+});
+export type PatronAvailability = typeof PatronAvailability.Type;
+
 /** One-time code that adds another of the sender's own devices. */
 export const PatronLinkCode = Schema.Struct({
   code: Schema.String,
