@@ -8,6 +8,9 @@
 # Packaging drives Finder over AppleScript to lay out the DMG window, so the
 # first run asks to let your terminal control Finder.
 #
+# Releases normally run in CI (.github/workflows/release.yml, label a PR
+# release:mac); locally, `bun run release:mac` loads the same keys.
+#
 # Signing is optional; releases use the Developer ID:
 #   SIGN_IDENTITY="Developer ID Application: Jake Bodea (6C46GY4Z38)"  signs with the hardened runtime
 #   Notarizing (and stapling) uses either an App Store Connect API key
@@ -29,6 +32,16 @@ plist="$root/apps/macos/Resources/Info.plist"
 version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")"
 build="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$plist")"
 echo "==> Shouldertap $version"
+
+if $upload; then
+  # The versioned DMG is cached as immutable and Sparkle compares builds, so a
+  # release must raise CFBundleVersion past the live feed's.
+  live="$(curl -fsS "$downloads/appcast.xml" | sed -n 's/.*<sparkle:version>\(.*\)<\/sparkle:version>.*/\1/p' | head -1)"
+  if [[ -n "$live" ]] && (( build <= live )); then
+    echo "Build $build is not newer than the live build $live: bump CFBundleVersion (and the version) first." >&2
+    exit 1
+  fi
+fi
 
 echo "==> Testing"
 (cd "$root/apps/macos" && DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}" swift test --quiet)
@@ -126,10 +139,19 @@ shasum -a 256 "$dmg"
 du -h "$dmg"
 
 # The Sparkle feed: one item, the newest build, EdDSA-signed with the key in
-# the login keychain (account app.shouldertap.mac; see the README).
+# SPARKLE_ED_KEY_FILE (CI) or the login keychain (account app.shouldertap.mac;
+# see the README).
+if ! $upload && [[ -z "${SPARKLE_ED_KEY_FILE:-}" ]] && ! security find-generic-password -a app.shouldertap.mac >/dev/null 2>&1; then
+  echo "==> Built $dmg (not uploaded; no Sparkle key, so no feed)"
+  exit 0
+fi
 echo "==> Signing the update feed"
 sparkle_bin="$root/apps/macos/.build/artifacts/sparkle/Sparkle/bin"
-signature="$("$sparkle_bin/sign_update" --account app.shouldertap.mac "$dmg")"
+if [[ -n "${SPARKLE_ED_KEY_FILE:-}" ]]; then
+  signature="$("$sparkle_bin/sign_update" --ed-key-file "$SPARKLE_ED_KEY_FILE" "$dmg")"
+else
+  signature="$("$sparkle_bin/sign_update" --account app.shouldertap.mac "$dmg")"
+fi
 cat > "$out/appcast.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">

@@ -13,7 +13,7 @@
 #
 # The version and sequential build number live in apps/ios/Version.xcconfig.
 # Increment CURRENT_PROJECT_VERSION before each upload, or override it with
-# BUILD_NUMBER. .github/workflows/testflight.yml runs this when a PR labeled
+# BUILD_NUMBER. .github/workflows/release.yml runs this when a PR labeled
 # release:beta merges.
 set -euo pipefail
 

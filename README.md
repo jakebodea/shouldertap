@@ -124,7 +124,9 @@ App secrets (`SUPPORT_FORWARD_TO`, a comma-separated list of addresses `support@
 | `pr-<number>`, or any other stage deployed from GitHub Actions | none: previews run without app secrets |  |
 | anything else (local dev) | `shouldertap-dev`, env `dev` | the `default` profile (`agent-dev`) |
 
-`stacks/github.ts` creates the `production` GitHub environment (deployable from `main` only) with the variables `INFISICAL_IDENTITY_ID` (`ci-prod`) and `INFISICAL_OIDC_AUDIENCE`. In `deploy.yml` only the `deploy` (prod) job uses it; Alchemy logs in to Infisical with that job's OIDC token. `testflight.yml`'s `release` job uses it too, loading the App Store Connect key with `Infisical/secrets-action`.
+`stacks/github.ts` creates the `production` GitHub environment (deployable from `main` only) with the variables `INFISICAL_IDENTITY_ID` (`ci-prod`) and `INFISICAL_OIDC_AUDIENCE`. In `deploy.yml` only the `deploy` (prod) job uses it; Alchemy logs in to Infisical with that job's OIDC token. `release.yml`'s jobs use it too, loading release keys with `Infisical/secrets-action`.
+
+Every Infisical identity (`agent-dev`, `operator`, `ci-prod`) is read-only. Add or rotate prod secrets yourself in the Infisical dashboard.
 
 Locally Alchemy uses the selected profile's Infisical identity. Set one up once per machine, with that identity's `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` exported:
 
