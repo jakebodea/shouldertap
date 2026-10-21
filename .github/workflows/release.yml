@@ -1,0 +1,241 @@
+# Releases apps when a pull request carrying a release label lands on main,
+# or on demand (Actions > Release > Run workflow):
+#
+#   release:ios       TestFlight (release:beta still works)
+#   release:mac       signed, notarized DMG and Sparkle feed on download.shouldertap.app
+#   release:windows   exe and update feed on download.shouldertap.app
+#   release:desktop   Mac and Windows together (they share one version)
+#
+# It runs on the push to main rather than on the PR, so it builds exactly what
+# merged. Keys come from Infisical (shouldertap-prod) through the main-only
+# `production` environment; scripts/paste-release-keys.ts puts the Mac ones there.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "What to release from main: ios, mac, windows (comma-separated)"
+        required: true
+        default: mac
+
+permissions:
+  contents: read
+
+jobs:
+  # Most pushes carry no release label, so the lookup runs on Linux and the
+  # platform jobs start only when there is something to release.
+  find:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ios: ${{ steps.pr.outputs.ios }}
+      mac: ${{ steps.pr.outputs.mac }}
+      windows: ${{ steps.pr.outputs.windows }}
+      number: ${{ steps.pr.outputs.number }}
+    steps:
+      - name: Find the merged pull request and its release labels
+        id: pr
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            labels=$(echo "$APPS" | tr -d ' ' | tr ',' '\n' | grep -xE 'ios|mac|windows' | sed 's/^/release:/' || true)
+          else
+            pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)][0] // empty')
+            labels=$(echo "$pr" | jq -r '.labels[]?.name' 2>/dev/null || true)
+            echo "number=$(echo "$pr" | jq -r '.number // empty' 2>/dev/null)" >> "$GITHUB_OUTPUT"
+          fi
+          has() { echo "$labels" | grep -qxE "$1"; }
+          has 'release:(ios|beta)' && echo "ios=true" >> "$GITHUB_OUTPUT"
+          has 'release:(mac|desktop)' && echo "mac=true" >> "$GITHUB_OUTPUT"
+          has 'release:(windows|desktop)' && echo "windows=true" >> "$GITHUB_OUTPUT"
+          echo "Release labels: ${labels:-none}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          APPS: ${{ inputs.apps }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+
+  ios:
+    needs: find
+    if: needs.find.outputs.ios == 'true'
+    runs-on: macos-26
+    # ci-prod only trusts jobs in this environment, which only main may use,
+    # so a run dispatched from another branch stops here.
+    environment: production
+    concurrency: { group: release-ios, cancel-in-progress: false }
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Load the App Store Connect key
+        uses: Infisical/secrets-action@v1.0.12
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          oidc-audience: ${{ vars.INFISICAL_OIDC_AUDIENCE }}
+          domain: https://app.infisical.com
+          project-slug: shouldertap-qp-dq
+          env-slug: prod
+
+      - name: Archive and upload
+        id: release
+        run: |
+          export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$ASC_KEY_PATH"
+          DEVELOPER_DIR="$(xcode-select -p)"
+          export DEVELOPER_DIR
+          xcodebuild -version
+          scripts/release-ios.sh
+          build=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' apps/ios/build/release/Shouldertap.xcarchive/Products/Applications/Shouldertap.app/Info.plist)
+          echo "note=Uploaded iOS build $build to App Store Connect. It shows up in TestFlight after processing (usually 5-15 minutes)." >> "$GITHUB_OUTPUT"
+
+      - name: Comment on the pull request
+        if: always() && needs.find.outputs.number != ''
+        run: |
+          gh pr comment "$NUMBER" --repo "$REPO" --body "${NOTE:-iOS release failed: $RUN}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ needs.find.outputs.number }}
+          REPO: ${{ github.repository }}
+          NOTE: ${{ steps.release.outputs.note }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  mac:
+    needs: find
+    if: needs.find.outputs.mac == 'true'
+    runs-on: macos-26
+    environment: production
+    concurrency: { group: release-mac, cancel-in-progress: false }
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Load the signing, notarization and update keys
+        uses: Infisical/secrets-action@v1.0.12
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          oidc-audience: ${{ vars.INFISICAL_OIDC_AUDIENCE }}
+          domain: https://app.infisical.com
+          project-slug: shouldertap-qp-dq
+          env-slug: prod
+
+      - name: Put the Developer ID in a temporary keychain
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$MAC_DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/id.p12"
+          security import "$RUNNER_TEMP/id.p12" -k "$keychain" -P "$MAC_DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/id.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          # Search it first, keeping the existing keychains (one word each).
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain"
+
+      - name: Build, notarize and publish
+        id: release
+        run: |
+          DEVELOPER_DIR="$(xcode-select -p)"
+          export DEVELOPER_DIR
+          export NOTARY_KEY="$RUNNER_TEMP/AuthKey.p8" NOTARY_KEY_ID="$ASC_KEY_ID" NOTARY_ISSUER="$ASC_ISSUER_ID"
+          printf '%s\n' "$ASC_KEY_P8" > "$NOTARY_KEY"
+          export SPARKLE_ED_KEY_FILE="$RUNNER_TEMP/sparkle.key"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$SPARKLE_ED_KEY_FILE"
+          SIGN_IDENTITY="Developer ID Application: Jake Bodea (6C46GY4Z38)" scripts/release-mac.sh
+          version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' apps/macos/Resources/Info.plist)
+          echo "note=Released Mac $version: https://download.shouldertap.app/Shouldertap-$version.dmg. Installed Macs update within a day." >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Remove the keys
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/sparkle.key"
+
+      - name: Comment on the pull request
+        if: always() && needs.find.outputs.number != ''
+        run: |
+          gh pr comment "$NUMBER" --repo "$REPO" --body "${NOTE:-Mac release failed: $RUN}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ needs.find.outputs.number }}
+          REPO: ${{ github.repository }}
+          NOTE: ${{ steps.release.outputs.note }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  windows:
+    needs: find
+    if: needs.find.outputs.windows == 'true'
+    runs-on: windows-latest
+    # No Infisical keys yet (unsigned), but publishing stays main-only.
+    environment: production
+    concurrency: { group: release-windows, cancel-in-progress: false }
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/windows
+
+      - name: Test and build
+        working-directory: apps/windows
+        run: |
+          cargo test --workspace
+          cargo build --release -p shouldertap
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: apps/windows/target/release/Shouldertap.exe
+
+      - name: Publish
+        id: release
+        run: |
+          EXE=apps/windows/target/release/Shouldertap.exe scripts/release-windows.sh
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' apps/windows/Cargo.toml | head -1)
+          gh release create "windows-v$version" "apps/windows/build/Shouldertap-Setup-$version.exe" \
+            --target "$GITHUB_SHA" --title "Shouldertap for Windows $version" \
+            --notes "Also at https://download.shouldertap.app/windows/Shouldertap-Setup.exe. Unsigned: if Windows warns, choose More info, then Run anyway."
+          echo "note=Released Windows $version: https://download.shouldertap.app/windows/Shouldertap-Setup-$version.exe. Installed PCs update within 6 hours." >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Comment on the pull request
+        if: always() && needs.find.outputs.number != ''
+        run: |
+          gh pr comment "$NUMBER" --repo "$REPO" --body "${NOTE:-Windows release failed: $RUN}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ needs.find.outputs.number }}
+          REPO: ${{ github.repository }}
+          NOTE: ${{ steps.release.outputs.note }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

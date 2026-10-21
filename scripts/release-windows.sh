@@ -24,6 +24,15 @@ upload=true
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/apps/windows/Cargo.toml" | head -1)"
 echo "==> Shouldertap for Windows $version"
 
+if $upload; then
+  # The versioned exe is cached as immutable: never upload the live version again.
+  live="$(curl -fsS "$downloads/windows/latest.json" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+  if [[ "$live" == "$version" ]]; then
+    echo "Windows $version is already live: bump the version first." >&2
+    exit 1
+  fi
+fi
+
 if [[ -z "${EXE:-}" ]]; then
   echo "==> Testing"
   (cd "$root/apps/windows" && cargo test -p shouldertap-core --quiet)

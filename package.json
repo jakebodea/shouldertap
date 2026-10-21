@@ -33,6 +33,9 @@
     "dev": "alchemy dev",
     "fix": "ultracite fix",
     "plan": "alchemy plan",
+    "release:mac": "SIGN_IDENTITY=\"Developer ID Application: Jake Bodea (6C46GY4Z38)\" bun scripts/with-release-secrets.ts scripts/release-mac.sh",
+    "keys:mac": "bun scripts/paste-release-keys.ts",
+    "release:ios": "bun scripts/with-release-secrets.ts scripts/release-ios.sh",
     "setup:infisical": "alchemy profile edit --add Infisical --method universal-auth --set clientId=env:INFISICAL_CLIENT_ID --set clientSecret=env:INFISICAL_CLIENT_SECRET --no-input",
     "test": "turbo run test //#test:root",
     "test:root": "vitest run"

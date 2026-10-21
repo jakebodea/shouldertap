@@ -37,4 +37,5 @@ Native apps are outside the Bun workspace: run `swift test` / `cargo test` when 
 - Agent setup, once per machine: export `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`, then `bun run setup:infisical`.
 - Never add prod values to `shouldertap-dev`, never give a PR job the `production` environment, and never read secrets via `process.env` in stacks (use `Config`).
 - `stacks/github.ts` owns the `production` environment (main only) and its `INFISICAL_IDENTITY_ID`/`INFISICAL_OIDC_AUDIENCE` variables; `stacks/secrets.test.ts` fails if it allows another branch. In `deploy.yml` only the `deploy` (prod) job uses it, never `preview`.
-- `testflight.yml` isn't an Alchemy stack: its `release` job uses the `production` environment and `Infisical/secrets-action` for the App Store Connect key.
+- `release.yml` isn't an Alchemy stack: its jobs use the `production` environment and `Infisical/secrets-action` for release keys.
+- Every Infisical identity is read-only. Prod secrets are added or rotated by the owner in the dashboard (`bun run keys:mac` walks through the Mac keys); never script writes.
