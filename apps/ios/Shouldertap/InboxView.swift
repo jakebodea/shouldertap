@@ -129,7 +129,7 @@ struct InboxScreen: View {
     }
   }
 
-  private var planText: String? { inbox.patron?.active == true ? "Patron · thank you" : "Free" }
+  private var planText: String? { "Free" }
 
   private var patronSupport: some View {
     InboxSection(title: "Support Shouldertap") {

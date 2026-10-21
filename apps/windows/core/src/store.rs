@@ -62,6 +62,11 @@ pub struct StoreState {
     /// older than payments.
     pub plan: Option<Plan>,
     pub patron: Option<crate::Patron>,
+    /// How taps look on this inbox's computers. Default until the first
+    /// snapshot, and from servers older than themes.
+    pub appearance: crate::Appearance,
+    /// False for servers older than themes: there is nothing to change yet.
+    pub appearance_supported: bool,
     /// Newest first.
     pub taps: Vec<Tap>,
     pub status: LiveStatus,
@@ -78,6 +83,8 @@ impl Default for StoreState {
             credentials: Vec::new(),
             plan: None,
             patron: None,
+            appearance: crate::Appearance::default(),
+            appearance_supported: false,
             taps: Vec::new(),
             status: LiveStatus::Connecting,
             pending_acks: BTreeMap::new(),
@@ -86,6 +93,11 @@ impl Default for StoreState {
 }
 
 impl StoreState {
+    /// The theme to draw a tap in: its sender's, unless this recipient chose plain.
+    pub fn theme_for(&self, tap: &Tap) -> crate::TapTheme {
+        self.appearance.theme_for(tap)
+    }
+
     pub fn active_tap(&self) -> Option<ActiveTap> {
         if self.phase != Phase::Ready {
             return None;
@@ -192,22 +204,22 @@ impl ReceiverStore {
 
     // Plan
 
-    /// Where to pay for this inbox. If it turns out to be paid for already
-    /// (`Conflict`), the snapshot is refreshed so the menu catches up.
-    pub fn checkout_url(&self) -> Result<String, ApiError> {
-        match self.inner.api().create_checkout() {
-            Ok(checkout) => Ok(checkout.url),
-            Err(error) => {
-                if error.code == ErrorCode::Conflict {
-                    self.inner.resync();
-                }
-                Err(error)
-            }
-        }
-    }
-
+    /// The billing portal for a historical receiver-owned support
+    /// subscription, so it can be canceled. Recipients can't start one.
     pub fn manage_patron_url(&self) -> Result<String, ApiError> {
         self.inner.api().manage_patron().map(|checkout| checkout.url)
+    }
+
+    // Appearance
+
+    /// Saves a change for every computer on the inbox. Free; any device.
+    pub fn update_appearance(&self, update: crate::UpdateAppearance) -> Result<(), ApiError> {
+        let appearance = self.inner.api().update_appearance(&update)?;
+        self.inner.update(|state| {
+            state.appearance = appearance;
+            state.appearance_supported = true;
+        });
+        Ok(())
     }
 
     // Overlay
@@ -310,7 +322,8 @@ impl ReceiverStore {
     }
 
     /// Removing this device forgets it here even if the server can't be
-    /// reached, except when the server explicitly refuses with a conflict.
+    /// reached, except when the server refuses (the inbox's last computer
+    /// while an iPhone is still linked): then it stays, and the error says why.
     pub fn revoke(&self, credential_id: &str) -> Result<(), ApiError> {
         if self.state().credential_id.as_deref() == Some(credential_id) {
             if let Err(error) = self.inner.api().revoke(credential_id) {
@@ -401,6 +414,8 @@ impl Inner {
                     state.credentials = snapshot.credentials;
                     state.plan = snapshot.plan;
                     state.patron = snapshot.patron;
+                    state.appearance_supported = snapshot.appearance.is_some();
+                    state.appearance = snapshot.appearance.unwrap_or_default();
                     state.taps = merge_snapshot(&state.taps, &snapshot.taps);
                 }),
                 Ok(Snapshot::Sender(_)) => return,

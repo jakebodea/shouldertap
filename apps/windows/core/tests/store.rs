@@ -271,39 +271,6 @@ fn the_overlay_shows_the_oldest_waiting_tap() {
 }
 
 #[test]
-fn checkout_opens_the_returned_url() {
-    let stub = Stub::new(|seen| {
-        if seen.path == "/v1/patron/checkout" && seen.method == "POST" {
-            (201, r#"{"url":"https://checkout.test/ch_1"}"#.into())
-        } else {
-            (503, String::new())
-        }
-    });
-    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
-    store.start();
-    assert_eq!(store.checkout_url().unwrap(), "https://checkout.test/ch_1");
-}
-
-#[test]
-fn checkout_when_already_paid_refreshes_the_plan() {
-    let paid = SNAPSHOT.replace(r#""status":"trial""#, r#""status":"paid""#);
-    let stub = Stub::new(move |seen| match seen.path.as_str() {
-        "/v1/patron/checkout" => (
-            409,
-            r#"{"_tag":"Conflict","message":"Shouldertap is already unlocked for this inbox."}"#.into(),
-        ),
-        "/v1/me" => (200, paid.clone()),
-        _ => (503, String::new()),
-    });
-    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
-    store.start();
-    assert_eq!(store.checkout_url().unwrap_err().code, ErrorCode::Conflict);
-    assert!(eventually(
-        || store.state().plan.map(|plan| plan.status) == Some(PlanStatus::Paid)
-    ));
-}
-
-#[test]
 fn sender_invite_link_carries_the_code_in_the_fragment() {
     let stub = Stub::new(|seen| {
         if seen.path == "/v1/invites" {
@@ -460,4 +427,43 @@ fn display_is_reported_once() {
     // A failed report is tried again next time.
     store.did_display("t1");
     assert!(eventually(|| stub.count("/v1/taps/t1/displayed") == 2));
+}
+
+/// Two senders: Sam sent in Broadsheet, Ana in nothing (an older server's
+/// tap), and a third tap names a theme this build doesn't know.
+const THEMED_SNAPSHOT: &str = r#"{"kind":"device","credentialId":"d1","recipientName":"Jake","sequence":3,"credentials":[],"plan":{"status":"paid","trialEndsAt":1},"appearance":{"motion":"system","senderThemes":"show"},"taps":[{"id":"t1","senderId":"sam","senderName":"Sam","senderColor":"moss","body":"Dinner","createdAt":1790780000000,"state":"pending","displayedAt":null,"acknowledgedAt":null,"acknowledgedBy":null,"response":null,"sequence":1,"theme":"broadsheet"},{"id":"t2","senderId":"ana","senderName":"Ana","senderColor":"sky","body":"Call me","createdAt":1790780001000,"state":"pending","displayedAt":null,"acknowledgedAt":null,"acknowledgedBy":null,"response":null,"sequence":2},{"id":"t3","senderId":"sam","senderName":"Sam","senderColor":"moss","body":"Later","createdAt":1790780002000,"state":"pending","displayedAt":null,"acknowledgedAt":null,"acknowledgedBy":null,"response":null,"sequence":3,"theme":"hologram"}]}"#;
+
+#[test]
+fn each_tap_shows_its_own_senders_theme_until_the_recipient_chooses_plain() {
+    let stub = Stub::new(|seen| match (seen.method, seen.path.as_str()) {
+        ("GET", "/v1/me") => (200, THEMED_SNAPSHOT.into()),
+        ("PUT", "/v1/appearance") => (200, r#"{"motion":"system","senderThemes":"plain"}"#.into()),
+        _ => (503, String::new()),
+    });
+    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
+    store.start();
+    store.refresh();
+    assert!(eventually(|| store.state().taps.len() == 3));
+    let themes = |store: &ReceiverStore| {
+        let state = store.state();
+        ["t1", "t2", "t3"].map(|id| state.theme_for(state.taps.iter().find(|t| t.id == id).unwrap()))
+    };
+    assert_eq!(
+        themes(&store),
+        [TapTheme::Broadsheet, TapTheme::Default, TapTheme::Default]
+    );
+    store
+        .update_appearance(UpdateAppearance {
+            motion: None,
+            sender_themes: Some(SenderThemePreference::Plain),
+        })
+        .unwrap();
+    assert_eq!(
+        stub.body_for("/v1/appearance").unwrap(),
+        serde_json::json!({"senderThemes": "plain"})
+    );
+    assert_eq!(
+        themes(&store),
+        [TapTheme::Default, TapTheme::Default, TapTheme::Default]
+    );
 }

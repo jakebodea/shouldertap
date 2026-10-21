@@ -156,7 +156,7 @@ test(
     expect(plan?.status).toBe("paid");
     expect(
       snapshot.kind === "device" ? snapshot.patron?.canSubscribe : false
-    ).toBeTruthy();
+    ).toBeFalsy();
 
     const trialTap = yield* (yield* client(url, sender.token)).inbox.sendTap({
       payload: { requestId: crypto.randomUUID(), body: "Trial tap" },
@@ -173,15 +173,21 @@ test(
       .createCheckout()
       .pipe(Effect.flip);
     expect(legacyCheckout.message).toBe(
-      "Shouldertap is now free. Update the app to manage optional annual support."
+      "Shouldertap is now free. Update the app to see what's new."
     );
 
-    const disabledPatronCheckout = yield* (yield* client(url, macA.token)).inbox
-      .createPatronCheckout()
+    const patronIdentity = yield* anon.patronSetup.createPatron();
+    const patronApi = yield* makeShouldertapClient(
+      url,
+      null,
+      patronIdentity.key
+    );
+    const disabledSignup = yield* patronApi.patron
+      .patronCheckout()
       .pipe(Effect.flip);
-    expect(disabledPatronCheckout._tag).toBe("Unavailable");
-    expect(disabledPatronCheckout.message).toBe(
-      "Optional patron signup is not available yet. Messaging remains free."
+    expect(disabledSignup._tag).toBe("Unavailable");
+    expect(disabledSignup.message).toBe(
+      "New patron signup is not available yet. Messaging remains free."
     );
 
     // An iPhone links with the same device invite and receives independently. (Shares this inbox: tests stay under the
@@ -577,7 +583,7 @@ test(
       expect(self?.platform).toBe(platform ?? "mac");
       expect(snapshot.plan.status).toBe("paid");
       expect(snapshot.patron?.status).toBe("none");
-      expect(snapshot.patron?.canSubscribe).toBeTruthy();
+      expect(snapshot.patron?.canSubscribe).toBeFalsy();
     });
 
     const machine = fingerprint();
@@ -698,26 +704,59 @@ test(
     const own = yield* second.inbox.me();
     expect(own.taps).toHaveLength(1);
     expect(own.taps[0]?.state).toBe("pending");
-  })
+  }),
+  { timeout: 60_000 }
 );
 
 test(
   "rate-limits inbox creation per client",
   Effect.gen(function* creationRateLimit() {
     const url = (yield* stack).server;
-    const anon = yield* client(url);
-    const create = anon.pairing
-      .createInbox({
-        payload: { recipientName: "Flood", deviceName: "Script" },
-      })
-      .pipe(
-        Effect.as("created" as const),
-        Effect.catchTag("TooManyRequests", () =>
-          Effect.succeed("limited" as const)
-        )
+    // Cloudflare's per-location counters are eventually consistent. A
+    // sequential 15-request sample can straddle a reset or reach cold caches.
+    // Keep load bounded and within a short observation window; require a real
+    // 429, but never assert that the approximate 10/min threshold is strict.
+    const started = Date.now();
+    const results: number[] = [];
+    const locations = new Set<string>();
+    for (let wave = 0; wave < 6 && !results.includes(429); wave += 1) {
+      const batch = yield* Effect.all(
+        Array.from({ length: 10 }, () =>
+          Effect.promise(async () => {
+            const response = await fetch(`${url}/v1/inboxes`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                recipientName: "Flood",
+                deviceName: "Script",
+              }),
+            });
+            const location =
+              response.headers.get("cf-ray")?.split("-").at(-1) ?? "local";
+            await response.arrayBuffer();
+            return { status: response.status, location };
+          })
+        ),
+        { concurrency: 10 }
       );
-    const results = yield* Effect.all(Array.from({ length: 15 }, () => create));
-    expect(results).toContain("limited");
+      for (const result of batch) {
+        results.push(result.status);
+        locations.add(result.location);
+      }
+      if (Date.now() - started > 20_000) {
+        break;
+      }
+      if (!results.includes(429)) {
+        yield* Effect.sleep("1 second");
+      }
+    }
+    expect(
+      results.every((status) => status === 201 || status === 429)
+    ).toBeTruthy();
+    expect(
+      results,
+      `Bounded creation burst: ${results.length} responses across ${[...locations].join(",")}`
+    ).toContain(429);
   }),
   { timeout: 60_000 }
 );

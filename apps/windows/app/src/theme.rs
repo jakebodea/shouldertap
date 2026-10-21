@@ -126,7 +126,7 @@ pub fn ease_leave(t: f32) -> f32 {
 }
 
 /// Solves a CSS cubic-bezier timing function for progress `t`.
-fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
+pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     let sample = |a: f32, b: f32, s: f32| {
         let inv = 1.0 - s;

@@ -6,10 +6,21 @@ use std::borrow::Cow;
 
 use gpui::{AssetSource, SharedString};
 
-pub const FONTS: [&[u8]; 3] = [
+/// Bricolage for the Default Frame and the menu, then the theme faces. All
+/// SIL OFL 1.1; licenses and sources in apps/macos/Resources/Fonts/README.md,
+/// and each file carries its copyright and license in its name table.
+pub const FONTS: [&[u8]; 11] = [
     include_bytes!("../../../macos/Resources/Fonts/BricolageGrotesque-Medium.ttf"),
     include_bytes!("../../../macos/Resources/Fonts/BricolageGrotesque-Bold.ttf"),
     include_bytes!("../../../macos/Resources/Fonts/BricolageGrotesque-ExtraBold.ttf"),
+    include_bytes!("../../../macos/Resources/Fonts/InstrumentSerif-Regular.ttf"),
+    include_bytes!("../../../macos/Resources/Fonts/InstrumentSerif-Italic.ttf"),
+    include_bytes!("../../../macos/Resources/Fonts/BigShouldersDisplay-Black.ttf"),
+    include_bytes!("../../../macos/Resources/Fonts/BigShouldersDisplay-Bold.ttf"),
+    include_bytes!("../../../macos/Resources/Fonts/VT323-Regular.ttf"),
+    include_bytes!("../../../macos/Resources/Fonts/GeistMono-Medium.ttf"),
+    include_bytes!("../../../macos/Resources/Fonts/GeistMono-Bold.ttf"),
+    include_bytes!("../../../macos/Resources/Fonts/Caveat-Bold.ttf"),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +38,9 @@ pub enum Icon {
     Remove,
     Copy,
     Close,
+    /// The Note theme's hand-drawn tick box and its tick.
+    TickBox,
+    TickMark,
 }
 
 impl Icon {
@@ -77,10 +91,15 @@ impl Icon {
                 "M7.5 16.5C6.10355 16.5 5.40533 16.5 4.84402 16.3036C3.83866 15.9518 3.0482 15.1613 2.69641 14.156C2.5 13.5947 2.5 12.8964 2.5 11.5V9.5C2.5 6.20017 2.5 4.55025 3.52513 3.52513C4.55025 2.5 6.20017 2.5 9.5 2.5H11.5C12.8964 2.5 13.5947 2.5 14.156 2.69641C15.1613 3.0482 15.9518 3.83866 16.3036 4.84402C16.5 5.40533 16.5 6.10355 16.5 7.5",
             ],
             Icon::Close => &["M19 5L5 19M5 5L19 19"],
+            // The Mac's 36pt TickBox path at 2/3 scale.
+            Icon::TickBox => &[
+                "M3.33 4.33C8.67 3.53 14.67 3.4 20.67 4.07C21.13 9.4 21.27 14.47 20.87 19.8C15.13 20.4 9.53 20.33 3.8 19.87C3.33 14.67 3.07 9.33 3.33 4.33Z",
+            ],
+            Icon::TickMark => &["M6 12.33L10 16.67L19.33 6"],
         }
     }
 
-    const ALL: [Icon; 13] = [
+    const ALL: [Icon; 15] = [
         Icon::OnIt,
         Icon::In10,
         Icon::Reply,
@@ -94,6 +113,8 @@ impl Icon {
         Icon::Remove,
         Icon::Copy,
         Icon::Close,
+        Icon::TickBox,
+        Icon::TickMark,
     ];
 
     /// 1.5 stroke at the 24px design size; GPUI tints it with the text color.

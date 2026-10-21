@@ -25,6 +25,11 @@ public struct ActiveTap: Equatable, Sendable {
   public var tap: Tap
   /// Other taps waiting behind this one.
   public var queued: Int
+
+  public init(tap: Tap, queued: Int) {
+    self.tap = tap
+    self.queued = queued
+  }
 }
 
 public struct SenderInvite: Sendable {
@@ -34,9 +39,9 @@ public struct SenderInvite: Sendable {
 
 /// All Mac client behavior in one place: the device credential, the live
 /// connection, which tap the overlay shows, and acknowledgements that must
-/// survive being offline. The UI only draws what this decides. An
-/// iPhone uses it too (`platform: .iphone`) to create or link an inbox,
-/// receive taps, report its foreground takeover, and answer.
+/// survive being offline. The UI only draws what this decides. A linked
+/// iPhone uses it too, to manage the inbox (`platform: .iphone`); it never
+/// reports taps as displayed.
 @MainActor @Observable
 public final class ReceiverStore {
   public enum Phase: Sendable { case loading, setup, ready }
@@ -48,7 +53,13 @@ public final class ReceiverStore {
   /// Trial, paid or expired; nil until the first snapshot, or from a server
   /// older than payments.
   public private(set) var plan: Plan?
+  /// A historical receiver-owned support subscription, if any (manage only).
   public private(set) var patron: Patron?
+  /// The recipient's free settings: motion and the plain override.
+  /// `.standard` until the first snapshot, and from older servers.
+  public private(set) var appearance: Appearance = .standard
+  /// False for servers older than themes: there is nothing to change yet.
+  public private(set) var appearanceSupported = false
   public private(set) var taps: [Tap] = []
   public private(set) var status: LiveStatus = .connecting
   /// Responses given on this Mac that the server hasn't confirmed yet.
@@ -112,8 +123,9 @@ public final class ReceiverStore {
 
   // MARK: Plan
 
-  /// Where to pay for this inbox. If it turns out to be paid for already
-  /// (`conflict`), the snapshot is refreshed so the menu catches up.
+  /// The billing portal for a historical receiver-owned support subscription,
+  /// so it can be canceled. Recipients can't start one: support belongs to
+  /// senders now.
   public func managePatronURL() async throws -> URL {
     let checkout = try await api.managePatron()
     let url = checkout.url
@@ -121,17 +133,19 @@ public final class ReceiverStore {
     return url
   }
 
-  public func claimSupportPrompt() async throws -> Bool {
-    try await api.claimSupportPrompt().show
+  // MARK: Appearance
+
+  /// Saves a change for every computer on the inbox. Free; anyone's devices.
+  public func updateAppearance(
+    motion: MotionPreference? = nil, senderThemes: SenderThemePreference? = nil
+  ) async throws {
+    appearance = try await api.updateAppearance(motion: motion, senderThemes: senderThemes)
+    appearanceSupported = true
   }
 
-  public func checkoutURL() async throws -> URL {
-    do {
-      return try await api.createCheckout().url
-    } catch let error as APIError where error.code == .conflict {
-      resync()
-      throw error
-    }
+  /// The theme to draw a tap in: its sender's, unless this recipient chose plain.
+  public func theme(for tap: Tap) -> TapTheme {
+    appearance.theme(for: tap)
   }
 
   // MARK: Overlay
@@ -221,6 +235,8 @@ public final class ReceiverStore {
         credentials = snapshot.credentials
         plan = snapshot.plan
         patron = snapshot.patron
+        appearance = snapshot.appearance ?? .standard
+        appearanceSupported = snapshot.appearance != nil
         taps = mergeSnapshot(local: taps, snapshot: snapshot.taps)
       } catch let error as APIError where error.code == .unauthorized {
         forget()
@@ -252,6 +268,8 @@ public final class ReceiverStore {
     credentials = []
     plan = nil
     patron = nil
+    appearance = .standard
+    appearanceSupported = false
     taps = []
     status = .offline
     phase = .setup
@@ -365,7 +383,8 @@ public final class ReceiverStore {
   }
 
   /// Removing this device forgets it here even if the server can't be
-  /// reached, except when the server explicitly refuses with a conflict.
+  /// reached, except when the server refuses (the inbox's last Mac while an
+  /// iPhone is still linked): then it stays, and the error says why.
   public func revoke(credentialId id: String) async throws {
     if id == credentialId {
       do {

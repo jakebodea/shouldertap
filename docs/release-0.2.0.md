@@ -12,7 +12,7 @@ The release script requires a positive build integer, refuses upload from dirty 
 
 Free-core server changes must deploy before clients or marketing advertise free access. Additive migrations preserve old trials/purchases. Old clients get `plan.status=paid` only for compatibility. The new iPhone records `platform=iphone`; it can create an inbox without a computer, and computers may be removed while phones remain.
 
-New patron checkout is fail-closed: `PATRON_CHECKOUT_ENABLED` defaults false, before product lookup/reservation/provider creation. Resolve merchant/optional-support rollout requirements before enabling it. Existing customer management and signed webhooks remain available. No iPhone external checkout controls are included. Theme/paid-cosmetic behavior is not part of this candidate yet.
+New sender patron checkout is fail-closed: `PATRON_CHECKOUT_ENABLED` defaults false, before product lookup/reservation/provider creation. Resolve merchant/optional-support rollout requirements before enabling it. Existing customer management and signed webhooks remain available. No iPhone external checkout controls are included. Sender-owned patron themes are included for web senders and desktop receivers; native iPhone sending remains Default-only and has no StoreKit theme purchase. Recipients retain free plain/reduced-motion controls.
 
 `GET /version` reports the Cloudflare version ID, revision tag, free-core state and patron-signup gate with no-store caching. CI tags server uploads with COMMIT_SHA; manual Alchemy deploys must set that exact public revision too. Verify the live revision independently after deployment.
 

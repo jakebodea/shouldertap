@@ -42,4 +42,4 @@ Upload the six numbered portrait exports in order, using the matching size for e
 
 ## Verified App Store Connect state
 
-On October 21, 2026, version 0.1.0 build 1 is Pending Developer Release. Description and screenshot editing are locked; the page instructs canceling this release to edit all information. No listing changes, cancellation, submission or release performed.
+An earlier October 21 draft snapshot showed 0.1.0 build 1 Pending Developer Release. The release thread subsequently verified 0.1.0 Ready for Distribution in the US. These 0.2.0 listing claims and images remain drafts; no 0.2.0 App Review submission or public release is authorized by this integration.

@@ -303,14 +303,15 @@ impl ApiClient {
             .map(|_| ())
     }
 
-    /// Where to pay for this inbox. `Conflict` once it's already paid for;
-    /// `Unavailable` when the server has no payments set up.
-    pub fn create_checkout(&self) -> Result<Checkout, ApiError> {
-        self.send::<(), _>("POST", "/v1/patron/checkout", None)
-    }
-
+    /// Only a historical receiver-owned support subscription: patron support
+    /// now belongs to senders, so recipients can manage or cancel, never buy.
     pub fn manage_patron(&self) -> Result<Checkout, ApiError> {
         self.send::<(), _>("POST", "/v1/patron/manage", None)
+    }
+
+    /// Devices only, free. Servers older than appearance settings answer `NotFound`.
+    pub fn update_appearance(&self, update: &UpdateAppearance) -> Result<Appearance, ApiError> {
+        self.send("PUT", "/v1/appearance", Some(update))
     }
 
     pub fn connect_ticket(&self) -> Result<ConnectTicket, ApiError> {

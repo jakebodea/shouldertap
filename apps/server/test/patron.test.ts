@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { patronOf, promptEligible, nextSupportAsk } from "../src/patron";
+import { patronOf } from "../src/patron";
 import type { PatronEvent } from "../src/patron";
 
 const NOW = Date.UTC(2026, 9, 21);
@@ -131,38 +131,6 @@ describe("annual patron lifecycle", () => {
         ],
         Date.UTC(2027, 9, 22)
       ).canSubscribe
-    ).toBeTruthy();
-  });
-});
-
-describe("recipient prompt policy, frozen at 2026-10-21 UTC", () => {
-  const history = {
-    firstAnsweredAt: Date.UTC(2026, 9, 7),
-    answeredCount: 10,
-    supportAskAfter: 0,
-  };
-  const free = patronOf([], NOW);
-
-  it("requires 10 real answers and 14 elapsed days, at an idle recipient menu", () => {
-    expect(promptEligible(history, free, false, NOW)).toBeTruthy();
-    expect(
-      promptEligible({ ...history, answeredCount: 9 }, free, false, NOW)
-    ).toBeFalsy();
-    expect(promptEligible(history, free, false, NOW - 1)).toBeFalsy();
-    expect(promptEligible(history, free, true, NOW)).toBeFalsy();
-    expect(
-      promptEligible(history, patronOf([paid], NOW), false, NOW)
-    ).toBeFalsy();
-  });
-
-  it("a persisted claim suppresses other devices and survives reopening for 90 days", () => {
-    const persisted = { ...history, supportAskAfter: nextSupportAsk(NOW) };
-    expect(persisted.supportAskAfter).toBe(1_800_316_800_000);
-    expect(
-      promptEligible(persisted, free, false, Date.UTC(2027, 0, 18))
-    ).toBeFalsy();
-    expect(
-      promptEligible(persisted, free, false, Date.UTC(2027, 0, 19))
     ).toBeTruthy();
   });
 });

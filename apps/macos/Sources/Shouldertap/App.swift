@@ -9,6 +9,14 @@ enum Main {
   static func main() {
     MainActor.assumeIsolated {
       let app = NSApplication.shared
+      #if DEBUG
+        if let directory = ProcessInfo.processInfo.environment["SHOULDERTAP_RENDER_THEMES"] {
+          app.setActivationPolicy(.accessory)
+          ThemeSnapshots.run(into: directory)
+          app.run()
+          return
+        }
+      #endif
       let delegate = AppDelegate()
       app.delegate = delegate
       app.setActivationPolicy(.accessory)
@@ -64,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     deviceName: { Host.current().localizedName ?? "Mac" },
     machine: HardwareID.trialFingerprint)
   private lazy var overlays = OverlayController(store: store)
+  private lazy var appearance = AppearanceController(store: store)
   private let welcome = WelcomeController()
   private let updates = Updates()
   private let popover = NSPopover()
@@ -126,7 +135,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func openPopover() {
     guard let button = statusItem.button else { return }
     if popover.contentViewController == nil {
-      let controller = NSHostingController(rootView: MenuView(store: store, updates: updates))
+      let controller = NSHostingController(
+        rootView: MenuView(store: store, updates: updates) { [weak self] in
+          self?.popover.performClose(nil)
+          self?.appearance.show()
+        })
       controller.sizingOptions = .preferredContentSize
       popover.contentViewController = controller
     }

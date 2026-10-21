@@ -6,7 +6,7 @@ import {
   mergeTap,
 } from "@shouldertap/client";
 import type { LiveStatus } from "@shouldertap/client";
-import type { PersonColor, Tap } from "@shouldertap/domain";
+import type { PersonColor, Tap, TapTheme } from "@shouldertap/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./api";
@@ -14,6 +14,7 @@ import { newRequestId } from "./ids";
 import { migrateBillingRefusal } from "./outbox-migration";
 import { outboxKey } from "./pairing";
 import type { Pairing } from "./pairing";
+import { loadPatronKey, sendRequest } from "./sender-style";
 
 export interface OutgoingTap {
   readonly body: string;
@@ -24,6 +25,8 @@ export interface OutgoingTap {
   /** Historical billing refusal; retired when loading the saved outbox. */
   readonly paused?: boolean;
   readonly requestId: string;
+  /** The style chosen when it was written; missing on older saved taps. */
+  readonly theme?: TapTheme;
 }
 
 const loadOutbox = (credentialId: string): OutgoingTap[] => {
@@ -61,6 +64,8 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   const [outbox, setOutbox] = useState<OutgoingTap[]>(() =>
     loadOutbox(pairing.credentialId)
   );
+  /** The style each tap sent from this page asked for, by tap id. */
+  const [requested, setRequested] = useState<Record<string, TapTheme>>({});
   const outboxRef = useRef(outbox);
   const revokedRef = useRef(onRevoked);
   useEffect(() => {
@@ -80,14 +85,17 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   const deliver = useCallback(
     async (item: OutgoingTap) => {
       try {
-        const tap = await client.sendTap({
-          requestId: item.requestId,
-          body: item.body,
-        });
+        const tap = await client.sendTap(
+          sendRequest(item, loadPatronKey(localStorage))
+        );
         updateOutbox((current) =>
           current.filter((o) => o.requestId !== item.requestId)
         );
         setTaps((current) => mergeTap(current, tap));
+        const asked = item.theme;
+        if (asked) {
+          setRequested((current) => ({ ...current, [tap.id]: asked }));
+        }
       } catch (error) {
         if (error instanceof ApiError && error.code === "unauthorized") {
           revokedRef.current();
@@ -165,12 +173,13 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   }, [client, resync]);
 
   const send = useCallback(
-    (body: string) => {
+    (body: string, theme: TapTheme = "default") => {
       const item: OutgoingTap = {
         requestId: newRequestId(),
         body,
         createdAt: Date.now(),
         failed: false,
+        theme,
       };
       updateOutbox((current) => [item, ...current]);
       return deliver(item);
@@ -187,5 +196,14 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
     [updateOutbox]
   );
 
-  return { taps, outbox, status, loaded, senderColor, send, discard };
+  return {
+    taps,
+    outbox,
+    requested,
+    status,
+    loaded,
+    senderColor,
+    send,
+    discard,
+  };
 };

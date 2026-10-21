@@ -12,6 +12,7 @@ import {
 import type {
   AcknowledgeRequest,
   ActivityTokenRequest,
+  Appearance,
   ConnectTicket,
   CreateInboxRequest,
   CreateInviteRequest,
@@ -24,15 +25,15 @@ import type {
   PersonColor,
   RedeemInviteRequest,
   RegisterPushRequest,
-  SendTapRequest,
   ServerEvent,
   Snapshot,
   Tap,
+  UpdateAppearanceRequest,
 } from "@shouldertap/domain";
 import type { RuntimeContext } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Drizzle from "alchemy/Drizzle/Cloudflare";
-import { and, count, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, count, eq, isNull, lt, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { HttpServerRequest } from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
@@ -50,17 +51,17 @@ import {
   startActivityPayload,
 } from "./apns";
 import type { ApnsRequest, PushContext } from "./apns";
+import { readAppearance, saveAppearance } from "./appearance";
 import { isObjectionable } from "./content";
 import { patronOf } from "./patron";
 import type { PatronEvent } from "./patron";
 import {
-  claimPrompt,
-  reserveCheckout,
   storePatronEvent,
   storeLegacyPurchase,
   storeLegacyRefund,
 } from "./patron-storage";
 import { planOf, TRIAL_MS } from "./plan";
+import type { VerifiedTheme } from "./presentation";
 import { retentionFilters } from "./retention";
 import {
   activityTokens,
@@ -69,11 +70,12 @@ import {
   invites,
   pushRegistrations,
   patronEvents,
-  patronCheckout,
   taps,
   tickets,
 } from "./schema";
-import { recordTap } from "./tap-storage";
+import { hashSecret, randomId } from "./secrets";
+import { readTaps, storeTap } from "./tap-storage";
+import type { TapMessage } from "./tap-storage";
 
 const SENDER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEVICE_INVITE_TTL_MS = 15 * 60 * 1000;
@@ -81,7 +83,6 @@ const TICKET_TTL_MS = 60 * 1000;
 const HISTORY_LIMIT = 25;
 const LAST_SEEN_WRITE_INTERVAL_MS = 60 * 1000;
 
-/** Taps one sender may send in any rolling hour. */
 /** Active (non-revoked) pairings an inbox may hold, by kind. */
 const PAIRING_CAPS: Record<CredentialKind, number> = {
   sender: 20,
@@ -138,28 +139,14 @@ export interface InboxRpc {
     tapId: string,
     request: ActivityTokenRequest
   ) => Rpc<{ saved: true }, Unauthorized | NotFound>;
-  /** Authorizes a paired Mac to start a checkout for this inbox. */
-  readonly checkoutContext: (
-    token: ParsedToken
-  ) => Rpc<{ inboxId: string; recipientName: string }, Unauthorized | Conflict>;
-  readonly reservePatronCheckout: (
-    token: ParsedToken
-  ) => Rpc<
-    { requestId: string; url: string | null; providerId: string | null },
-    Unauthorized | Conflict
-  >;
-  readonly finishPatronCheckout: (
-    requestId: string,
-    providerId: string,
-    url: string
-  ) => Rpc<void>;
-  readonly releaseExpiredCheckout: (requestId: string) => Rpc<void>;
+  /** Authenticates a device: the retired receiver-side checkouts answer
+   * Conflict after this, so an old app gets a clear message. */
+  readonly requireDevice: (token: ParsedToken) => Rpc<void, Unauthorized>;
   readonly patronCustomer: (
     token: ParsedToken
   ) => Rpc<string, Unauthorized | Conflict>;
-  readonly claimSupportPrompt: (
-    token: ParsedToken
-  ) => Rpc<{ show: boolean }, Unauthorized>;
+  /** A fact about a historical receiver-owned subscription (metadata
+   * `inbox_id`). Kept so cancellation and refunds still fold; grants nothing. */
   readonly recordPatronEvent: (event: PatronEvent) => Rpc<{ applied: boolean }>;
   readonly createInvite: (
     token: ParsedToken,
@@ -211,13 +198,23 @@ export interface InboxRpc {
     token: ParsedToken,
     credentialId: string
   ) => Rpc<{ revoked: true }, Unauthorized | NotFound | Conflict>;
-  /** `push` (when APNs is configured) delivers the tap to linked iPhones. */
+  /**
+   * `theme` is what the Worker verified against the sender's own patron key
+   * (`themeForSend`); the request carries no theme or key here. `push` (when
+   * APNs is configured) delivers the tap to linked iPhones.
+   */
   readonly sendTap: (
     token: ParsedToken,
-    request: SendTapRequest,
+    request: TapMessage,
+    theme: VerifiedTheme,
     push?: PushContext
   ) => Rpc<Tap, Unauthorized | Conflict | TooManyRequests | InvalidRequest>;
   readonly snapshot: (token: ParsedToken) => Rpc<Snapshot, Unauthorized>;
+  /** The recipient's own screens (motion, plain override); devices only. */
+  readonly updateAppearance: (
+    token: ParsedToken,
+    request: UpdateAppearanceRequest
+  ) => Rpc<Appearance, Unauthorized | Conflict>;
 }
 
 type InboxShape = InboxRpc &
@@ -258,25 +255,6 @@ type SocketSession = typeof SocketSession.Type;
 const decodeSession = Schema.decodeUnknownOption(SocketSession);
 
 const now = Effect.sync(() => Date.now());
-
-const randomId = (bytes = 12) =>
-  Effect.sync(() =>
-    btoa(String.fromCodePoint(...crypto.getRandomValues(new Uint8Array(bytes))))
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replaceAll("=", "")
-  );
-
-const hashSecret = (secret: string) =>
-  Effect.promise(async () => {
-    const digest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(secret)
-    );
-    return [...new Uint8Array(digest)]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
-  });
 
 /** Storage failures are defects: the Worker answers 500 and clients retry. */
 const orDieOnStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -324,29 +302,6 @@ const checkInvite = (
   return Effect.succeed(invite);
 };
 
-const toTap = ({
-  tap,
-  senderName,
-  senderColor,
-}: {
-  tap: typeof taps.$inferSelect;
-  senderName: string;
-  senderColor: typeof credentials.$inferSelect.color;
-}): Tap => ({
-  id: tap.id,
-  senderId: tap.senderId,
-  senderName,
-  senderColor: senderColor ?? fallbackColor(tap.senderId),
-  body: tap.body,
-  createdAt: tap.createdAt,
-  state: tap.state,
-  displayedAt: tap.displayedAt,
-  acknowledgedAt: tap.acknowledgedAt,
-  acknowledgedBy: tap.acknowledgedBy,
-  response: tap.response,
-  sequence: tap.sequence,
-});
-
 const send = (socket: Cloudflare.WebSocket, event: ServerEvent) =>
   // A dead socket is cleaned up by the runtime; clients resync on reconnect.
   socket.send(JSON.stringify(event)).pipe(Effect.ignore);
@@ -372,29 +327,14 @@ export const InboxLive = Inbox.make(
 
       // Reads
 
-      const selectTaps = () =>
-        db
-          .select({
-            tap: taps,
-            senderName: credentials.name,
-            senderColor: credentials.color,
-          })
-          .from(taps)
-          .innerJoin(credentials, eq(credentials.id, taps.senderId));
-
-      const tapRows = (
-        where: Parameters<ReturnType<typeof selectTaps>["where"]>[0]
-      ) =>
-        selectTaps()
-          .where(where)
-          .orderBy(desc(taps.createdAt))
-          .limit(HISTORY_LIMIT * 2);
+      const tapRows = (where: Parameters<typeof readTaps>[1]) =>
+        readTaps(db, where, HISTORY_LIMIT * 2);
 
       const getTap = (tapId: string) =>
-        tapRows(eq(taps.id, tapId)).pipe(
-          Effect.flatMap(([row]) =>
-            row
-              ? Effect.succeed(toTap(row))
+        readTaps(db, eq(taps.id, tapId), 1).pipe(
+          Effect.flatMap(([tap]) =>
+            tap
+              ? Effect.succeed(tap)
               : Effect.fail(new NotFound({ message: "No such tap" }))
           )
         );
@@ -836,16 +776,20 @@ export const InboxLive = Inbox.make(
               senderColor: actor.color ?? fallbackColor(actor.id),
               recipientName,
               sequence,
-              taps: rows.map(toTap),
+              taps: rows,
             };
           }
           const pending = yield* tapRows(eq(taps.state, "pending"));
-          const recent = yield* selectTaps()
-            .orderBy(desc(taps.createdAt))
-            .limit(HISTORY_LIMIT);
-          const byId = new Map(
-            [...recent, ...pending].map((r) => [r.tap.id, toTap(r)])
+          const recent = yield* readTaps(db, undefined, HISTORY_LIMIT);
+          const byId = new Map([...recent, ...pending].map((t) => [t.id, t]));
+          // Historical receiver-owned support only: shown so it can be
+          // managed or canceled, never offered anew and never a theme grant.
+          const legacy = patronOf(
+            (yield* db.select().from(patronEvents)).map((r) => r.event),
+            yield* now,
+            (row?.paidAt ?? null) !== null
           );
+          const patron = { ...legacy, canSubscribe: false };
           return {
             kind: "device" as const,
             credentialId: actor.id,
@@ -856,13 +800,26 @@ export const InboxLive = Inbox.make(
             ),
             credentials: yield* listCredentials,
             plan: planOf(row, yield* now),
-            patron: patronOf(
-              (yield* db.select().from(patronEvents)).map((r) => r.event),
-              yield* now,
-              (row?.paidAt ?? null) !== null
-            ),
+            patron,
+            appearance: yield* readAppearance(db),
           };
         }, orDieOnStorage),
+
+        updateAppearance: Effect.fn("Inbox.updateAppearance")(
+          function* updateAppearance(token, request) {
+            const actor = yield* requireDevice(token);
+            const saved = yield* saveAppearance(
+              db,
+              request,
+              actor.id,
+              yield* now
+            );
+            // Other computers refetch the snapshot and restyle.
+            yield* broadcastCredentials;
+            return saved;
+          },
+          orDieOnStorage
+        ),
 
         createInvite: Effect.fn("Inbox.createInvite")(function* createInvite(
           token,
@@ -961,6 +918,7 @@ export const InboxLive = Inbox.make(
         sendTap: Effect.fn("Inbox.sendTap")(function* sendTap(
           token,
           request,
+          theme,
           push
         ) {
           const actor = yield* requireSender(token);
@@ -971,8 +929,13 @@ export const InboxLive = Inbox.make(
             });
           }
           const id = yield* randomId();
-          const createdAt = yield* now;
-          const tapId = yield* recordTap(db, actor.id, request, id, createdAt);
+          const tapId = yield* storeTap(db, {
+            senderId: actor.id,
+            message: request,
+            theme,
+            id,
+            at: yield* now,
+          });
           const tap = yield* getTap(tapId.id).pipe(Effect.orDie);
           if (tapId.isNew) {
             yield* broadcastTap(tap);
@@ -1033,8 +996,6 @@ export const InboxLive = Inbox.make(
                   .update(inbox)
                   .set({
                     sequence: sql`${inbox.sequence} + 1`,
-                    firstAnsweredAt: sql`COALESCE(${inbox.firstAnsweredAt}, ${at})`,
-                    answeredCount: sql`${inbox.answeredCount} + 1`,
                   })
                   .where(eq(inbox.id, 1))
                   .returning({ sequence: inbox.sequence });
@@ -1223,34 +1184,11 @@ export const InboxLive = Inbox.make(
           return { deleted: true as const };
         }, orDieOnStorage),
 
-        reservePatronCheckout: Effect.fn("Inbox.reservePatronCheckout")(
-          function* reservePatronCheckout(token) {
-            yield* requireDevice(token);
-            const requestId = yield* randomId();
-            const at = yield* now;
-            return yield* reserveCheckout(db, requestId, at);
-          },
-          orDieOnStorage
-        ),
-
-        finishPatronCheckout: Effect.fn("Inbox.finishPatronCheckout")(
-          function* finishPatronCheckout(requestId, providerId, url) {
-            yield* db
-              .update(patronCheckout)
-              .set({ url, providerId })
-              .where(eq(patronCheckout.requestId, requestId));
-          },
-          orDieOnStorage
-        ),
-
-        releaseExpiredCheckout: Effect.fn("Inbox.releaseExpiredCheckout")(
-          function* releaseExpiredCheckout(requestId) {
-            yield* db
-              .delete(patronCheckout)
-              .where(eq(patronCheckout.requestId, requestId));
-          },
-          orDieOnStorage
-        ),
+        requireDevice: Effect.fn("Inbox.requireDevice")(function* device(
+          token
+        ) {
+          yield* requireDevice(token);
+        }, orDieOnStorage),
 
         recordPatronEvent: Effect.fn("Inbox.recordPatronEvent")(
           function* recordPatronEvent(event) {
@@ -1265,6 +1203,8 @@ export const InboxLive = Inbox.make(
 
         patronCustomer: Effect.fn("Inbox.patronCustomer")(
           function* patronCustomer(token) {
+            // Historical receiver subscriptions can still be managed and
+            // canceled from the recipient's own devices.
             yield* requireDevice(token);
             const events = (yield* db.select().from(patronEvents))
               .map((r) => r.event)
@@ -1276,37 +1216,6 @@ export const InboxLive = Inbox.make(
               });
             }
             return customer;
-          },
-          orDieOnStorage
-        ),
-
-        claimSupportPrompt: Effect.fn("Inbox.claimSupportPrompt")(
-          function* claimSupportPrompt(token) {
-            yield* requireDevice(token);
-            const at = yield* now;
-            return yield* claimPrompt(db, at);
-          },
-          orDieOnStorage
-        ),
-
-        checkoutContext: Effect.fn("Inbox.checkoutContext")(
-          function* checkoutContext(token) {
-            yield* requireDevice(token);
-            const row = yield* inboxRow;
-            const patron = patronOf(
-              (yield* db.select().from(patronEvents)).map((r) => r.event),
-              yield* now
-            );
-            if (!patron.canSubscribe) {
-              return yield* new Conflict({
-                message:
-                  "Manage your existing support membership before starting another.",
-              });
-            }
-            return {
-              inboxId: token.inboxId,
-              recipientName: row?.recipientName ?? "",
-            };
           },
           orDieOnStorage
         ),
