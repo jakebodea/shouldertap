@@ -1,0 +1,1 @@
+ALTER TABLE `credentials` ADD `key_revoked_at` integer;

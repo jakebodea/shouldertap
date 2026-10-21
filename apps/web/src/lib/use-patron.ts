@@ -90,22 +90,11 @@ export const usePatron = () => {
     []
   );
 
-  const subscribe = useCallback(
-    () =>
-      openOutside(() =>
-        run(async () => {
-          let current = key;
-          if (!current) {
-            const grant = await api.createPatron();
-            savePatronKey(localStorage, grant.key);
-            setKey(grant.key);
-            current = grant.key;
-          }
-          return api.withPatronKey(current).patronCheckout();
-        })
-      ),
-    [key, openOutside, run]
-  );
+  // Buying starts with an account. The account page explicitly adopts any
+  // existing browser membership before it opens account-owned checkout.
+  const subscribe = useCallback(() => {
+    window.location.assign("/account?intent=patron");
+  }, []);
 
   const manage = useCallback(
     () =>

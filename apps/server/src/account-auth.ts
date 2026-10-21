@@ -1,0 +1,68 @@
+import { betterAuth } from "better-auth";
+import type { BetterAuthOptions } from "better-auth";
+import { bearer, deviceAuthorization, magicLink } from "better-auth/plugins";
+
+import { accountEmailSender } from "./account-email";
+import type { AccountEmailBinding } from "./account-email";
+
+export interface AccountAuthOptions {
+  database: BetterAuthOptions["database"];
+  secret: string;
+  origin: string;
+  webOrigin?: string;
+  email?: AccountEmailBinding;
+}
+
+export const accountAuthOptions = ({
+  database,
+  secret,
+  origin,
+  webOrigin,
+  email,
+}: AccountAuthOptions) =>
+  ({
+    appName: "Shouldertap",
+    baseURL: origin,
+    basePath: "/api/auth",
+    database,
+    secret,
+    trustedOrigins: webOrigin ? [origin, webOrigin] : [origin],
+    logger: { disabled: true },
+    advanced: {
+      ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
+    },
+    session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
+    rateLimit: { enabled: true, storage: "database", window: 60, max: 60 },
+    user: { deleteUser: { enabled: true } },
+    plugins: [
+      magicLink({
+        expiresIn: 600,
+        storeToken: "hashed",
+        rateLimit: { window: 60, max: 3 },
+        sendMagicLink: async ({ email: recipient, token }) => {
+          // A fragment keeps tokens out of request URLs and access logs. The
+          // confirmation page redeems only after an explicit button press.
+          await accountEmailSender(email)({
+            email: recipient,
+            url: `${origin}/account#${encodeURIComponent(token)}`,
+          });
+        },
+      }),
+      deviceAuthorization({
+        verificationUri: `${origin}/account/device`,
+        expiresIn: "10m",
+        interval: "5s",
+        validateClient: (clientId) =>
+          [
+            "shouldertap-ios",
+            "shouldertap-mac",
+            "shouldertap-windows",
+            "shouldertap-web",
+          ].includes(clientId),
+      }),
+      bearer(),
+    ],
+  }) satisfies BetterAuthOptions;
+
+export const createAccountAuth = (options: AccountAuthOptions) =>
+  betterAuth(accountAuthOptions(options));

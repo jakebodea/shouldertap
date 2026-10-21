@@ -1,0 +1,1 @@
+ALTER TABLE `credentials` ADD `parent_id` text;

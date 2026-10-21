@@ -10,7 +10,13 @@ import * as Redacted from "effect/Redacted";
 
 import Server from "./apps/server/src/Server.ts";
 import Support, { parseForwardTo } from "./apps/server/src/Support.ts";
-import { domains, isProduction, macDownloadUrl, zoneId } from "./domains.ts";
+import {
+  accountEmailDomain,
+  domains,
+  isProduction,
+  macDownloadUrl,
+  zoneId,
+} from "./domains.ts";
 import { stageSecrets } from "./stacks/secrets.ts";
 
 /** Set by .github/workflows/deploy.yml for preview deploys. */
@@ -28,8 +34,12 @@ export default Alchemy.Stack(
     // GitHub is only needed for the preview comment, so local deploys don't
     // need it in their profile.
     providers: pullRequest
-      ? Layer.mergeAll(Cloudflare.providers(), GitHub.providers())
-      : Cloudflare.providers(),
+      ? Layer.mergeAll(
+          Cloudflare.providers(),
+          GitHub.providers(),
+          Alchemy.RandomProvider()
+        )
+      : Layer.mergeAll(Cloudflare.providers(), Alchemy.RandomProvider()),
     state: Cloudflare.state(),
     // App secrets (SUPPORT_FORWARD_TO, CREEM_*, APNS_*) from Infisical, read
     // through Config; see stacks/secrets.ts for which project each stage uses.
@@ -66,6 +76,13 @@ export default Alchemy.Stack(
       : undefined;
 
     if (production) {
+      // Alchemy owns the sending registration and its DKIM/SPF records.
+      // Sign-in tokens must not be retained in Cloudflare's message previews.
+      yield* Cloudflare.Email.SendingSubdomain("AccountEmail", {
+        zoneId,
+        name: accountEmailDomain,
+        previewEnabled: false,
+      });
       yield* Cloudflare.Zone.Setting("AlwaysUseHttps", {
         zoneId,
         settingId: "always_use_https",

@@ -9,6 +9,7 @@ import {
   patron,
   patronEvents,
   patronKeys,
+  patronCheckout,
   patronLinkCodes,
 } from "./patron-schema";
 import { hashSecret } from "./secrets";
@@ -60,6 +61,29 @@ export const createIdentity = Effect.fn(function* createIdentity(
     })
   );
 });
+
+/** Account-owned identities begin without a bearer key. Native/browser keys
+ * are minted only when a signed-in device explicitly restores membership. */
+export const initializeAccountIdentity = Effect.fn(
+  function* initializeAccountIdentity(
+    db: EffectSQLiteDoDatabase,
+    patronId: string,
+    at: number
+  ) {
+    yield* db.transaction((tx) =>
+      Effect.gen(function* initializeAccountTransaction() {
+        const [existing] = yield* tx.select().from(patron);
+        if (existing) {
+          if (existing.patronId !== patronId) {
+            return yield* new Conflict({ message: "Patron identity mismatch" });
+          }
+          return;
+        }
+        yield* tx.insert(patron).values({ id: 1, patronId, createdAt: at });
+      })
+    );
+  }
+);
 
 /** The live key with this id and secret hash, or Unauthorized. */
 export const authenticateKey = Effect.fn(function* authenticateKey(
@@ -116,6 +140,24 @@ export const statusOf = Effect.fn(function* statusOf(
     patronId: row?.patronId ?? "",
     patron: membership,
     keys: yield* activeKeys(db),
+  };
+});
+
+/** Account deletion must leave neither live billing nor an uncertain checkout. */
+export const accountDeletionState = Effect.fn(function* accountDeletionState(
+  db: EffectSQLiteDoDatabase,
+  at: number
+) {
+  const status = yield* statusOf(db, at);
+  const [checkout] = yield* db
+    .select({
+      requestId: patronCheckout.requestId,
+      providerId: patronCheckout.providerId,
+    })
+    .from(patronCheckout);
+  return {
+    canDelete: status.patron.canSubscribe && !checkout,
+    checkout: checkout ?? null,
   };
 });
 

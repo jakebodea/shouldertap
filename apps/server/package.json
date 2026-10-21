@@ -13,6 +13,7 @@
     "@effect/sql-sqlite-do": "4.0.4",
     "@shouldertap/domain": "workspace:*",
     "alchemy": "2.0.0-beta.82",
+    "better-auth": "1.7.12",
     "creem": "1.13.0",
     "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "effect": "catalog:"
