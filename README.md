@@ -162,7 +162,7 @@ The app and widget share `apps/ios/Version.xcconfig`: bump `MARKETING_VERSION` f
 
 ## Release the Mac app
 
-Bump `CFBundleShortVersionString` and `CFBundleVersion` in `apps/macos/Resources/Info.plist`, then test and build a universal DMG and upload it to the `shouldertap-releases` R2 bucket (needs `wrangler login`):
+Mac and Windows share one version (pre-1.0 while big features land; `bun run check` fails if they differ). Bump `CFBundleShortVersionString` and `CFBundleVersion` in `apps/macos/Resources/Info.plist` and `version` in `apps/windows/Cargo.toml` together, then test and build a universal DMG and upload it to the `shouldertap-releases` R2 bucket (needs `wrangler login`):
 
 ```bash
 scripts/release-mac.sh
@@ -182,7 +182,7 @@ Builds are ad-hoc signed until there's an Apple Developer ID, so Gatekeeper make
 
 ## Release the Windows app
 
-Bump `version` in `apps/windows/Cargo.toml`, then build `Shouldertap-Setup-<version>.exe` and upload it to the `shouldertap-releases` R2 bucket under `windows/`, with `windows/latest.json` (`{version, url, sha256}`), the feed installed apps check every 6 hours:
+Bump `version` in `apps/windows/Cargo.toml` (and the Mac version with it; see above), then build `Shouldertap-Setup-<version>.exe` and upload it to the `shouldertap-releases` R2 bucket under `windows/`, with `windows/latest.json` (`{version, url, sha256}`), the feed installed apps check every 6 hours:
 
 ```bash
 scripts/release-windows.sh
