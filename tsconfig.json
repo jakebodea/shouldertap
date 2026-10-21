@@ -2,6 +2,7 @@
   "extends": "@shouldertap/config/tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
     "types": ["@cloudflare/workers-types", "bun"]
   },

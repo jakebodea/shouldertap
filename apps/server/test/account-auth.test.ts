@@ -32,7 +32,9 @@ const emailedToken = () => {
   if (!message) {
     throw new Error("Expected a sign-in email");
   }
-  const link = message.split("\n").find((line) => line.startsWith(origin));
+  const link = message.match(
+    /https:\/\/api\.shouldertap\.app\/account#[^\s\]]+/u
+  )?.[0];
   if (!link) {
     throw new Error("Expected a confirmation link");
   }
