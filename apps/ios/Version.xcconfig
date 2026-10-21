@@ -2,3 +2,4 @@
 // Increment the build integer before each upload.
 MARKETING_VERSION = 0.2.0
 CURRENT_PROJECT_VERSION = 2
+SHOULDERTAP_SOURCE_REVISION = working-copy

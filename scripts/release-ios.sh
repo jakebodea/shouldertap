@@ -56,7 +56,7 @@ xcodebuild archive -quiet \
   -destination 'generic/platform=iOS' \
   -archivePath "$out/Shouldertap.xcarchive" \
   CURRENT_PROJECT_VERSION="$build" \
-  INFOPLIST_KEY_ShouldertapSourceRevision="$source_revision" \
+  SHOULDERTAP_SOURCE_REVISION="$source_revision" \
   CODE_SIGNING_ALLOWED=NO
 
 # An unsigned archive carries no entitlements, so the export wouldn't know
