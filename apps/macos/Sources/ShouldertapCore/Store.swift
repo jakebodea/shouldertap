@@ -53,9 +53,10 @@ public final class ReceiverStore {
   /// Trial, paid or expired; nil until the first snapshot, or from a server
   /// older than payments.
   public private(set) var plan: Plan?
+  /// A historical receiver-owned support subscription, if any (manage only).
   public private(set) var patron: Patron?
-  /// How taps look on this inbox's computers. `.standard` until the first
-  /// snapshot, and from servers older than themes.
+  /// The recipient's free settings: motion and the plain override.
+  /// `.standard` until the first snapshot, and from older servers.
   public private(set) var appearance: Appearance = .standard
   /// False for servers older than themes: there is nothing to change yet.
   public private(set) var appearanceSupported = false
@@ -122,8 +123,9 @@ public final class ReceiverStore {
 
   // MARK: Plan
 
-  /// Where to pay for this inbox. If it turns out to be paid for already
-  /// (`conflict`), the snapshot is refreshed so the menu catches up.
+  /// The billing portal for a historical receiver-owned support subscription,
+  /// so it can be canceled. Recipients can't start one: support belongs to
+  /// senders now.
   public func managePatronURL() async throws -> URL {
     let checkout = try await api.managePatron()
     let url = checkout.url
@@ -131,36 +133,19 @@ public final class ReceiverStore {
     return url
   }
 
-  public func claimSupportPrompt() async throws -> Bool {
-    try await api.claimSupportPrompt().show
-  }
-
-  public func checkoutURL() async throws -> URL {
-    do {
-      return try await api.createCheckout().url
-    } catch let error as APIError where error.code == .conflict {
-      resync()
-      throw error
-    }
-  }
-
   // MARK: Appearance
 
-  /// Saves a change for every computer on the inbox. The server checks patron
-  /// support; on `conflict` the snapshot is refreshed so the menu catches up.
-  public func updateAppearance(theme: TapTheme? = nil, motion: MotionPreference? = nil) async throws {
-    do {
-      appearance = try await api.updateAppearance(theme: theme, motion: motion)
-      appearanceSupported = true
-    } catch let error as APIError where error.code == .conflict {
-      resync()
-      throw error
-    }
+  /// Saves a change for every computer on the inbox. Free; anyone's devices.
+  public func updateAppearance(
+    motion: MotionPreference? = nil, senderThemes: SenderThemePreference? = nil
+  ) async throws {
+    appearance = try await api.updateAppearance(motion: motion, senderThemes: senderThemes)
+    appearanceSupported = true
   }
 
-  /// The theme to show a tap in right now.
-  public func themeOnScreen(now: Date = .now) -> TapTheme {
-    appearance.themeOnScreen(patron: patron, now: now)
+  /// The theme to draw a tap in: its sender's, unless this recipient chose plain.
+  public func theme(for tap: Tap) -> TapTheme {
+    appearance.theme(for: tap)
   }
 
   // MARK: Overlay

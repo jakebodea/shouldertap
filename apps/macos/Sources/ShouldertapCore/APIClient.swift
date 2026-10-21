@@ -143,26 +143,21 @@ public struct APIClient: Sendable {
 
   /// Macs only: where to pay for this inbox. `conflict` once it's already
   /// paid for; `unavailable` when the server has no payments set up.
-  public func createCheckout() async throws -> Checkout {
-    try await send("POST", "/v1/patron/checkout")
-  }
-
   public func connectTicket() async throws -> ConnectTicket {
     try await send("POST", "/v1/connect-tickets")
   }
 
+  /// Only a historical receiver-owned support subscription: patron support
+  /// now belongs to senders, so recipients can manage or cancel, never buy.
   public func managePatron() async throws -> Checkout {
     try await send("POST", "/v1/patron/manage")
   }
 
-  public func claimSupportPrompt() async throws -> SupportPrompt {
-    try await send("POST", "/v1/patron/prompt")
-  }
-
-  /// Devices only. `conflict` for a theme other than Default without active
-  /// patron support; servers older than themes answer `notFound`.
-  public func updateAppearance(theme: TapTheme?, motion: MotionPreference?) async throws -> Appearance {
-    try await send("PUT", "/v1/appearance", body: UpdateAppearance(theme: theme, motion: motion))
+  /// Devices only, free. Servers older than appearance settings answer `notFound`.
+  public func updateAppearance(
+    motion: MotionPreference?, senderThemes: SenderThemePreference?
+  ) async throws -> Appearance {
+    try await send("PUT", "/v1/appearance", body: UpdateAppearance(motion: motion, senderThemes: senderThemes))
   }
 
   /// `ws(s)://…/v1/connect?ticket=…`: the one-time ticket keeps the long-lived
@@ -190,8 +185,8 @@ public struct APIClient: Sendable {
     var platform: DevicePlatform?  // likewise
   }
   private struct UpdateAppearance: Encodable {
-    var theme: TapTheme?  // omitted when nil: keep the saved value
-    var motion: MotionPreference?
+    var motion: MotionPreference?  // omitted when nil: keep the saved value
+    var senderThemes: SenderThemePreference?
   }
   private struct Revoked: Decodable { var revoked: Bool }
   private struct Registered: Decodable { var registered: Bool }

@@ -121,7 +121,7 @@ struct InboxScreen: View {
     }
   }
 
-  private var planText: String? { inbox.patron?.active == true ? "Patron · thank you" : "Free" }
+  private var planText: String? { "Free" }
 
   @State private var usStorefront = false
   @State private var billingBusy = false
@@ -137,15 +137,10 @@ struct InboxScreen: View {
             Text("Paid through \(Date(timeIntervalSince1970: until / 1000).formatted(date: .abbreviated, time: .omitted))")
           }
         }
-        if usStorefront {
-          Text("Optional support helps cover running costs: $2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. While it's active you can choose a tap theme for your Mac or PC; nothing in this app changes. Not a tax-deductible donation.")
-            .font(.footnote).foregroundStyle(Paper.tone)
-          if inbox.patron?.canManage == true {
-            Button("Manage or cancel support") { billing(manage: true) }.buttonStyle(PillStyle()).disabled(billingBusy)
-          }
-          if inbox.patron?.canSubscribe == true {
-            Button("Become a patron · $24/year") { billing(manage: false) }.buttonStyle(PillStyle()).disabled(billingBusy)
-          }
+        // Support bought for this inbox before it moved to senders can still
+        // be managed or canceled; nothing is sold here. US storefront only.
+        if usStorefront, inbox.patron?.canManage == true {
+          Button("Manage or cancel earlier support") { manageBilling() }.buttonStyle(PillStyle()).disabled(billingBusy)
         }
       }
     }
@@ -157,15 +152,14 @@ struct InboxScreen: View {
     }
   }
 
-  private func billing(manage: Bool) {
+  private func manageBilling() {
     billingBusy = true
     Task {
       defer { billingBusy = false }
       // Storefront, never locale or IP, is the purchase-policy boundary.
       guard await Storefront.current?.countryCode == "USA" else { usStorefront = false; return }
       do {
-        let url = try await (manage ? inbox.managePatronURL() : inbox.checkoutURL())
-        openURL(url)
+        openURL(try await inbox.managePatronURL())
       } catch { self.error = error.localizedDescription }
     }
   }

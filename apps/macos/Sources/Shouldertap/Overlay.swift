@@ -91,8 +91,9 @@ final class OverlayController {
           if newTap {
             entry.model.replying = false
             entry.model.reply = ""
-            // A new tap picks up a theme or motion change made meanwhile.
-            entry.model.theme = store.themeOnScreen()
+            // Each tap arrives in its own sender's theme (or plain), with
+            // any motion change made meanwhile.
+            entry.model.theme = store.theme(for: active.tap)
             entry.model.reduceMotion = reduceMotion
           }
         }
@@ -110,7 +111,7 @@ final class OverlayController {
     tearDown()
     for screen in NSScreen.screens {
       let window = OverlayWindow(screen: screen)
-      let model = OverlayModel(active: active, theme: store.themeOnScreen(), reduceMotion: reduceMotion) {
+      let model = OverlayModel(active: active, theme: store.theme(for: active.tap), reduceMotion: reduceMotion) {
         [weak store] tapId, response in
         store?.respond(tapId: tapId, response: response)
       }

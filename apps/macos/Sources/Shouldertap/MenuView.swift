@@ -112,7 +112,6 @@ private struct ReadyView: View {
   let store: ReceiverStore
   let updates: Updates
   let openAppearance: () -> Void
-  @State private var showSupportAsk = false
 
   var body: some View {
     let senders = store.credentials.filter { $0.kind == .sender }
@@ -141,10 +140,10 @@ private struct ReadyView: View {
         Row(action: openAppearance) { _ in
           Text("Tap appearance").font(.system(size: 13, weight: .medium))
           Spacer(minLength: 0)
-          Text(store.themeOnScreen().label).font(.system(size: 12)).foregroundStyle(.secondary)
+          Text(appearanceLabel).font(.system(size: 12)).foregroundStyle(.secondary)
           Text("›").font(.system(size: 13)).foregroundStyle(.tertiary)
         }
-        .accessibilityLabel("Tap appearance, \(store.themeOnScreen().label)")
+        .accessibilityLabel("Tap appearance, \(appearanceLabel)")
       }
 
       Section(title: "Recent") {
@@ -155,20 +154,13 @@ private struct ReadyView: View {
         }
       }
 
-      if showSupportAsk && store.activeTap == nil && store.patron?.active != true {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Help keep Shouldertap running").font(.headline)
-          Muted("Optional support: $2/month, billed $24 annually. Tapping stays free.")
-          MenuButton(title: "Not now", kind: .plain) { showSupportAsk = false }
-        }
-      }
       PatronView(store: store)
       Footer(updates: updates)
     }
-    .task {
-      guard store.activeTap == nil else { return }
-      showSupportAsk = (try? await store.claimSupportPrompt()) ?? false
-    }
+  }
+
+  private var appearanceLabel: String {
+    store.appearance.senderThemes == .plain ? "Always plain" : "Senders' styles"
   }
 
   /// Billing never changes the recipient name or messaging controls.
@@ -187,39 +179,29 @@ private struct PatronView: View {
   @State private var error: String?
 
   var body: some View {
-    DisclosureGroup("Support Shouldertap") {
+    DisclosureGroup("Patron themes") {
       VStack(alignment: .leading, spacing: 8) {
-        Muted("Shouldertap is free. Optional patron support helps cover running costs. While it's active you can choose a tap theme for your computers; messaging, Default and accessibility settings never need it.")
+        Muted("Shouldertap is free to receive and answer. Patron support belongs to the people who tap you: it lets them send their taps in a style, to everyone they tap. You never pay to see it, and Tap appearance can show every tap plain.")
         if store.patron?.legacySupporter == true { Muted("Thank you for your original purchase. It is preserved; you have not been enrolled in a subscription.") }
-        if let patron = store.patron, patron.active {
-          Text(patron.status == "ending" ? "Thank you. Your support ends at the paid period's end." : "Thank you for supporting Shouldertap.")
-            .font(.system(size: 12))
-          if let until = patron.paidUntil {
-            Muted("Paid through \(Date(timeIntervalSince1970: until / 1000).formatted(date: .abbreviated, time: .omitted))")
+        // Support bought from this computer before it moved to senders:
+        // still manageable and cancelable here, never sold here again.
+        if let patron = store.patron, patron.canManage {
+          if patron.active, let until = patron.paidUntil {
+            Muted("Your earlier support from this computer is paid through \(Date(timeIntervalSince1970: until / 1000).formatted(date: .abbreviated, time: .omitted)).")
           }
-        }
-        if store.patron?.canManage == true {
-          MenuButton(title: busy ? "Opening…" : "Manage or cancel support", kind: .secondary, fullWidth: true) { open(manage: true) }.disabled(busy)
-          Muted("Cancel renewal in the billing portal. Support continues through your paid period; core use stays free.")
-        }
-        if store.patron?.canSubscribe == true {
-          Muted("$2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. This is not a tax-deductible donation.")
-          MenuButton(title: busy ? "Opening…" : "Become a patron · $24/year", kind: .secondary, fullWidth: true) { open(manage: false) }.disabled(busy)
+          MenuButton(title: busy ? "Opening…" : "Manage or cancel earlier support", kind: .secondary, fullWidth: true) { open() }.disabled(busy)
         }
         if let error { ErrorText(error) }
       }.padding(.top, 8)
     }.font(.system(size: 12))
   }
 
-  private func open(manage: Bool) {
+  private func open() {
     busy = true
     error = nil
     Task {
       defer { busy = false }
-      do {
-        let url = try await (manage ? store.managePatronURL() : store.checkoutURL())
-        NSWorkspace.shared.open(url)
-      } catch { self.error = error.localizedDescription }
+      do { NSWorkspace.shared.open(try await store.managePatronURL()) } catch { self.error = error.localizedDescription }
     }
   }
 }
