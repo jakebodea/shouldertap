@@ -1,4 +1,5 @@
 import { accountEmail, supportEmail } from "../../../domains.ts";
+import { accountEmailTemplate } from "./account-email-template";
 
 /** Cloudflare Email Service's builder API; injectable at the provider boundary. */
 export interface AccountEmailBinding {
@@ -8,6 +9,7 @@ export interface AccountEmailBinding {
     replyTo: string;
     subject: string;
     text: string;
+    html: string;
   }) => Promise<unknown>;
 }
 
@@ -35,15 +37,7 @@ export const accountEmailSender =
         to: email,
         replyTo: supportEmail,
         subject: "Sign in to Shouldertap",
-        text: [
-          "Sign in to your Shouldertap account:",
-          "",
-          url,
-          "",
-          "This link expires in 10 minutes and works once. If it has expired, request a new one.",
-          "",
-          "If you didn't request this email, you can ignore it.",
-        ].join("\n"),
+        ...accountEmailTemplate(url),
       });
     } catch {
       throw new AccountEmailUnavailableError();
