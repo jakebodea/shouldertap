@@ -4,7 +4,7 @@ import SwiftUI
 import UserNotifications
 import os
 
-private let log = Logger(subsystem: "app.shouldertap.ios", category: "Receiving")
+private let log = Logger(subsystem: "app.shouldertap.iphone", category: "Receiving")
 
 // Taps on this iPhone, once it's linked to your inbox. The server pushes
 // each new tap (apps/server/src/apns.ts):
@@ -25,6 +25,7 @@ final class Receiver {
 
   /// The tap whose takeover opened straight into typing a reply.
   var replyingTapId: String?
+  var notificationsAllowed: Bool?
 
   @ObservationIgnored private var inbox: ReceiverStore?
   /// The last tokens iOS gave us, kept across launches: after a restart iOS
@@ -64,6 +65,7 @@ final class Receiver {
     Task {
       let center = UNUserNotificationCenter.current()
       let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+      notificationsAllowed = granted
       if !granted { log.notice("Notifications aren't allowed") }
       UIApplication.shared.registerForRemoteNotifications()
       await upload()
@@ -130,7 +132,7 @@ final class Receiver {
     guard let inbox, inbox.phase == .ready else { return }
     let credentialId = inbox.credentialId ?? ""
     let registration = PushRegistration(
-      environment: Self.environment, topic: Bundle.main.bundleIdentifier ?? "app.shouldertap.ios",
+      environment: Self.environment, topic: Bundle.main.bundleIdentifier ?? "app.shouldertap.iphone",
       deviceToken: deviceToken, startToken: startToken, liveActivities: liveActivities)
     guard registration.deviceToken != nil || registration.startToken != nil else { return }
     if let registered, registered.credentialId == credentialId, registered.registration == registration { return }

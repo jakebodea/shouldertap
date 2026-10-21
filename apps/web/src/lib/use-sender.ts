@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./api";
 import { newRequestId } from "./ids";
+import { migrateBillingRefusal } from "./outbox-migration";
 import { outboxKey } from "./pairing";
 import type { Pairing } from "./pairing";
 
@@ -20,16 +21,17 @@ export interface OutgoingTap {
   /** Why the server refused it, e.g. the hourly limit. */
   readonly error?: string;
   readonly failed: boolean;
-  /** Refused because the recipient's trial ended; retrying won't help yet. */
+  /** Historical billing refusal; retired when loading the saved outbox. */
   readonly paused?: boolean;
   readonly requestId: string;
 }
 
 const loadOutbox = (credentialId: string): OutgoingTap[] => {
   try {
-    return JSON.parse(
+    const saved = JSON.parse(
       localStorage.getItem(outboxKey(credentialId)) ?? "[]"
     ) as OutgoingTap[];
+    return saved.map((item) => migrateBillingRefusal(item));
   } catch {
     return [];
   }

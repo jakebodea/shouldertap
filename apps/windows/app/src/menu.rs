@@ -9,8 +9,8 @@ use gpui::{
     MouseButton, Pixels, Render, SharedString, Subscription, Window, div, prelude::*, px, svg,
 };
 use shouldertap_core::{
-    ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, MAX_NAME_LENGTH, Phase, Plan,
-    PlanStatus, ReceiverStore, ResponseKind, SenderInvite, Tap, TapState, now_ms,
+    ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, MAX_NAME_LENGTH, Patron, Phase,
+    ReceiverStore, ResponseKind, SenderInvite, Tap, TapState, now_ms,
 };
 
 use crate::assets::{Icon, MARK_PATH};
@@ -35,7 +35,8 @@ pub struct MenuView {
     code: Entity<TextField>,
     busy: bool,
     error: Option<String>,
-    // Plan
+    // Optional support
+    support_expanded: bool,
     plan_busy: bool,
     plan_opened: bool,
     plan_error: Option<String>,
@@ -106,6 +107,7 @@ impl MenuView {
             code,
             busy: false,
             error: None,
+            support_expanded: false,
             plan_busy: false,
             plan_opened: false,
             plan_error: None,
@@ -183,13 +185,19 @@ impl MenuView {
 
     // Plan
 
-    fn unlock(&mut self, cx: &mut Context<Self>) {
+    fn unlock(&mut self, manage: bool, cx: &mut Context<Self>) {
         self.plan_busy = true;
         self.plan_error = None;
         self.plan_notice = None;
         self.run(
             cx,
-            |store| store.checkout_url(),
+            move |store| {
+                if manage {
+                    store.manage_patron_url()
+                } else {
+                    store.checkout_url()
+                }
+            },
             |this, result, cx| {
                 this.plan_busy = false;
                 match result {
@@ -376,11 +384,9 @@ impl MenuView {
             .filter(|c| c.kind == CredentialKind::Device)
             .cloned()
             .collect();
-        // "Taps for Jake", plus a quiet "Unlocked" once paid for.
+        // Billing never changes the recipient name or messaging controls.
         let subtitle = if state.recipient_name.is_empty() {
             " ".to_string()
-        } else if state.plan.map(|plan| plan.status) == Some(PlanStatus::Paid) {
-            format!("Taps for {} · Unlocked", state.recipient_name)
         } else {
             format!("Taps for {}", state.recipient_name)
         };
@@ -404,24 +410,14 @@ impl MenuView {
             state.taps.iter().take(6).map(|tap| self.tap_row(s, tap, cx)).collect()
         };
 
-        let plan = state
-            .plan
-            .filter(|plan| plan.current_status(now_ms()) != PlanStatus::Paid)
-            .map(|plan| {
-                self.plan(
-                    s,
-                    plan,
-                    state.taps.iter().any(|tap| tap.state == TapState::Acknowledged),
-                    cx,
-                )
-            });
+        let support = self.support(s, state.patron.as_ref(), cx);
 
         div()
             .flex()
             .flex_col()
             .gap(px(16.))
             .child(brand(s, &subtitle, Some(status_label(s, state.status))))
-            .children(plan)
+            .child(support)
             .child(self.invite_sender(s, cx))
             .child(section(s, "Can tap you", people))
             .child(section(s, "Your devices", your_devices))
@@ -429,114 +425,74 @@ impl MenuView {
             .child(self.footer(s, cx))
     }
 
-    /// The trial and the way out of it. Quiet while the trial has time left,
-    /// a card in its last 3 days, and the first thing in the menu once it ends.
-    fn plan(&mut self, s: Surface, plan: Plan, answered: bool, cx: &mut Context<Self>) -> AnyElement {
-        let now = now_ms();
-        let days = plan.days_left(now);
-        let label = if self.plan_busy {
-            "Opening checkout…"
-        } else {
-            "Unlock for $5"
-        };
-        let messages = self.plan_messages(s);
-        let unlock = |kind: Kind, cx: &mut Context<Self>| {
-            menu_button(s, "unlock", label, None, kind, true, self.plan_busy)
-                .on_click(cx.listener(|this, _, _, cx| this.unlock(cx)))
-        };
-        if plan.current_status(now) == PlanStatus::Expired {
-            card(s)
-                .child(
-                    div()
-                        .w_full()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child("Your trial ended — taps are paused"))
-                        .child(muted(s, "Unlock Shouldertap for a one-time $5. People who can tap you get through again right away.")),
-                )
-                .child(unlock(Kind::Primary, cx))
-                .children(messages)
-                .into_any_element()
-        } else if days <= 3 {
-            let title = if days == 1 {
-                "Last day of your trial".to_string()
-            } else {
-                format!("Trial · {days} days left")
-            };
-            card(s)
-                .child(
-                    div()
-                        .w_full()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.))
-                                .child(dot(s.warning))
-                                .child(div().font_weight(FontWeight::SEMIBOLD).child(title)),
-                        )
-                        .child(muted(
-                            s,
-                            "Taps pause when the trial ends. Unlock for good with a one-time $5.",
-                        )),
-                )
-                .child(unlock(Kind::Secondary, cx))
-                .children(messages)
-                .into_any_element()
-        } else if answered {
-            // Ask once it has worked: the first tap they answered.
-            card(s)
-                .child(
-                    div()
-                        .w_full()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child("Liking Shouldertap?"))
-                        .child(muted(
-                            s,
-                            &format!("Keep it for good with a one-time $5. Trial · {days} days left."),
-                        )),
-                )
-                .child(unlock(Kind::Secondary, cx))
-                .children(messages)
-                .into_any_element()
-        } else {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_size(px(12.))
-                                .text_color(s.secondary)
-                                .child(format!("Trial · {days} days left")),
-                        )
-                        .child(
-                            menu_button(
-                                s,
-                                "unlock-plain",
-                                "Unlock for $5",
-                                None,
-                                Kind::Plain,
-                                false,
-                                self.plan_busy,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| this.unlock(cx))),
-                        ),
-                )
-                .children(messages)
-                .into_any_element()
+    fn support(&mut self, s: Surface, patron: Option<&Patron>, cx: &mut Context<Self>) -> AnyElement {
+        if !self.support_expanded {
+            return menu_button(
+                s,
+                "show-support",
+                "Support Shouldertap",
+                None,
+                Kind::Plain,
+                false,
+                false,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.support_expanded = true;
+                cx.notify();
+            }))
+            .into_any_element();
         }
+        let mut actions: Vec<AnyElement> = vec![];
+        actions.push(
+            menu_button(
+                s,
+                "hide-support",
+                "Close support details",
+                None,
+                Kind::Plain,
+                false,
+                false,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.support_expanded = false;
+                cx.notify();
+            }))
+            .into_any_element(),
+        );
+        if patron.is_some_and(|p| p.can_manage) {
+            actions.push(
+                menu_button(
+                    s,
+                    "manage-support",
+                    "Manage or cancel support",
+                    None,
+                    Kind::Plain,
+                    false,
+                    self.plan_busy,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.unlock(true, cx)))
+                .into_any_element(),
+            );
+        }
+        if patron.is_some_and(|p| p.can_subscribe) {
+            actions.push(
+                menu_button(
+                    s,
+                    "support",
+                    "Become a patron · $24/year",
+                    None,
+                    Kind::Plain,
+                    false,
+                    self.plan_busy,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.unlock(false, cx)))
+                .into_any_element(),
+            );
+        }
+        div().flex().flex_col().gap(px(6.))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child("Support Shouldertap"))
+            .child(muted(s, if patron.is_some_and(|p| p.active) { "Thank you for supporting Shouldertap. Core use stays free." } else { "Shouldertap is free. Optional support: $2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. No extra features or promised rewards. Not a tax-deductible donation." }))
+            .children(actions).children(self.plan_messages(s)).into_any_element()
     }
 
     fn plan_messages(&self, s: Surface) -> Option<AnyElement> {

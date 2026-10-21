@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
   func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
     // Expected without the push entitlement (some simulators).
-    Logger(subsystem: "app.shouldertap.ios", category: "Receiving").error(
+    Logger(subsystem: "app.shouldertap.iphone", category: "Receiving").error(
       "Couldn't register for remote notifications: \(error.localizedDescription, privacy: .public)")
   }
 

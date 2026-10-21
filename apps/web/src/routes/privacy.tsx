@@ -79,16 +79,16 @@ const PrivacyComponent = () => (
         </li>
       </ul>
       <p>
-        Separately from any inbox, we keep a <b>trial record</b> for each Mac
-        that has set up an inbox: a fingerprint of that Mac and the date its
-        free week ends. This is what stops removing Shouldertap and setting it
-        up again from starting a new free week. The fingerprint is a one-way
-        hash (SHA-256) of the Mac&apos;s hardware ID, salted with a value unique
-        to Shouldertap, so the hardware ID can&apos;t be recovered from it and
-        it can&apos;t be matched with what other apps see. The record holds
-        nothing else: no names, no inbox, no IP address. Only the Mac app sends
-        a fingerprint, and only when it sets up a new inbox; joining an existing
-        inbox from a second Mac doesn&apos;t.
+        Historical trial records contain a salted, one-way hardware fingerprint
+        and the original trial end. Core messaging is now free: the server no
+        longer looks up or creates trial records. Older apps may still send a
+        fingerprint during setup, which the server ignores. Existing purchase
+        records remain. For patrons we store Creem subscription, customer,
+        transaction and event IDs, paid-period dates, and signed billing
+        lifecycle facts to show membership and handle renewals, cancellations
+        and refunds. Payment details stay with Creem. We also store the first
+        answered tap’s date, a count of answers, and the next allowed support
+        prompt time, shared across your inbox’s devices.
       </p>
       <p>
         When you open the site or the app talks to our servers, your IP address

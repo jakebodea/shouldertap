@@ -50,13 +50,12 @@ public enum CredentialKind: String, Sendable, Codable {
   case device, sender
 }
 
-/// What kind of device a `device` credential is: computers (Macs and
-/// Windows PCs) show taps; a linked iPhone manages the inbox alongside them.
+/// What kind of device a `device` credential is: all platforms can receive and answer taps.
 public enum DevicePlatform: String, Sendable, Codable {
   case mac, windows, iphone
 
-  /// Macs and Windows PCs put taps on screen; an iPhone only manages.
-  public var showsTaps: Bool { self != .iphone }
+  /// Computers cover other apps; iPhone shows a takeover only while open.
+  public var showsDesktopOverlay: Bool { self != .iphone }
 
   /// Unknown platforms (a newer server) read as a Mac instead of failing the decode.
   public init(from decoder: any Decoder) throws {
@@ -171,7 +170,7 @@ public struct Plan: Sendable, Codable, Hashable {
   }
 
   /// The status as of `now`: a trial that ran out since the last snapshot is
-  /// already expired (the server refuses taps from then on too).
+  /// expired on older servers. Free-core servers always send `paid`.
   public func currentStatus(now: Date = .now) -> Status {
     status == .trial && daysLeft(now: now) == 0 ? .expired : status
   }
@@ -229,9 +228,10 @@ public struct ReceiverSnapshot: Sendable, Decodable {
   public var credentials: [Credential]
   /// Missing from servers older than payments; the menu then shows no plan.
   public var plan: Plan?
+  public var patron: Patron?
 
   private enum CodingKeys: String, CodingKey {
-    case credentialId, recipientName, sequence, taps, credentials, plan
+    case credentialId, recipientName, sequence, taps, credentials, plan, patron
   }
 
   public init(from decoder: any Decoder) throws {
@@ -243,7 +243,21 @@ public struct ReceiverSnapshot: Sendable, Decodable {
     credentials = try container.decode([Credential].self, forKey: .credentials)
     // A plan shaped differently by a newer server mustn't fail the snapshot.
     plan = try? container.decodeIfPresent(Plan.self, forKey: .plan)
+    patron = try? container.decodeIfPresent(Patron.self, forKey: .patron)
   }
+}
+
+public struct Patron: Sendable, Decodable {
+  public var active: Bool
+  public var status: String
+  public var paidUntil: Timestamp?
+  public var canManage: Bool
+  public var canSubscribe: Bool
+  public var legacySupporter: Bool
+}
+
+public struct SupportPrompt: Sendable, Decodable {
+  public var show: Bool
 }
 
 /// What a sender sees: only their own recent taps.

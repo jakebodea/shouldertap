@@ -6,7 +6,7 @@ October 2026. The [Notion concept document](https://www.notion.so/3eb7155b453881
 
 | Surface | Location | Role |
 | --- | --- | --- |
-| API + Durable Objects | `apps/server` | Effect `HttpApi`, Inbox + TrialLedger DOs, Drizzle on DO SQLite |
+| API + Durable Objects | `apps/server` | Effect `HttpApi`, Inbox + historical TrialLedger DOs, Drizzle on DO SQLite |
 | Safari sender + marketing | `apps/web` | React, TanStack Router, Vite; deployed via Alchemy `Website` |
 | Mac receiver | `apps/macos` | Swift package (`ShouldertapCore` + AppKit menu-bar app) |
 | iOS sender + receiver features | `apps/ios` | SwiftUI Xcode app; links `ShouldertapCore` from `apps/macos` |
@@ -15,6 +15,8 @@ October 2026. The [Notion concept document](https://www.notion.so/3eb7155b453881
 | Infrastructure | `alchemy.run.ts` (repo root) | Alchemy v2 stack: Workers, assets, bindings, stages |
 
 **Wire protocol:** JSON over HTTPS and WebSocket events. The server and `packages/domain` are authoritative. The same shapes are mirrored manually in `ShouldertapCore` (Swift) and `shouldertap-core` (Rust). `scripts/check-protocol-sync.mjs` runs in `bun run check` to keep swatches and length limits aligned.
+
+An inbox may be created on iPhone, Mac, or Windows. iPhone receives directly from the Inbox through APNs and its foreground socket; computers are optional. Core messaging is free across every receiver. Optional patron support is separate from functional access.
 
 **Auth / accounts:** Invite-link pairing with bearer credentials owned by each Inbox DO. D1 + Better Auth are planned for account metadata but are not the pairing source of truth yet.
 
@@ -36,7 +38,7 @@ The API authorizes WebSocket upgrades and routes them to the recipient Inbox. Co
 ## Message facts
 
 1. **Accepted:** stored on the server.
-2. **Displayed:** a connected Mac (or Windows) reports presenting the overlay.
+2. **Displayed:** a connected device reports presenting the tap. iPhone reports its foreground takeover; background push delivery alone is not a display receipt.
 3. **Acknowledged:** the recipient explicitly responded.
 
 One valid response dismisses every connected display. Idempotency keys protect sends; event IDs support resync after disconnect.
@@ -79,3 +81,7 @@ Do not add `apps/api` (server is `apps/server`). Do not share server auth packag
 ## Research and history
 
 Generator choices, Effect 4 / Alchemy beta notes, and early scaffolding rationale live under `docs/research/`. Those documents may lag `README.md`; prefer README and this file for the current tree.
+
+## Optional patron support
+
+Core messaging has no billing gate. `plan.status = paid` is the compatibility value for older clients; it is independent of actual purchase records. The optional `patron` snapshot is computed from signed Creem subscription/payment facts stored per inbox, with refunds keyed to their transaction. Prompt history and checkout reservations are also inbox-wide durable state. See [patrons.md](patrons.md) for lifecycle policy, native purchase boundaries and external setup.

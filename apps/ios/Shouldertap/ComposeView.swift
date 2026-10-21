@@ -46,7 +46,7 @@ struct ComposeView: View {
       Button("Unpair", role: .destructive) { store.unpair(id: person.id) }
     } message: { person in
       Text(
-        "Your taps stop reaching \(person.pairing.recipientName)'s Mac. To pair again, you'll need a new invite.")
+        "Your taps stop reaching \(person.pairing.recipientName)'s devices. To pair again, you'll need a new invite.")
     }
   }
 
@@ -58,7 +58,7 @@ struct ComposeView: View {
           if selected {
             // The selected person: details and unpair.
             Menu {
-              Section("You're \(person.pairing.senderName) on \(person.pairing.recipientName)'s Mac") {
+              Section("You're \(person.pairing.senderName) on \(person.pairing.recipientName)'s devices") {
                 Button("Unpair \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
                   unpairing = person
                 }
@@ -322,7 +322,7 @@ struct TapRow: View {
       } else {
         Track(
           reached: tap.displayedAt == nil ? 1 : 2, color: color,
-          note: tap.displayedAt == nil ? "Waiting for \(recipient)'s Mac" : "On \(recipient)'s screen now")
+          note: tap.displayedAt == nil ? "Waiting to be opened" : "On \(recipient)'s screen now")
       }
     }
     .animation(.easeOut(duration: 0.3), value: tap.state)

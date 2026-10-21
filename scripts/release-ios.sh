@@ -11,9 +11,8 @@
 # Connect API key when all three are set:
 #   ASC_KEY_PATH=~/.appstoreconnect/AuthKey_XXXX.p8 ASC_KEY_ID=XXXX ASC_ISSUER_ID=<uuid>
 #
-# The version is MARKETING_VERSION in the Xcode project. The build number is
-# the commit count, which only goes up on main, so every upload from a newer
-# commit beats the last (App Store Connect rejects repeats). Override with
+# The version and sequential build number live in apps/ios/Version.xcconfig.
+# Increment CURRENT_PROJECT_VERSION before each upload, or override it with
 # BUILD_NUMBER. .github/workflows/testflight.yml runs this when a PR labeled
 # release:beta merges.
 set -euo pipefail
@@ -21,9 +20,21 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 project="$root/apps/ios/Shouldertap.xcodeproj"
 out="$root/apps/ios/build/release"
-build="${BUILD_NUMBER:-$(git -C "$root" rev-list --count HEAD)}"
+build="${BUILD_NUMBER:-$(awk '$1 == "CURRENT_PROJECT_VERSION" && $2 == "=" {print $3}' "$root/apps/ios/Version.xcconfig")}"
+if [[ ! "$build" =~ ^[1-9][0-9]*$ ]]; then
+  echo "BUILD_NUMBER must be a positive integer" >&2
+  exit 1
+fi
 destination=upload
 [[ "${1:-}" == "--no-upload" ]] && destination=export
+source_revision="$(git -C "$root" rev-parse HEAD)"
+if [[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]]; then
+  if [[ "$destination" == upload ]]; then
+    echo "Refusing upload from uncommitted source. Commit the candidate first." >&2
+    exit 1
+  fi
+  source_revision="$source_revision-dirty"
+fi
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 auth=(-allowProvisioningUpdates)
@@ -45,6 +56,7 @@ xcodebuild archive -quiet \
   -destination 'generic/platform=iOS' \
   -archivePath "$out/Shouldertap.xcarchive" \
   CURRENT_PROJECT_VERSION="$build" \
+  INFOPLIST_KEY_ShouldertapSourceRevision="$source_revision" \
   CODE_SIGNING_ALLOWED=NO
 
 # An unsigned archive carries no entitlements, so the export wouldn't know
@@ -52,6 +64,11 @@ xcodebuild archive -quiet \
 # the export re-signs for distribution, keeping these capabilities and
 # switching aps-environment to production.
 app="$out/Shouldertap.xcarchive/Products/Applications/Shouldertap.app"
+bundle=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
+if [[ "$bundle" != app.shouldertap.iphone ]]; then
+  echo "Refusing export for unexpected app identity: $bundle" >&2
+  exit 1
+fi
 for extension in "$app"/PlugIns/*.appex; do
   codesign --force --sign - "$extension"
 done
