@@ -1,4 +1,5 @@
 import ShouldertapCore
+import StoreKit
 import SwiftUI
 
 struct HelpButton: View {
@@ -19,6 +20,7 @@ struct HelpButton: View {
 struct HelpView: View {
   let store: SenderStore
   @Environment(\.dismiss) private var dismiss
+  @State private var usStorefront = false
   @State private var deleting: SenderSession?
   @State private var busy = false
   @State private var error: String?
@@ -35,7 +37,12 @@ struct HelpView: View {
             .font(.footnote).foregroundStyle(.secondary)
         }
         Section("Support and privacy") {
-          Link("Support", destination: URL(string: "https://shouldertap.app/support")!)
+          // This page promotes a web purchase. Unknown storefront fails closed.
+          if usStorefront {
+            Link("Support", destination: URL(string: "https://shouldertap.app/support")!)
+          } else {
+            Link("Email support", destination: URL(string: "mailto:support@shouldertap.app")!)
+          }
           Link("Privacy Policy", destination: URL(string: "https://shouldertap.app/privacy")!)
           Link("Terms of Use", destination: URL(string: "https://shouldertap.app/terms")!)
           NavigationLink("Report a problem or abuse") { ReportView() }
@@ -57,6 +64,12 @@ struct HelpView: View {
         Section {
           Text("Shouldertap for iPhone")
             .foregroundStyle(.secondary)
+        }
+      }
+      .task {
+        usStorefront = await Storefront.current?.countryCode == "USA"
+        for await storefront in Storefront.updates {
+          usStorefront = storefront.countryCode == "USA"
         }
       }
       .navigationTitle("Help and privacy")

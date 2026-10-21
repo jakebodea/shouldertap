@@ -227,7 +227,7 @@ describe("sender patron identity", () => {
                 id: "keyLATEEE",
                 secretHash: "z",
               },
-              NOW + 15 * 60_000 + 1
+              NOW + 15 * 60_000
             ).pipe(Effect.flip);
             const phoneActive = yield* isActiveKey(
               db,

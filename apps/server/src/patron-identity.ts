@@ -163,7 +163,7 @@ export const redeemLinkCode = Effect.fn(function* redeemLinkCode(
       if (code.redeemedAt !== null) {
         return yield* new Expired({ message: "This code was already used" });
       }
-      if (code.expiresAt < at) {
+      if (code.expiresAt <= at) {
         return yield* new Expired({ message: "This code has expired" });
       }
       const [creator] = yield* tx

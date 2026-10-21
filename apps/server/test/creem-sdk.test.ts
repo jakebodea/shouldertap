@@ -83,6 +83,7 @@ describe("Creem SDK boundary", () => {
         productId: "prod_patron",
         patronId: "patron123",
         requestId: "attempt-1",
+        successUrl: "https://api.example.com/v1/patrons/return",
       })
     );
     expect(result).toStrictEqual({
@@ -92,6 +93,7 @@ describe("Creem SDK boundary", () => {
     expect(requestBody).toStrictEqual({
       product_id: "prod_patron",
       request_id: "attempt-1",
+      success_url: "https://api.example.com/v1/patrons/return",
       metadata: { patron_id: "patron123" },
     });
   });

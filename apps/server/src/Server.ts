@@ -419,6 +419,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
           .handle("patronCheckout", () =>
             Effect.gen(function* startCheckout() {
               const { key, stub } = yield* forPatron;
+              const request = yield* HttpServerRequest;
               // Authenticates the key before touching the provider.
               yield* stub.status(key);
               if (Option.isNone(creem) || !creem.value.patronProductId) {
@@ -458,6 +459,10 @@ export default class Server extends Cloudflare.Worker<Server>()(
                       productId: billing.patronProductId,
                       patronId: key.patronId,
                       requestId: attempt.requestId,
+                      successUrl: new URL(
+                        "/v1/patrons/return",
+                        request.originalUrl
+                      ).href,
                     });
                     yield* stub.finishCheckout(
                       attempt.requestId,
@@ -636,6 +641,25 @@ export default class Server extends Cloudflare.Worker<Server>()(
             );
           }
           return yield* inboxes.getByName(ticket.inboxId).fetch(request);
+        }
+        // A provider redirect is navigation only, never proof of payment.
+        // No credentials, query values or remote markup are reflected here.
+        if (
+          request.url.split("?")[0] === "/v1/patrons/return" &&
+          request.method === "GET"
+        ) {
+          return HttpServerResponse.text(
+            `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Return to Shouldertap</title><main><h1>Return to Shouldertap</h1><p>Return to the Shouldertap tab you started from. If checkout replaced it, use your browser’s Back button to return to Style. Your draft is saved.</p><p>Your membership updates only after our server receives payment confirmation. If it is still processing, refresh Style shortly.</p></main></html>`,
+            {
+              headers: {
+                "content-type": "text/html; charset=utf-8",
+                "cache-control": "no-store",
+                "referrer-policy": "no-referrer",
+                "content-security-policy":
+                  "default-src 'none'; frame-ancestors 'none'",
+              },
+            }
+          );
         }
         if (request.url === "/v1/webhooks/creem" && request.method === "POST") {
           return yield* creemWebhook;

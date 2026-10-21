@@ -49,7 +49,13 @@ export const createCheckout = (
     productId,
     patronId,
     requestId,
-  }: { productId: string; patronId: string; requestId: string }
+    successUrl,
+  }: {
+    productId: string;
+    patronId: string;
+    requestId: string;
+    successUrl: string;
+  }
 ) =>
   Effect.tryPromise({
     try: () =>
@@ -57,6 +63,7 @@ export const createCheckout = (
         productId,
         // Correlation only; the reservation prevents duplicate creation.
         requestId,
+        successUrl,
         // New memberships only ever belong to a sender's patron identity.
         metadata: { [PATRON_METADATA_KEY]: patronId },
       }),
