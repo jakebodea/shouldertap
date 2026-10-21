@@ -312,9 +312,9 @@ const Consent = () => {
 /** Creem's review requires the price to be easy to find on the site. */
 const Pricing = () => {
   const points = [
-    "Every feature from day one: unlimited taps, every Mac you own, and up to 20 people who can tap you.",
+    "Core messaging is free. Safety limits and recipient controls apply to everyone.",
     "The people who tap you never pay. They use any iPhone with Safari.",
-    "Not for you? Ask for a full refund within 14 days of buying.",
+    "Optional patron support helps cover running costs. No extra features or promised rewards.",
   ];
   return (
     <section
@@ -325,23 +325,25 @@ const Pricing = () => {
         className="max-w-[16ch] text-[2.75rem] leading-[0.98] font-extrabold tracking-[-0.04em] text-balance md:text-[4.5rem]"
         id="pricing"
       >
-        Free for a week. Then $5, once.
+        Free to use. Supported by patrons.
       </h2>
       <div className="grid gap-10 md:grid-cols-[auto_1fr] md:gap-16">
         <div className="flex flex-col gap-2">
           <p className="text-[4rem] leading-none font-extrabold tracking-[-0.045em] md:text-[5.5rem]">
-            $5
+            Free
           </p>
           <p className="text-tone text-[1.0625rem] md:text-lg">
-            One-time purchase, plus tax where it applies.
+            Optional support: $2/month, billed $24 annually in USD, plus
+            applicable tax.
             <br />
-            No subscription.
+            Renews annually until canceled.
           </p>
         </div>
         <ul className="flex max-w-xl flex-col gap-4">
           <li className="text-[1.0625rem] leading-relaxed md:text-lg">
-            Try everything free for 7 days. Then unlock Shouldertap on your Mac
-            for good.
+            Send and receive taps for free. If Shouldertap helps your household,
+            you can become a patron from the app’s Support Shouldertap menu.
+            Cancel renewal in the billing portal; tapping stays free.
           </li>
           {points.map((point) => (
             <li
@@ -368,7 +370,7 @@ const Close = () => (
         Download for Mac
       </MacDownloadLink>
       <span className="text-tone text-[0.9375rem]">
-        Free for 7 days, then $5 once. Mac app plus any iPhone with Safari.
+        Free. Mac app plus any iPhone with Safari.
       </span>
     </div>
     <footer className="border-line text-tone mt-16 flex flex-wrap items-center justify-between gap-4 border-t-[1.5px] pt-6 text-sm">

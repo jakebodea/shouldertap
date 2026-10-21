@@ -124,10 +124,21 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
     HttpApiEndpoint.delete("deleteSender", "/sender", {
       success: Schema.Struct({ deleted: Schema.Literal(true) }),
     }),
-    // A Creem checkout for this inbox; Conflict once it's already paid for.
+    // Optional annual support; never needed to send or receive.
     HttpApiEndpoint.post("createCheckout", "/checkout", {
       success: Checkout.pipe(created),
       error: [Conflict, Unavailable],
+    }),
+    HttpApiEndpoint.post("createPatronCheckout", "/patron/checkout", {
+      success: Checkout.pipe(created),
+      error: [Conflict, Unavailable],
+    }),
+    HttpApiEndpoint.post("managePatron", "/patron/manage", {
+      success: Checkout,
+      error: [Conflict, Unavailable],
+    }),
+    HttpApiEndpoint.post("claimSupportPrompt", "/patron/prompt", {
+      success: Schema.Struct({ show: Schema.Boolean }),
     }),
     HttpApiEndpoint.post("connectTicket", "/connect-tickets", {
       success: ConnectTicket.pipe(created),

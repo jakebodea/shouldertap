@@ -1,6 +1,7 @@
 import CoreImage.CIFilterBuiltins
 import ShouldertapCore
 import SwiftUI
+import StoreKit
 
 // Your own Shouldertap, on this iPhone: the Inbox tab. Linked to the inbox
 // with a device code from the Mac (`ReceiverStore`, `platform: .iphone`), the
@@ -68,6 +69,7 @@ struct InboxScreen: View {
         recent
         people
         devices
+        patronSupport
       }
       .onPaper()
     }
@@ -92,7 +94,7 @@ struct InboxScreen: View {
       Text("It's removed from your history and your devices, and from \(tap.senderName)'s.")
     }
     .alert(
-      "Couldn't remove", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
+      "Couldn't complete that action", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
     ) {
       Button("OK", role: .cancel) {}
     } message: {
@@ -119,15 +121,52 @@ struct InboxScreen: View {
     }
   }
 
-  /// Status only: buying happens on the Mac.
-  private var planText: String? {
-    guard let plan = inbox.plan else { return nil }
-    switch plan.currentStatus() {
-    case .paid: return "Unlocked"
-    case .trial:
-      let days = plan.daysLeft()
-      return "Trial · \(days) \(days == 1 ? "day" : "days") left"
-    case .expired: return "Trial ended · taps are paused"
+  private var planText: String? { inbox.patron?.active == true ? "Patron · thank you" : "Free" }
+
+  @State private var usStorefront = false
+  @State private var billingBusy = false
+  @Environment(\.openURL) private var openURL
+
+  private var patronSupport: some View {
+    InboxSection(title: "Support Shouldertap") {
+      VStack(alignment: .leading, spacing: 12) {
+        Text("Shouldertap is free for everyone.").foregroundStyle(Paper.tone)
+        if let patron = inbox.patron, patron.active {
+          Text(patron.status == "ending" ? "Thank you. Your support ends after the paid period." : "Thank you for your support.")
+          if let until = patron.paidUntil {
+            Text("Paid through \(Date(timeIntervalSince1970: until / 1000).formatted(date: .abbreviated, time: .omitted))")
+          }
+        }
+        if usStorefront {
+          Text("Optional support helps cover running costs: $2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. No extra features or promised rewards. Not a tax-deductible donation.")
+            .font(.footnote).foregroundStyle(Paper.tone)
+          if inbox.patron?.canManage == true {
+            Button("Manage or cancel support") { billing(manage: true) }.buttonStyle(PillStyle()).disabled(billingBusy)
+          }
+          if inbox.patron?.canSubscribe == true {
+            Button("Become a patron · $24/year") { billing(manage: false) }.buttonStyle(PillStyle()).disabled(billingBusy)
+          }
+        }
+      }
+    }
+    .task {
+      usStorefront = await Storefront.current?.countryCode == "USA"
+      for await storefront in Storefront.updates {
+        usStorefront = storefront.countryCode == "USA"
+      }
+    }
+  }
+
+  private func billing(manage: Bool) {
+    billingBusy = true
+    Task {
+      defer { billingBusy = false }
+      // Storefront, never locale or IP, is the purchase-policy boundary.
+      guard await Storefront.current?.countryCode == "USA" else { usStorefront = false; return }
+      do {
+        let url = try await (manage ? inbox.managePatronURL() : inbox.checkoutURL())
+        openURL(url)
+      } catch { self.error = error.localizedDescription }
     }
   }
 

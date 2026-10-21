@@ -253,3 +253,15 @@ final class MemoryVault: CredentialVault, @unchecked Sendable {
   }
   func delete() { token = nil }
 }
+
+@Suite struct FreeCorePatronContracts {
+  @Test func freePlanAndOptionalSupportAreIndependent() throws {
+    let json = #"{"kind":"device","credentialId":"d","recipientName":"J","sequence":1,"taps":[],"credentials":[],"plan":{"status":"paid","trialEndsAt":1},"patron":{"active":false,"status":"none","paidUntil":null,"canManage":false,"canSubscribe":true,"legacySupporter":false}}"#
+    guard case let .receiver(snapshot) = try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8)) else {
+      Issue.record("expected receiver"); return
+    }
+    #expect(snapshot.plan?.currentStatus(now: Date(timeIntervalSince1970: 1_791_331_200)) == .paid)
+    #expect(snapshot.patron?.status == "none")
+    #expect(snapshot.patron?.canSubscribe == true)
+  }
+}

@@ -202,7 +202,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
   @Test func checkoutOpensTheReturnedURL() async throws {
     let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
-      guard request.url!.path == "/v1/checkout", request.httpMethod == "POST" else { return (503, "") }
+      guard request.url!.path == "/v1/patron/checkout", request.httpMethod == "POST" else { return (503, "") }
       return (201, #"{"url":"https://checkout.test/ch_1"}"#)
     }
     store.start()
@@ -214,7 +214,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
       .replacingOccurrences(of: #""status":"trial""#, with: #""status":"paid""#)
     let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
       switch request.url!.path {
-      case "/v1/checkout": (409, #"{"_tag":"Conflict","message":"Shouldertap is already unlocked for this inbox."}"#)
+      case "/v1/patron/checkout": (409, #"{"_tag":"Conflict","message":"Shouldertap is already unlocked for this inbox."}"#)
       case "/v1/me": (200, paid)
       default: (503, "")
       }

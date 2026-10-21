@@ -20,7 +20,7 @@ Alchemy is the source of truth for infrastructure and backend structure: one Sta
 alchemy.run.ts          Composition root: Server Worker + Safari sender site
 apps/server/src/Server.ts   Cloudflare.Worker: Effect HttpApi + WebSocket forwarding
 apps/server/src/Inbox.ts    Cloudflare.DurableObject: one per recipient, Drizzle over its SQLite
-apps/server/src/TrialLedger.ts  Cloudflare.DurableObject: one per Mac fingerprint, remembers when its free trial ends
+apps/server/src/TrialLedger.ts  Cloudflare.DurableObject: historical trial records, retained but no longer consulted
 apps/server/src/schema.ts   Drizzle schema; migrations in apps/server/drizzle (drizzle-kit, durable-sqlite)
 apps/server/test/           Alchemy Test harness: deploys the Stack, drives the protocol
 apps/web                    Safari sender (React, TanStack Router, Vite) via Cloudflare.Website.Vite
@@ -187,7 +187,7 @@ Prefer an exe built on Windows, e.g. the one a `windows-v<version>` tag attaches
 
 The exe installs itself: run from Downloads, it copies itself to `%LocalAppData%\Programs\Shouldertap`, adds a Start menu entry, an entry in Settings › Apps (which runs `--uninstall`) and the login item, and starts from there. `--install --silent` and `--uninstall --silent` are there for winget. Updates download the new exe, check its SHA-256 (and, once releases are signed, its Authenticode signature), swap it in and restart.
 
-Releases are unsigned until Azure Artifact Signing is set up, so SmartScreen warns on first run; set `SIGN_COMMAND` (see the script header) to sign. The site doesn't link Windows downloads yet: add them to `domains.ts`, `alchemy.run.ts` and `apps/web/src/routes/download.tsx` once a signed build is up, and update the privacy policy (the Windows app sends a salted hash of the PC's `MachineGuid` for its trial, and checks `download.shouldertap.app` for updates).
+Releases are unsigned until Azure Artifact Signing is set up, so SmartScreen warns on first run; set `SIGN_COMMAND` (see the script header) to sign. The site doesn't link Windows downloads yet: add them to `domains.ts`, `alchemy.run.ts` and `apps/web/src/routes/download.tsx` once a signed build is up, and update the privacy policy (older Windows apps send a salted hardware fingerprint during setup (now ignored by the server), and the app checks `download.shouldertap.app` for updates).
 
 ## Known gaps in v0
 
@@ -197,6 +197,6 @@ Releases are unsigned until Azure Artifact Signing is set up, so SmartScreen war
 - The Windows app has been built and run only on a Mac (the shared UI and protocol, against the local stack). Its Windows-only parts (tray, overlays above full-screen apps, keyboard focus, Credential Manager, install and update) compile but haven't run on Windows yet. GPUI has no screen reader support yet, unlike the Mac app's SwiftUI.
 - Handled in code but not yet tested by hand: Durable Object hibernation, sleep/wake, display hot-plug, full-screen apps/Spaces, and replying while offline. Tested: overlays on two displays, replying from the overlay, cross-Mac dismissal, and the protocol via the Alchemy integration suite.
 - Sender history is capped at 50 recent taps.
-- One free trial per Mac: at "Get started" the Mac app sends `machine`, a salted SHA-256 of its hardware UUID (Debug builds use a different salt). The Server asks that Mac's `TrialLedger` for its trial end (recorded on first setup) and starts the new inbox with it, so unpairing and setting up again resumes the same trial. Mac apps older than this don't send `machine` and still get a fresh trial per setup. If the ledger can't answer, setup falls back to a fresh trial rather than failing.
+- Core messaging is free. Legacy plan snapshots emit `paid` solely to keep old desktops usable; historical trials and purchases remain stored. Optional patron support is $2/month, billed $24 annually. See [patron billing and rollout](docs/patrons.md) for the implementation, prompt cadence, provider configuration and verification limits.
 - Limits, enforced by the Inbox: 30 taps per sender per rolling hour (`TooManyRequests`, 429; retries of an existing request id still succeed), and 20 active senders and 10 active devices per inbox (`Conflict`, 409, from `createInvite` and `redeemInvite`).
 - Retention: a daily Durable Object alarm (Alchemy's `scheduleEvent`, armed at inbox creation and on any activation) deletes taps older than 90 days, invites a day after they expire, expired connect tickets, and removed pairings 90 days after removal once none of their taps remain. See `apps/server/src/retention.ts`. On the Workers Free plan each alarm run counts toward the 100,000 Durable Object requests per day, so that's one request per inbox per day.

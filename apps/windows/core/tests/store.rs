@@ -273,7 +273,7 @@ fn the_overlay_shows_the_oldest_waiting_tap() {
 #[test]
 fn checkout_opens_the_returned_url() {
     let stub = Stub::new(|seen| {
-        if seen.path == "/v1/checkout" && seen.method == "POST" {
+        if seen.path == "/v1/patron/checkout" && seen.method == "POST" {
             (201, r#"{"url":"https://checkout.test/ch_1"}"#.into())
         } else {
             (503, String::new())
@@ -288,7 +288,7 @@ fn checkout_opens_the_returned_url() {
 fn checkout_when_already_paid_refreshes_the_plan() {
     let paid = SNAPSHOT.replace(r#""status":"trial""#, r#""status":"paid""#);
     let stub = Stub::new(move |seen| match seen.path.as_str() {
-        "/v1/checkout" => (
+        "/v1/patron/checkout" => (
             409,
             r#"{"_tag":"Conflict","message":"Shouldertap is already unlocked for this inbox."}"#.into(),
         ),

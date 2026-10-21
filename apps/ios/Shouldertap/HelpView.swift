@@ -31,7 +31,7 @@ struct HelpView: View {
           Text("Inbox: if people tap you on your Mac, link this iPhone to get those taps here too, on the Lock Screen and in the Dynamic Island, and answer from either.")
           NavigationLink("Try a sample tap") { SampleTapView() }
             .accessibilityIdentifier("sample-tap")
-          Text("The recipient needs Shouldertap for Mac and an active trial or unlocked inbox. This iPhone app is free for senders. Replies do not send push notifications.")
+          Text("Shouldertap is free for senders and recipients. The recipient needs Shouldertap on their computer. Replies do not send push notifications.")
             .font(.footnote).foregroundStyle(.secondary)
         }
         Section("Support and privacy") {

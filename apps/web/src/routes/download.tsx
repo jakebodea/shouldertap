@@ -52,8 +52,7 @@ const DownloadComponent = () => (
         Download for Mac
       </a>
       <p className="text-tone text-center text-[0.8125rem]">
-        Free for 7 days, then $5 once · macOS 14 Sonoma or later · Apple silicon
-        and Intel
+        Free to use · macOS 14 Sonoma or later · Apple silicon and Intel
       </p>
     </section>
 

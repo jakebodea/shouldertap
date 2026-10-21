@@ -6,7 +6,7 @@ October 2026. The [Notion concept document](https://www.notion.so/3eb7155b453881
 
 | Surface | Location | Role |
 | --- | --- | --- |
-| API + Durable Objects | `apps/server` | Effect `HttpApi`, Inbox + TrialLedger DOs, Drizzle on DO SQLite |
+| API + Durable Objects | `apps/server` | Effect `HttpApi`, Inbox + historical TrialLedger DOs, Drizzle on DO SQLite |
 | Safari sender + marketing | `apps/web` | React, TanStack Router, Vite; deployed via Alchemy `Website` |
 | Mac receiver | `apps/macos` | Swift package (`ShouldertapCore` + AppKit menu-bar app) |
 | iOS sender + receiver features | `apps/ios` | SwiftUI Xcode app; links `ShouldertapCore` from `apps/macos` |
@@ -79,3 +79,7 @@ Do not add `apps/api` (server is `apps/server`). Do not share server auth packag
 ## Research and history
 
 Generator choices, Effect 4 / Alchemy beta notes, and early scaffolding rationale live under `docs/research/`. Those documents may lag `README.md`; prefer README and this file for the current tree.
+
+## Optional patron support
+
+Core messaging has no billing gate. `plan.status = paid` is the compatibility value for older clients; it is independent of actual purchase records. The optional `patron` snapshot is computed from signed Creem subscription/payment facts stored per inbox, with refunds keyed to their transaction. Prompt history and checkout reservations are also inbox-wide durable state. See [patrons.md](patrons.md) for lifecycle policy, native purchase boundaries and external setup.

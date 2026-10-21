@@ -4,7 +4,7 @@ import { DocPage, DocSection, EmailLink } from "@/components/document";
 
 const TermsComponent = () => (
   <DocPage
-    effective="October 1, 2026"
+    effective="October 21, 2026"
     intro="These terms cover your use of Shouldertap: the website at shouldertap.app, the Mac and iPhone apps, and the servers behind them. Shouldertap is run by Jake Bodea, an individual (“we”, “us”). By using Shouldertap you agree to these terms."
     title="Terms of Use"
   >
@@ -21,14 +21,19 @@ const TermsComponent = () => (
     <DocSection title="Price, payment and refunds">
       <ul>
         <li>
-          Each inbox (one recipient and their paired Macs) is free for 7 days
-          from when it&apos;s created. After that, taps to it pause until
-          it&apos;s unlocked.
+          Core messaging is free for senders and recipients, with safety limits
+          and recipient controls. No purchase is required to send or receive
+          taps.
         </li>
         <li>
-          Unlocking is a one-time purchase of US$5, plus tax where it applies,
-          made from the Mac app. It unlocks that inbox for as long as
-          Shouldertap runs, with no subscription. Senders never pay.
+          Optional patron support costs US$24/year: $2/month, billed $24
+          annually, plus applicable tax. It renews annually until canceled. It
+          helps cover running costs and does not buy extra messaging features or
+          promised rewards. It is not a tax-deductible donation. Cancel renewal
+          in the Creem billing portal through “Manage or cancel support” in the
+          app. Support continues through the paid period; core messaging stays
+          free after cancellation. Historical $5 purchases remain recorded and
+          do not become subscriptions.
         </li>
         <li>
           Payments are handled by our reseller and merchant of record, Creem,
@@ -36,8 +41,9 @@ const TermsComponent = () => (
           Creem&apos;s terms apply to the purchase itself.
         </li>
         <li>
-          If you&apos;re not happy, email <EmailLink /> within 14 days of buying
-          for a full refund. A refunded inbox goes back to being paused.
+          If you&apos;re not happy, email <EmailLink /> within 14 days of a
+          support payment for a full refund. Refunding a support payment ends
+          support for that payment’s period; messaging stays free.
         </li>
       </ul>
     </DocSection>

@@ -48,6 +48,7 @@ public final class ReceiverStore {
   /// Trial, paid or expired; nil until the first snapshot, or from a server
   /// older than payments.
   public private(set) var plan: Plan?
+  public private(set) var patron: Patron?
   public private(set) var taps: [Tap] = []
   public private(set) var status: LiveStatus = .connecting
   /// Responses given on this Mac that the server hasn't confirmed yet.
@@ -113,6 +114,17 @@ public final class ReceiverStore {
 
   /// Where to pay for this inbox. If it turns out to be paid for already
   /// (`conflict`), the snapshot is refreshed so the menu catches up.
+  public func managePatronURL() async throws -> URL {
+    let checkout = try await api.managePatron()
+    let url = checkout.url
+    guard url.scheme == "https" else { throw APIError(code: .invalidRequest, message: "Invalid billing URL", status: 0) }
+    return url
+  }
+
+  public func claimSupportPrompt() async throws -> Bool {
+    try await api.claimSupportPrompt().show
+  }
+
   public func checkoutURL() async throws -> URL {
     do {
       return try await api.createCheckout().url
@@ -208,6 +220,7 @@ public final class ReceiverStore {
         credentialId = snapshot.credentialId
         credentials = snapshot.credentials
         plan = snapshot.plan
+        patron = snapshot.patron
         taps = mergeSnapshot(local: taps, snapshot: snapshot.taps)
       } catch let error as APIError where error.code == .unauthorized {
         forget()
@@ -238,6 +251,7 @@ public final class ReceiverStore {
     credentialId = nil
     credentials = []
     plan = nil
+    patron = nil
     taps = []
     status = .offline
     phase = .setup

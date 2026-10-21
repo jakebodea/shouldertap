@@ -61,6 +61,7 @@ pub struct StoreState {
     /// Trial, paid or expired; None until the first snapshot, or from a server
     /// older than payments.
     pub plan: Option<Plan>,
+    pub patron: Option<crate::Patron>,
     /// Newest first.
     pub taps: Vec<Tap>,
     pub status: LiveStatus,
@@ -76,6 +77,7 @@ impl Default for StoreState {
             credential_id: None,
             credentials: Vec::new(),
             plan: None,
+            patron: None,
             taps: Vec::new(),
             status: LiveStatus::Connecting,
             pending_acks: BTreeMap::new(),
@@ -202,6 +204,10 @@ impl ReceiverStore {
                 Err(error)
             }
         }
+    }
+
+    pub fn manage_patron_url(&self) -> Result<String, ApiError> {
+        self.inner.api().manage_patron().map(|checkout| checkout.url)
     }
 
     // Overlay
@@ -395,6 +401,7 @@ impl Inner {
                     state.credential_id = Some(snapshot.credential_id);
                     state.credentials = snapshot.credentials;
                     state.plan = snapshot.plan;
+                    state.patron = snapshot.patron;
                     state.taps = merge_snapshot(&state.taps, &snapshot.taps);
                 }),
                 Ok(Snapshot::Sender(_)) => return,

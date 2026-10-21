@@ -137,13 +137,12 @@ test(
 
     // A new inbox starts a 7-day trial.
     const plan = snapshot.kind === "device" ? snapshot.plan : null;
-    expect(plan?.status).toBe("trial");
-    const trialDays = ((plan?.trialEndsAt ?? 0) - Date.now()) / 86_400_000;
-    expect(trialDays).toBeGreaterThan(6.9);
-    expect(trialDays).toBeLessThanOrEqual(7);
+    // Old clients' unlocked wire value.
+    expect(plan?.status).toBe("paid");
+    expect(
+      snapshot.kind === "device" ? snapshot.patron?.canSubscribe : false
+    ).toBeTruthy();
 
-    // A trial delivers taps; expiry (402) is covered by test/plan.test.ts,
-    // since no public API can end a trial early.
     const trialTap = yield* (yield* client(url, sender.token)).inbox.sendTap({
       payload: { requestId: crypto.randomUUID(), body: "Trial tap" },
     });
@@ -151,13 +150,19 @@ test(
 
     // Only a Mac can start a checkout; test stacks have no Creem keys.
     const senderCheckout = yield* (yield* client(url, sender.token)).inbox
-      .createCheckout()
+      .createPatronCheckout()
       .pipe(Effect.flip);
     expect(senderCheckout._tag).toBe("Unauthorized");
     const checkout = yield* (yield* client(url, macA.token)).inbox
-      .createCheckout()
+      .createPatronCheckout()
       .pipe(Effect.flip);
     expect(checkout._tag).toBe("Unavailable");
+    const legacyCheckout = yield* (yield* client(url, macA.token)).inbox
+      .createCheckout()
+      .pipe(Effect.flip);
+    expect(legacyCheckout.message).toBe(
+      "Shouldertap is now free. Update the app to manage optional annual support."
+    );
 
     // An iPhone links with the same device invite and manages the inbox, but
     // can't leave it without a Mac. (Shares this inbox: tests stay under the

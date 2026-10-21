@@ -84,7 +84,7 @@ struct IconView: View {
   }
 }
 
-private struct IconShape: Shape {
+nonisolated private struct IconShape: Shape {
   let path: Path
 
   func path(in rect: CGRect) -> Path {

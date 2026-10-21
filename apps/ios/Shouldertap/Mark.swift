@@ -77,7 +77,7 @@ nonisolated private enum MarkGeometry {
   }
 }
 
-private struct MarkFrame: Shape {
+nonisolated private struct MarkFrame: Shape {
   func path(in rect: CGRect) -> Path {
     var frame = Path()
     frame.move(to: CGPoint(x: 4, y: 0))
@@ -93,7 +93,7 @@ private struct MarkFrame: Shape {
   }
 }
 
-private struct Knock: Shape {
+nonisolated private struct Knock: Shape {
   let index: Int
 
   func path(in rect: CGRect) -> Path {

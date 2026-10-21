@@ -1,6 +1,7 @@
 import {
   Authorization,
   Caller,
+  Conflict,
   NotFound,
   parseToken,
   ShouldertapApi,
@@ -27,10 +28,14 @@ import { makeProviderTokens } from "./apns";
 import type { PushContext } from "./apns";
 import {
   checkoutInboxId,
+  customerPortal,
+  subscriptionInboxId,
+  validatePatronProduct,
   createCheckout,
   creemClient,
   verifyWebhook,
-  webhookAction,
+  readWebhookAction,
+  retrieveCheckout,
 } from "./Creem";
 import { Inbox, InboxLive } from "./Inbox";
 import { TrialLedger, TrialLedgerLive } from "./TrialLedger";
@@ -77,7 +82,14 @@ export default class Server extends Cloudflare.Worker<Server>()(
       webhookSecret: yield* Config.option(
         Config.Redacted("CREEM_WEBHOOK_SECRET")
       ),
-      productId: yield* Config.option(Config.String("CREEM_PRODUCT_ID")),
+      productId: Option.some(
+        yield* Config.String("CREEM_PRODUCT_ID").pipe(Config.withDefault(""))
+      ),
+      patronProductId: Option.some(
+        yield* Config.String("CREEM_PATRON_PRODUCT_ID").pipe(
+          Config.withDefault("")
+        )
+      ),
     }).pipe(
       Option.map((config) => ({
         ...config,
@@ -110,25 +122,9 @@ export default class Server extends Cloudflare.Worker<Server>()(
         ),
     });
 
-    const trialLedgers = yield* TrialLedger;
-    /**
-     * When this Mac's free trial ends, per its ledger. Fails open: if the
-     * ledger can't answer, the new inbox gets a normal trial (undefined)
-     * rather than the Mac being unable to set up.
-     */
-    const claimTrial = (machine: string) =>
-      trialLedgers
-        .getByName(machine)
-        .claim()
-        .pipe(
-          Effect.map(({ trialEndsAt }): number | undefined => trialEndsAt),
-          Effect.timeout("5 seconds"),
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Trial ledger unavailable", cause).pipe(
-              Effect.andThen(absent<number>())
-            )
-          )
-        );
+    // Keep the binding/data for older purchases and rollback; no new fingerprints
+    // are looked up or recorded now that core messaging is free.
+    yield* TrialLedger;
 
     const inboxCreation = yield* Cloudflare.RateLimit("INBOX_CREATION", {
       namespaceId: 7201,
@@ -174,14 +170,13 @@ export default class Server extends Cloudflare.Worker<Server>()(
                 });
               }
               const { machine, ...names } = payload;
-              const trialEndsAt = machine
-                ? yield* claimTrial(machine)
-                : undefined;
+              // Accepted from older clients, no longer used.
+              void machine;
               const inboxId = yield* newInboxId;
               // A fresh random id can't already exist; Conflict would be a bug.
               return yield* inboxes
                 .getByName(inboxId)
-                .initialize(inboxId, names, trialEndsAt)
+                .initialize(inboxId, names)
                 .pipe(Effect.orDie);
             })
           )
@@ -268,23 +263,103 @@ export default class Server extends Cloudflare.Worker<Server>()(
           )
         )
         .handle("createCheckout", () =>
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) => stub.checkoutContext(token)),
+            Effect.flatMap(() =>
+              Effect.fail(
+                new Conflict({
+                  message:
+                    "Shouldertap is now free. Update the app to manage optional annual support.",
+                })
+              )
+            )
+          )
+        )
+        .handle("createPatronCheckout", () =>
           Effect.gen(function* startCheckout() {
             const { token, stub } = yield* forCaller;
             const context = yield* stub.checkoutContext(token);
-            if (Option.isNone(creem)) {
+            if (Option.isNone(creem) || !creem.value.patronProductId) {
               return yield* new Unavailable({
                 message: "Payments aren't set up here yet.",
               });
             }
-            const url = yield* createCheckout(creem.value.client, {
-              productId: creem.value.productId,
-              inboxId: context.inboxId,
-            }).pipe(
+            const billing = creem.value;
+            const url = yield* validatePatronProduct(
+              billing.client,
+              billing.patronProductId
+            ).pipe(
+              Effect.andThen(
+                Effect.gen(function* checkoutOnce() {
+                  let attempt = yield* stub.reservePatronCheckout(token);
+                  if (attempt.url && attempt.providerId) {
+                    const remote = yield* retrieveCheckout(
+                      billing.client,
+                      attempt.providerId
+                    );
+                    if (remote.status === "expired") {
+                      yield* stub.releaseExpiredCheckout(attempt.requestId);
+                      attempt = yield* stub.reservePatronCheckout(token);
+                    } else if (remote.status === "pending") {
+                      return attempt.url;
+                    } else {
+                      return yield* new Conflict({
+                        message:
+                          "Checkout is processing or complete. Please wait for your membership to update, or contact support.",
+                      });
+                    }
+                  }
+                  if (attempt.url) {
+                    return attempt.url;
+                  }
+                  const checkoutUrl = yield* createCheckout(billing.client, {
+                    productId: billing.patronProductId,
+                    inboxId: context.inboxId,
+                    requestId: attempt.requestId,
+                  });
+                  yield* stub.finishPatronCheckout(
+                    attempt.requestId,
+                    checkoutUrl.id,
+                    checkoutUrl.url
+                  );
+                  return checkoutUrl.url;
+                })
+              ),
               Effect.tapError((error) => Effect.logError(error)),
+              Effect.mapError((error) =>
+                error._tag === "CreemError"
+                  ? new Unavailable({
+                      message:
+                        "Couldn't prepare checkout. Contact support if this persists; an uncertain checkout is held to avoid duplicate subscriptions.",
+                    })
+                  : error
+              )
+            );
+            return { url };
+          })
+        )
+        .handle("claimSupportPrompt", () =>
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) => stub.claimSupportPrompt(token))
+          )
+        )
+        .handle("managePatron", () =>
+          Effect.gen(function* managePatron() {
+            const { token, stub } = yield* forCaller;
+            const customerId = yield* stub.patronCustomer(token);
+            if (Option.isNone(creem)) {
+              return yield* new Unavailable({
+                message: "Billing is unavailable here.",
+              });
+            }
+            const url = yield* customerPortal(
+              creem.value.client,
+              customerId
+            ).pipe(
               Effect.mapError(
                 () =>
                   new Unavailable({
-                    message: "Couldn't start checkout. Try again in a minute.",
+                    message: "Couldn't open billing. Try again shortly.",
                   })
               )
             );
@@ -330,7 +405,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
       if (Option.isNone(creem)) {
         return HttpServerResponse.text("Not found", { status: 404 });
       }
-      const { client, productId, webhookSecret } = creem.value;
+      const { client, productId, patronProductId, webhookSecret } = creem.value;
       const request = yield* HttpServerRequest;
       const body = yield* request.text.pipe(Effect.orDie);
       const verified = yield* verifyWebhook(
@@ -344,17 +419,23 @@ export default class Server extends Cloudflare.Worker<Server>()(
       if (!verified) {
         return HttpServerResponse.text("Invalid signature", { status: 400 });
       }
-      const action = yield* Effect.try(() =>
-        webhookAction(body, productId)
-      ).pipe(
-        Effect.catch(() =>
-          Effect.succeed({
-            kind: "ignore",
-            reason: "unreadable payload",
-          } as const)
-        )
+      const action = yield* readWebhookAction(
+        client,
+        body,
+        productId,
+        patronProductId
       );
-      if (action.kind === "purchase") {
+      if (action.kind === "patron") {
+        const inboxId =
+          action.inboxId ??
+          (yield* subscriptionInboxId(client, action.subscriptionId));
+        if (!inboxId) {
+          return HttpServerResponse.text("Missing subscription metadata", {
+            status: 500,
+          });
+        }
+        yield* inboxes.getByName(inboxId).recordPatronEvent(action.event);
+      } else if (action.kind === "purchase") {
         const at = Date.now();
         const { applied } = yield* inboxes
           .getByName(action.inboxId)

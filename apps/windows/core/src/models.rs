@@ -296,7 +296,7 @@ impl Plan {
     }
 
     /// The status as of `now`: a trial that ran out since the last snapshot is
-    /// already expired (the server refuses taps from then on too).
+    /// expired on older servers. Free-core servers always send `paid`.
     pub fn current_status(&self, now: Timestamp) -> PlanStatus {
         if self.status == PlanStatus::Trial && self.days_left(now) == 0 {
             PlanStatus::Expired
@@ -312,6 +312,18 @@ pub struct Checkout {
     pub url: String,
 }
 
+/// Optional annual support is independent of the legacy free-core plan.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Patron {
+    pub active: bool,
+    pub status: String,
+    pub paid_until: Option<Timestamp>,
+    pub can_manage: bool,
+    pub can_subscribe: bool,
+    pub legacy_supporter: bool,
+}
+
 /// What a paired computer sees: every pending tap plus recent history.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -325,6 +337,8 @@ pub struct ReceiverSnapshot {
     /// A plan shaped differently by a newer server mustn't fail the snapshot.
     #[serde(default, deserialize_with = "lenient")]
     pub plan: Option<Plan>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub patron: Option<Patron>,
 }
 
 /// What a sender sees: only their own recent taps.
