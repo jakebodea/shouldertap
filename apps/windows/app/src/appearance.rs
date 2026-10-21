@@ -1,15 +1,11 @@
-//! The Appearance window, ported from apps/macos's Appearance.swift. People
-//! who tap you choose how their own taps look (their patron benefit); here a
-//! live preview drawn by the real theme code shows that, beside the free
-//! controls: show their styles or always plain, and motion. Settings live on
-//! the server, so every computer follows.
+//! Motion preferences and a preview of the sender’s style.
 
 use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{App, Context, Entity, FontWeight, Render, Subscription, Window, div, prelude::*, px};
 use shouldertap_core::{
-    ActiveTap, ApiError, CredentialKind, MotionPreference, PersonColor, SenderThemePreference, Tap, TapState,
+    ActiveTap, ApiError, CredentialKind, MotionPreference, PersonColor, Tap, TapState,
     UpdateAppearance, now_ms,
 };
 
@@ -248,65 +244,6 @@ impl Render for AppearanceView {
             .child(div().flex_1())
             .child(replay);
 
-        let sender_themes_button =
-            |id: &'static str, label: &'static str, value: SenderThemePreference, cx: &mut Context<Self>| {
-                menu_button(
-                    s,
-                    id,
-                    label,
-                    None,
-                    if appearance.sender_themes == value {
-                        Kind::Primary
-                    } else {
-                        Kind::Secondary
-                    },
-                    false,
-                    self.busy || !state.appearance_supported,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.save(
-                        UpdateAppearance {
-                            motion: None,
-                            sender_themes: Some(value),
-                        },
-                        cx,
-                    );
-                    this.replay(cx);
-                }))
-            };
-        let sender_themes = div()
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Senders' styles"))
-                    .child(sender_themes_button(
-                        "show-styles",
-                        "Show their styles",
-                        SenderThemePreference::Show,
-                        cx,
-                    ))
-                    .child(sender_themes_button(
-                        "always-plain",
-                        "Always plain",
-                        SenderThemePreference::Plain,
-                        cx,
-                    )),
-            )
-            .child(muted(
-                s,
-                if appearance.sender_themes == SenderThemePreference::Plain {
-                    "Every tap shows in Default, whoever sent it."
-                } else {
-                    "Each tap shows in the style its sender chose. Answering works the same in every style."
-                },
-            ));
-
         let motion_button = |id: &'static str, label: &'static str, value: MotionPreference, cx: &mut Context<Self>| {
             menu_button(
                 s,
@@ -382,17 +319,16 @@ impl Render for AppearanceView {
                         div()
                             .text_size(px(17.))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("How taps look on your computers"),
+                            .child("Tap motion"),
                     )
                     .child(muted(
                         s,
-                        "People who tap you can send their taps in a style of their choosing. You never pay to see it, and you can always show every tap plain.",
+                        "Each tap arrives in the style its sender chose. You can reduce its animation.",
                     )),
             )
             .child(preview)
             .child(top_row)
             .child(div().h(px(1.)).bg(s.separator))
-            .child(sender_themes)
             .child(motion)
             .when(!state.appearance_supported, |d| {
                 d.child(muted(
@@ -420,7 +356,7 @@ impl Shell {
                 gpui::WindowOptions {
                     window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
                     titlebar: Some(gpui::TitlebarOptions {
-                        title: Some("Tap Appearance".into()),
+                        title: Some("Tap Motion".into()),
                         ..Default::default()
                     }),
                     focus: true,

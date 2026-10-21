@@ -9,12 +9,7 @@ import * as Effect from "effect/Effect";
 
 import { appearance } from "./schema";
 
-/**
- * The recipient's free settings for their own computers: motion, and whether
- * to show each tap in its sender's theme or always plain. Nothing here is
- * gated by billing, and nothing here chooses a theme: themes come from each
- * sender's tap.
- */
+/** Recipients control motion only. Keep senderThemes=show on the wire for older clients. */
 const DEFAULTS: Appearance = { motion: "system", senderThemes: "show" };
 
 const savedRow = (db: EffectSQLiteDoDatabase) =>
@@ -24,7 +19,11 @@ const savedRow = (db: EffectSQLiteDoDatabase) =>
       senderThemes: appearance.senderThemes,
     })
     .from(appearance)
-    .pipe(Effect.map(([row]): Appearance => row ?? DEFAULTS));
+    .pipe(
+      Effect.map(([row]): Appearance =>
+        row ? { motion: row.motion, senderThemes: "show" } : DEFAULTS
+      )
+    );
 
 export const readAppearance = (db: EffectSQLiteDoDatabase) => savedRow(db);
 
@@ -43,7 +42,7 @@ export const saveAppearance = Effect.fn(function* saveAppearance(
         senderThemes: SenderThemePreference;
       } = {
         motion: request.motion ?? current.motion,
-        senderThemes: request.senderThemes ?? current.senderThemes,
+        senderThemes: "show",
       };
       yield* tx
         .insert(appearance)

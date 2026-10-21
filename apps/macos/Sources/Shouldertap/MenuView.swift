@@ -136,14 +136,14 @@ private struct ReadyView: View {
         AddDevice(store: store)
       }
 
-      Section(title: "Appearance") {
+      Section(title: "Accessibility") {
         Row(action: openAppearance) { _ in
-          Text("Tap appearance").font(.system(size: 13, weight: .medium))
+          Text("Tap motion").font(.system(size: 13, weight: .medium))
           Spacer(minLength: 0)
           Text(appearanceLabel).font(.system(size: 12)).foregroundStyle(.secondary)
           Text("›").font(.system(size: 13)).foregroundStyle(.tertiary)
         }
-        .accessibilityLabel("Tap appearance, \(appearanceLabel)")
+        .accessibilityLabel("Tap motion, \(appearanceLabel)")
       }
 
       Section(title: "Recent") {
@@ -160,7 +160,7 @@ private struct ReadyView: View {
   }
 
   private var appearanceLabel: String {
-    store.appearance.senderThemes == .plain ? "Always plain" : "Senders' styles"
+    store.appearance.motion == .reduced ? "Reduced" : "Follow system"
   }
 
   /// Billing never changes the recipient name or messaging controls.
@@ -181,7 +181,7 @@ private struct PatronView: View {
   var body: some View {
     DisclosureGroup("Patron themes") {
       VStack(alignment: .leading, spacing: 8) {
-        Muted("Shouldertap is free to receive and answer. Patron support belongs to the people who tap you: it lets them send their taps in a style, to everyone they tap. You never pay to see it, and Tap appearance can show every tap plain.")
+        Muted("Shouldertap is free to receive and answer. Patron support belongs to the people who tap you: it lets them send their taps in a style, to everyone they tap. You never pay to see it.")
         if store.patron?.legacySupporter == true { Muted("Thank you for your original purchase. It is preserved; you have not been enrolled in a subscription.") }
         // Support bought from this computer before it moved to senders:
         // still manageable and cancelable here, never sold here again.

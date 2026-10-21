@@ -352,14 +352,14 @@ private let themedSnapshot =
     #"{"kind":"device","credentialId":"d1","recipientName":"Jake","sequence":3,"credentials":[],"plan":{"status":"paid","trialEndsAt":1},"appearance":{"motion":"system","senderThemes":"show"},"taps":[{"id":"t1","senderId":"sam","senderName":"Sam","senderColor":"moss","body":"Dinner","createdAt":1790780000000,"state":"pending","displayedAt":null,"acknowledgedAt":null,"acknowledgedBy":null,"response":null,"sequence":1,"theme":"broadsheet"},{"id":"t2","senderId":"ana","senderName":"Ana","senderColor":"sky","body":"Call me","createdAt":1790780001000,"state":"pending","displayedAt":null,"acknowledgedAt":null,"acknowledgedBy":null,"response":null,"sequence":2},{"id":"t3","senderId":"sam","senderName":"Sam","senderColor":"moss","body":"Later","createdAt":1790780002000,"state":"pending","displayedAt":null,"acknowledgedAt":null,"acknowledgedBy":null,"response":null,"sequence":3,"theme":"hologram"}]}"#
 
 @Suite(.serialized) @MainActor struct AppearanceBehavior {
-  @Test func eachTapShowsItsOwnSendersThemeUntilTheRecipientChoosesPlain() async {
+  @Test func eachTapKeepsItsSendersThemeWithLegacyPlainPreferences() async {
     let sent = Sent()
     let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
       switch (request.httpMethod, request.url!.path) {
       case ("GET", "/v1/me"): return (200, themedSnapshot)
       case ("PUT", "/v1/appearance"):
         sent.body = jsonBody(request)
-        return (200, #"{"motion":"system","senderThemes":"plain"}"#)
+        return (200, #"{"motion":"reduced","senderThemes":"plain"}"#)
       default: return (503, "")
       }
     }
@@ -368,9 +368,10 @@ private let themedSnapshot =
     #expect(await eventually { store.taps.count == 3 })
     let byId = Dictionary(uniqueKeysWithValues: store.taps.map { ($0.id, $0) })
     #expect([byId["t1"], byId["t2"], byId["t3"]].map { $0.map(store.theme(for:)) } == [.broadsheet, .default, .default])
-    try? await store.updateAppearance(senderThemes: .plain)
-    #expect(sent.body == ["senderThemes": "plain"])
-    #expect(byId["t1"].map(store.theme(for:)) == .default)
+    try? await store.updateAppearance(motion: .reduced)
+    #expect(sent.body == ["motion": "reduced"])
+    #expect(store.appearance.reducesMotion(systemSetting: false))
+    #expect(byId["t1"].map(store.theme(for:)) == .broadsheet)
   }
 }
 

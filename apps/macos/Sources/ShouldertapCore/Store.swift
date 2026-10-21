@@ -55,7 +55,7 @@ public final class ReceiverStore {
   public private(set) var plan: Plan?
   /// A historical receiver-owned support subscription, if any (manage only).
   public private(set) var patron: Patron?
-  /// The recipient's free settings: motion and the plain override.
+  /// The recipient's free settings: motion, plus legacy wire fields.
   /// `.standard` until the first snapshot, and from older servers.
   public private(set) var appearance: Appearance = .standard
   /// False for servers older than themes: there is nothing to change yet.
@@ -143,7 +143,7 @@ public final class ReceiverStore {
     appearanceSupported = true
   }
 
-  /// The theme to draw a tap in: its sender's, unless this recipient chose plain.
+  /// The theme to draw a tap in: its sender's style.
   public func theme(for tap: Tap) -> TapTheme {
     appearance.theme(for: tap)
   }
