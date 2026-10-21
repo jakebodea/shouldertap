@@ -154,11 +154,7 @@ bun alchemy deploy --stage prod --profile admin --yes
 
 Archive, sign for App Store distribution (team `6C46GY4Z38`, automatic signing through the Apple ID in Xcode or an App Store Connect API key; see the script header) and upload to App Store Connect, where the build shows up in TestFlight after processing:
 
-```bash
-bun run release:ios
-```
-
-Like the Mac release, the API key comes from Infisical `shouldertap-prod` through the Alchemy `admin` profile. Or label a pull request `release:beta`: when it merges, `.github/workflows/testflight.yml` runs the same script on a macOS runner from the merged `main` and comments the build number on the PR. Actions > TestFlight > Run workflow releases `main` on demand. CI signs with an App Store Connect API key (Admin role, so it can create the distribution certificate) from Infisical `shouldertap-prod` (`prod`): `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (the `.p8` file's contents).
+Label the pull request `release:ios` (`release:beta` still works): when it merges, `.github/workflows/release.yml` runs `scripts/release-ios.sh` on a macOS runner from the merged `main` and comments the build number on the PR. Actions > Release > Run workflow releases `main` on demand. By hand, `bun run release:ios` loads the same key through the Alchemy `admin` profile. CI signs with an App Store Connect API key (Admin role, so it can create the distribution certificate) from Infisical `shouldertap-prod` (`prod`): `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (the `.p8` file's contents).
 
 The app and widget share `apps/ios/Version.xcconfig`: bump `MARKETING_VERSION` for a new version and increment `CURRENT_PROJECT_VERSION` before an upload. Set `BUILD_NUMBER` only for an intentional override; the release script requires a positive integer. App Store Connect rejects repeated version/build pairs. `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
 
@@ -166,11 +162,11 @@ The app and widget share `apps/ios/Version.xcconfig`: bump `MARKETING_VERSION` f
 
 Mac and Windows share one version (pre-1.0 while big features land; `bun run check` fails if they differ). Bump `CFBundleShortVersionString` and `CFBundleVersion` in `apps/macos/Resources/Info.plist` and `version` in `apps/windows/Cargo.toml` together, then test and build a universal DMG and upload it to the `shouldertap-releases` R2 bucket (needs `wrangler login`):
 
-```bash
-bun run release:mac
-```
+Label the pull request `release:mac` (or `release:desktop` for Mac and Windows): when it merges, `.github/workflows/release.yml` runs `scripts/release-mac.sh` on a macOS runner, signed with the Developer ID, notarized with the App Store Connect key and the feed signed with the Sparkle key (all from Infisical `shouldertap-prod`), and comments on the PR. It refuses a build that isn't newer than the live feed. By hand, `bun run release:mac` does the same on your Mac. The `native.yml` `mac-package` job packages an unsigned DMG on PRs that touch the release, so CI packaging breaks there first.
 
-That runs `scripts/release-mac.sh` signed with the Developer ID and notarized with the App Store Connect key, which `scripts/with-release-secrets.ts` loads from Infisical `shouldertap-prod` through the Alchemy `admin` profile (the owner's Mac; nothing to export or paste). It uploads `Shouldertap-<version>.dmg` (immutable), overwrites `Shouldertap.dmg` (the site's Download button), then publishes `appcast.xml`, the [Sparkle](https://sparkle-project.org) feed installed apps check daily. `--no-upload` builds only. `CFBundleVersion` must go up every release; Sparkle compares it.
+The keys live in `shouldertap-prod` as `MAC_DEVELOPER_ID_P12`, `MAC_DEVELOPER_ID_P12_PASSWORD` and `SPARKLE_ED_PRIVATE_KEY`. To add or rotate them, run `bun run keys:mac`: it exports both from the login keychain, opens Infisical, puts each value on your clipboard to paste, and checks each one.
+
+It uploads `Shouldertap-<version>.dmg` (immutable), overwrites `Shouldertap.dmg` (the site's Download button), then publishes `appcast.xml`, the [Sparkle](https://sparkle-project.org) feed installed apps check daily. `--no-upload` builds only. `CFBundleVersion` must go up every release; Sparkle compares it.
 
 Updates are signed with an EdDSA key in the login keychain (account `app.shouldertap.mac`); its public half is `SUPublicEDKey` in Info.plist. Without the private key no update can ship to existing installs, so keep a copy somewhere safe, such as a password manager:
 
@@ -184,7 +180,7 @@ Builds are ad-hoc signed until there's an Apple Developer ID, so Gatekeeper make
 
 ## Release the Windows app
 
-Bump `version` in `apps/windows/Cargo.toml` (and the Mac version with it; see above), then build `Shouldertap-Setup-<version>.exe` and upload it to the `shouldertap-releases` R2 bucket under `windows/`, with `windows/latest.json` (`{version, url, sha256}`), the feed installed apps check every 6 hours:
+Label the pull request `release:windows` (or `release:desktop`): when it merges, `.github/workflows/release.yml` tests and builds the exe on a Windows runner, attests it, runs `scripts/release-windows.sh` with it and creates the `windows-v<version>` GitHub release. By hand: bump `version` in `apps/windows/Cargo.toml` (and the Mac version with it; see above), then build `Shouldertap-Setup-<version>.exe` and upload it to the `shouldertap-releases` R2 bucket under `windows/`, with `windows/latest.json` (`{version, url, sha256}`), the feed installed apps check every 6 hours:
 
 ```bash
 scripts/release-windows.sh

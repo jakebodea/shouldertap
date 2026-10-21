@@ -27,11 +27,21 @@ export const productionVariables = {
   INFISICAL_OIDC_AUDIENCE: "https://github.com/jbolabs",
 } as const;
 
+/** Labels that release an app when the pull request merges (.github/workflows/release.yml). */
+export const releaseLabels = {
+  "release:ios": "Upload the iOS app to TestFlight when this merges",
+  "release:beta":
+    "Upload the iOS app to TestFlight when this merges (same as release:ios)",
+  "release:mac": "Publish the Mac app when this merges",
+  "release:windows": "Publish the Windows app when this merges",
+  "release:desktop": "Publish the Mac and Windows apps when this merges",
+} as const;
+
 /**
  * The repo's CI setup as code: mints a Cloudflare API token scoped to what
  * `alchemy.run.ts` deploys, stores it as GitHub Actions secrets, creates the
  * main-only `production` environment that prod jobs read Infisical through,
- * and protects main. Deploy from a laptop to rotate or rescope the token or to change the
+ * creates the release labels, and protects main. Deploy from a laptop to rotate or rescope the token or to change the
  * protection:
  *
  *   bun alchemy deploy --config stacks/github.ts --profile admin
@@ -104,6 +114,15 @@ export default Alchemy.Stack(
     );
     for (const [name, value] of Object.entries(productionVariables)) {
       yield* GitHub.Variable(name, { ...repo, environment, name, value });
+    }
+
+    for (const [name, description] of Object.entries(releaseLabels)) {
+      yield* GitHub.Label(name, {
+        ...repo,
+        name,
+        description,
+        color: "2340c8",
+      });
     }
 
     // Changes reach main only through a pull request whose `check` and `e2e`

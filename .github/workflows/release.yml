@@ -43,7 +43,7 @@ jobs:
         id: pr
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then
-            labels=$(echo "$APPS" | tr ', ' '\n\n' | sed -n 's/^\(ios\|mac\|windows\)$/release:\1/p')
+            labels=$(echo "$APPS" | tr -d ' ' | tr ',' '\n' | grep -xE 'ios|mac|windows' | sed 's/^/release:/' || true)
           else
             pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)][0] // empty')
             labels=$(echo "$pr" | jq -r '.labels[]?.name' 2>/dev/null || true)
@@ -91,7 +91,8 @@ jobs:
         run: |
           export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
           printf '%s\n' "$ASC_KEY_P8" > "$ASC_KEY_PATH"
-          export DEVELOPER_DIR="$(xcode-select -p)"
+          DEVELOPER_DIR="$(xcode-select -p)"
+          export DEVELOPER_DIR
           xcodebuild -version
           scripts/release-ios.sh
           build=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' apps/ios/build/release/Shouldertap.xcarchive/Products/Applications/Shouldertap.app/Info.plist)
@@ -99,7 +100,8 @@ jobs:
 
       - name: Comment on the pull request
         if: always() && needs.find.outputs.number != ''
-        run: gh pr comment "$NUMBER" --repo "$REPO" --body "${NOTE:-iOS release failed: $RUN}"
+        run: |
+          gh pr comment "$NUMBER" --repo "$REPO" --body "${NOTE:-iOS release failed: $RUN}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NUMBER: ${{ needs.find.outputs.number }}
@@ -142,13 +144,16 @@ jobs:
           security import "$RUNNER_TEMP/id.p12" -k "$keychain" -P "$MAC_DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
           rm "$RUNNER_TEMP/id.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          # Search it first, keeping the existing keychains (one word each).
+          # shellcheck disable=SC2046
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain"
 
       - name: Build, notarize and publish
         id: release
         run: |
-          export DEVELOPER_DIR="$(xcode-select -p)"
+          DEVELOPER_DIR="$(xcode-select -p)"
+          export DEVELOPER_DIR
           export NOTARY_KEY="$RUNNER_TEMP/AuthKey.p8" NOTARY_KEY_ID="$ASC_KEY_ID" NOTARY_ISSUER="$ASC_ISSUER_ID"
           printf '%s\n' "$ASC_KEY_P8" > "$NOTARY_KEY"
           export SPARKLE_ED_KEY_FILE="$RUNNER_TEMP/sparkle.key"
@@ -168,7 +173,8 @@ jobs:
 
       - name: Comment on the pull request
         if: always() && needs.find.outputs.number != ''
-        run: gh pr comment "$NUMBER" --repo "$REPO" --body "${NOTE:-Mac release failed: $RUN}"
+        run: |
+          gh pr comment "$NUMBER" --repo "$REPO" --body "${NOTE:-Mac release failed: $RUN}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NUMBER: ${{ needs.find.outputs.number }}
@@ -225,7 +231,8 @@ jobs:
 
       - name: Comment on the pull request
         if: always() && needs.find.outputs.number != ''
-        run: gh pr comment "$NUMBER" --repo "$REPO" --body "${NOTE:-Windows release failed: $RUN}"
+        run: |
+          gh pr comment "$NUMBER" --repo "$REPO" --body "${NOTE:-Windows release failed: $RUN}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NUMBER: ${{ needs.find.outputs.number }}
