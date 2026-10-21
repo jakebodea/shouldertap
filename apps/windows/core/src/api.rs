@@ -282,6 +282,29 @@ impl ApiClient {
         )
     }
 
+    /// Senders only: `request_id` makes a retry after a dropped connection
+    /// return the same tap instead of sending a second one.
+    pub fn send_tap(&self, request_id: &str, body: &str) -> Result<Tap, ApiError> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body<'a> {
+            request_id: &'a str,
+            body: &'a str,
+        }
+        self.send("POST", "/v1/taps", Some(&Body { request_id, body }))
+    }
+
+    /// Senders only: deletes this sender and everything they sent from the
+    /// recipient's inbox.
+    pub fn delete_sender(&self) -> Result<(), ApiError> {
+        #[derive(Deserialize)]
+        struct Deleted {
+            #[allow(dead_code)]
+            deleted: bool,
+        }
+        self.send::<(), Deleted>("DELETE", "/v1/sender", None).map(|_| ())
+    }
+
     /// Deletes a tap for everyone. `NotFound` once it's gone.
     pub fn delete_tap(&self, tap_id: &str) -> Result<(), ApiError> {
         #[derive(Deserialize)]

@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use futures::channel::mpsc::UnboundedSender;
 use gpui::{App, Bounds, Pixels, Window, WindowAppearance, point, px, size};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use shouldertap_core::CredentialVault;
+use shouldertap_core::{CredentialVault, SenderVaults};
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
@@ -458,6 +458,16 @@ struct CredentialManager {
 pub fn vault() -> Option<Box<dyn CredentialVault>> {
     Some(Box::new(CredentialManager {
         target: HSTRING::from(format!("{}/credential", config::APP_ID)),
+    }))
+}
+
+/// Each sender pairing's token, one generic credential per pairing
+/// (Credential Manager keeps only small secrets), named by its credential id.
+pub fn sender_vaults() -> Option<SenderVaults> {
+    Some(Box::new(|credential_id: &str| -> Box<dyn CredentialVault> {
+        Box::new(CredentialManager {
+            target: HSTRING::from(format!("{}/sender/{credential_id}", config::APP_ID)),
+        })
     }))
 }
 

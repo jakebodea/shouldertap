@@ -193,9 +193,19 @@ pub fn run(directory: String, cx: &mut App) {
                 transport: std::sync::Arc::new(shouldertap_core::NetworkTransport::default()),
                 ack_retry_delay: Duration::from_secs(10),
             });
+            let senders = shouldertap_core::SenderStore::new(shouldertap_core::SenderConfig {
+                server: "http://127.0.0.1:9".into(),
+                persistence: Box::new(shouldertap_core::LocalSenderPersistence::new(
+                    std::env::temp_dir().join("shouldertap-snapshots"),
+                    None,
+                )),
+                transport: std::sync::Arc::new(shouldertap_core::NetworkTransport::default()),
+            });
             let model = cx.new(|_| crate::shell::Model {
                 state: store.state(),
                 store,
+                sender_state: senders.state(),
+                senders,
                 updates: Default::default(),
                 launch_at_login: false,
             });

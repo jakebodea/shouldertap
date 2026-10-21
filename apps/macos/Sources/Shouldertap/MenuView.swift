@@ -7,10 +7,13 @@ import SwiftUI
 /// Bricolage only in the "Shouldertap" title (docs/design.md, "Surfaces").
 struct MenuView: View {
   let store: ReceiverStore
+  let senders: SenderStore
   let updates: Updates
   let account: AccountStore
   let openAppearance: () -> Void
   let openAccount: () -> Void
+  /// nil opens the invite form.
+  let openSend: (String?) -> Void
   @State private var contentHeight: CGFloat = 0
 
   var body: some View {
@@ -21,8 +24,11 @@ struct MenuView: View {
         #endif
         switch store.phase {
         case .loading: ProgressView().frame(maxWidth: .infinity, minHeight: 120)
-        case .setup: SetupView(store: store, updates: updates, openAccount: openAccount)
-        case .ready: ReadyView(store: store, updates: updates, account: account, openAppearance: openAppearance, openAccount: openAccount)
+        case .setup: SetupView(store: store, senders: senders, updates: updates, openAccount: openAccount, openSend: openSend)
+        case .ready:
+          ReadyView(
+            store: store, senders: senders, updates: updates, account: account, openAppearance: openAppearance,
+            openAccount: openAccount, openSend: openSend)
         }
       }
       .padding(14)
@@ -53,8 +59,10 @@ struct MenuView: View {
 
 private struct SetupView: View {
   let store: ReceiverStore
+  let senders: SenderStore
   let updates: Updates
   let openAccount: () -> Void
+  let openSend: (String?) -> Void
   @State private var name = ""
   @State private var code = ""
   @State private var busy = false
@@ -84,6 +92,8 @@ private struct SetupView: View {
         MenuButton(title: "Pair this Mac", icon: .addMac, action: join)
           .disabled(busy || trimmed(code).isEmpty)
       }
+
+      YouCanTap(senders: senders, openSend: openSend)
 
       MenuButton(title: "Restore with email", kind: .plain, action: openAccount)
 
@@ -115,10 +125,12 @@ private struct SetupView: View {
 
 private struct ReadyView: View {
   let store: ReceiverStore
+  let senders: SenderStore
   let updates: Updates
   let account: AccountStore
   let openAppearance: () -> Void
   let openAccount: () -> Void
+  let openSend: (String?) -> Void
 
   var body: some View {
     let senders = store.credentials.filter { $0.kind == .sender }
@@ -137,6 +149,8 @@ private struct ReadyView: View {
           ForEach(senders) { PairingRow(store: store, credential: $0, isSelf: false) }
         }
       }
+
+      YouCanTap(senders: self.senders, openSend: openSend)
 
       Section(title: "Your devices") {
         ForEach(devices) { PairingRow(store: store, credential: $0, isSelf: $0.id == store.credentialId) }
@@ -189,6 +203,39 @@ private struct ReadyView: View {
     guard !store.recipientName.isEmpty else { return " " }
     let base = "Taps for \(store.recipientName)"
     return base
+  }
+}
+
+/// The other direction: people this Mac can tap, each opening the composer.
+private struct YouCanTap: View {
+  let senders: SenderStore
+  let openSend: (String?) -> Void
+
+  var body: some View {
+    Section(title: "You can tap") {
+      TimelineView(.periodic(from: .now, by: 30)) { context in
+        VStack(alignment: .leading, spacing: 8) {
+          ForEach(senders.sessions) { person in
+            Row(action: { openSend(person.id) }) { _ in
+              Avatar(name: person.pairing.recipientName, color: person.color)
+              VStack(alignment: .leading, spacing: 1) {
+                Text(person.pairing.recipientName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(latestSummary(person, now: context.date))
+                  .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+              }
+              Spacer(minLength: 0)
+              Text("›").font(.system(size: 13)).foregroundStyle(.tertiary)
+            }
+            .accessibilityLabel("Tap \(person.pairing.recipientName)")
+          }
+        }
+      }
+      Row(action: { openSend(nil) }) { _ in
+        Glyph(icon: .send)
+        Text(senders.sessions.isEmpty ? "Got an invite? Tap someone" : "Add someone")
+          .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+      }
+    }
   }
 }
 
@@ -286,7 +333,7 @@ private struct InviteSender: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .accessibilityLabel("QR code for the invite link")
         }
-        Muted("Scan with their iPhone camera, or send them the link. It works once and expires in 7 days.")
+        Muted("Scan with their iPhone camera, or send them the link to open on their phone or computer. It works once and expires in 7 days.")
           .multilineTextAlignment(.center)
         Mono(invite.url.absoluteString, lines: 2)
         HStack(spacing: 8) {

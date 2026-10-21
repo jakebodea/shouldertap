@@ -2,7 +2,7 @@
 
 use futures::channel::mpsc::UnboundedSender;
 use gpui::{App, Bounds, Pixels, Window, WindowAppearance, point, px, size};
-use shouldertap_core::CredentialVault;
+use shouldertap_core::{CredentialVault, SenderVaults};
 
 use super::{MENU_WIDTH, PlatformEvent, TrayAnchor};
 use crate::mark::Knock;
@@ -34,6 +34,11 @@ pub fn watch_system(_: UnboundedSender<PlatformEvent>) {}
 pub fn on_quit() {}
 
 pub fn vault() -> Option<Box<dyn CredentialVault>> {
+    None
+}
+
+/// Sender tokens stay in the owner-only `senders.secret` while developing.
+pub fn sender_vaults() -> Option<SenderVaults> {
     None
 }
 

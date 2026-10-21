@@ -7,7 +7,7 @@ A trusted person can send a message to your iPhone or connected computer display
 ## What v0 does
 
 1. **Pair**: create your inbox on iPhone or Mac, then invite someone. "Create invite link" shows a QR code and link for a sender's phone; "Add a Mac or iPhone" gives a one-time code for your other Macs, and a QR code that links your iPhone to manage the inbox (invite and remove people, see devices and recent taps).
-2. **Send**: the sender opens the link in Safari, enters their name, picks a color, and sends a tap. Unpaired visitors to the site see the landing page.
+2. **Send**: the sender opens the link in Safari, or pastes it into Shouldertap on their iPhone, Mac or PC ("You can tap" in the menu), enters their name, picks a color, and sends a tap. A computer can send without receiving, like an iPhone. Unpaired visitors to the site see the landing page.
 3. **Receive**: iPhone shows a takeover while the app is open, or notifications/Live Activities in the background subject to iOS permissions. A paired Mac covers every display, above full-screen apps and on every Space.
 4. **Respond**: On it, In 10 min, or a typed reply. The overlay is framed in the sender's color. Answering on any device dismisses it on the others.
 5. **Close the loop**: the sender sees delivered → on screen → the reply, live.
@@ -162,7 +162,7 @@ The app and widget share `apps/ios/Version.xcconfig`: bump `MARKETING_VERSION` f
 
 ## Release the Mac app
 
-Bump `CFBundleShortVersionString` and `CFBundleVersion` in `apps/macos/Resources/Info.plist`, then test and build a universal DMG and upload it to the `shouldertap-releases` R2 bucket (needs `wrangler login`):
+Mac and Windows share one version (pre-1.0 while big features land; `bun run check` fails if they differ). Bump `CFBundleShortVersionString` and `CFBundleVersion` in `apps/macos/Resources/Info.plist` and `version` in `apps/windows/Cargo.toml` together, then test and build a universal DMG and upload it to the `shouldertap-releases` R2 bucket (needs `wrangler login`):
 
 ```bash
 scripts/release-mac.sh
@@ -182,7 +182,7 @@ Builds are ad-hoc signed until there's an Apple Developer ID, so Gatekeeper make
 
 ## Release the Windows app
 
-Bump `version` in `apps/windows/Cargo.toml`, then build `Shouldertap-Setup-<version>.exe` and upload it to the `shouldertap-releases` R2 bucket under `windows/`, with `windows/latest.json` (`{version, url, sha256}`), the feed installed apps check every 6 hours:
+Bump `version` in `apps/windows/Cargo.toml` (and the Mac version with it; see above), then build `Shouldertap-Setup-<version>.exe` and upload it to the `shouldertap-releases` R2 bucket under `windows/`, with `windows/latest.json` (`{version, url, sha256}`), the feed installed apps check every 6 hours:
 
 ```bash
 scripts/release-windows.sh

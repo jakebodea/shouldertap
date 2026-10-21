@@ -195,9 +195,9 @@ public final class ReceiverStore {
     guard grant.kind == .device else {
       throw APIError(
         code: .invalidRequest,
-        message: platform == .mac
-          ? "That's a sender invite. Open it on the phone that will send taps."
-          : "That's an invite to tap someone. To link your Mac, use the code under Your devices.",
+        message: platform == .iphone
+          ? "That's an invite to tap someone. To link your Mac, use the code under Your devices."
+          : "That's an invite to tap someone. Add it under “You can tap” instead.",
         status: 400)
     }
     try persistence.saveCredential(grant.token)

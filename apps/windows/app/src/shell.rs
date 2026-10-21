@@ -1,6 +1,7 @@
-//! The app around the store, like AppDelegate in apps/macos's App.swift: a
-//! tray icon with a menu, full-screen overlays when a tap arrives, and the
-//! system events (wake, network, displays) that should reconnect or redraw.
+//! The app around the stores, like AppDelegate in apps/macos's App.swift: a
+//! tray icon with a menu, full-screen overlays when a tap arrives, the Send
+//! window for people this PC can tap, and the system events (wake, network,
+//! displays) that should reconnect or redraw.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -14,7 +15,8 @@ use gpui::{
 };
 use shouldertap_core::fingerprint::{DEBUG_SALT, RELEASE_SALT, machine_fingerprint};
 use shouldertap_core::{
-    ActiveTap, DevicePlatform, LocalPersistence, NetworkTransport, ReceiverStore, StoreConfig, StoreState, TapResponse,
+    ActiveTap, DevicePlatform, LocalPersistence, LocalSenderPersistence, NetworkTransport, ReceiverStore, SenderConfig,
+    SenderState, SenderStore, StoreConfig, StoreState, TapResponse,
 };
 
 use crate::mark::{self, KNOCK_DURATION};
@@ -24,10 +26,13 @@ use crate::platform::{self, PlatformEvent};
 use crate::updates::Updates;
 use crate::{config, updates};
 
-/// What every view reads: the store and its latest state.
+/// What every view reads: the stores and their latest state.
 pub struct Model {
     pub store: ReceiverStore,
     pub state: StoreState,
+    /// The people this PC can tap; independent of the receiver.
+    pub senders: SenderStore,
+    pub sender_state: SenderState,
     pub updates: updates::Status,
     pub launch_at_login: bool,
 }
@@ -38,6 +43,7 @@ pub struct Shell {
     respond: Respond,
     menu: Option<WindowHandle<MenuView>>,
     pub(crate) appearance: Option<WindowHandle<crate::appearance::AppearanceView>>,
+    pub(crate) send: Option<WindowHandle<crate::send::SendView>>,
     /// GPUI quits on Windows when its last window closes; this one is never
     /// shown, so the tray app lives on with no menu or overlay open.
     _anchor: AnyWindowHandle,
@@ -55,6 +61,7 @@ impl Shell {
     pub fn launch(cx: &mut App) {
         let (events_tx, events) = mpsc::unbounded();
         let tray = platform::Tray::create(events_tx.clone()).ok();
+        let transport = Arc::new(NetworkTransport::default());
 
         let store = ReceiverStore::new(StoreConfig {
             endpoints: config::endpoints(),
@@ -65,8 +72,16 @@ impl Shell {
                 let salt = if config::DEV { DEBUG_SALT } else { RELEASE_SALT };
                 platform::hardware_id().and_then(|id| machine_fingerprint(&id, salt))
             }),
-            transport: Arc::new(NetworkTransport::default()),
+            transport: transport.clone(),
             ack_retry_delay: Duration::from_secs(10),
+        });
+        let senders = SenderStore::new(SenderConfig {
+            server: config::endpoints().server,
+            persistence: Box::new(LocalSenderPersistence::new(
+                config::data_dir(),
+                platform::sender_vaults(),
+            )),
+            transport,
         });
 
         // Store changes arrive on its threads; redraw on this one.
@@ -74,10 +89,16 @@ impl Shell {
         store.on_change(move || {
             let _ = changes_tx.unbounded_send(());
         });
+        let (sender_changes_tx, mut sender_changes) = mpsc::unbounded::<()>();
+        senders.on_change(move || {
+            let _ = sender_changes_tx.unbounded_send(());
+        });
 
         let model = cx.new(|_| Model {
             store: store.clone(),
             state: store.state(),
+            senders: senders.clone(),
+            sender_state: senders.state(),
             updates: updates::Status::default(),
             launch_at_login: platform::launch_at_login(),
         });
@@ -115,6 +136,7 @@ impl Shell {
             respond,
             menu: None,
             appearance: None,
+            send: None,
             _anchor: anchor,
             tray,
             knocking: None,
@@ -133,6 +155,16 @@ impl Shell {
         })
         .detach();
 
+        cx.spawn(async move |cx| {
+            while sender_changes.next().await.is_some() {
+                while let Ok(()) = sender_changes.try_recv() {}
+                if cx.update(Shell::senders_changed).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         let mut events = events;
         cx.spawn(async move |cx| {
             while let Some(event) = events.next().await {
@@ -145,9 +177,12 @@ impl Shell {
         platform::watch_system(events_tx);
         cx.on_app_quit(|_| async { platform::on_quit() }).detach();
 
-        // Not set up yet: open the menu so there's somewhere to start.
-        // Without a tray (developing on a Mac), it's the only way in.
-        if !store.start() || cfg!(not(windows)) {
+        // Not set up yet (neither receiving nor tapping anyone): open the menu
+        // so there's somewhere to start. Without a tray (developing on a
+        // Mac), it's the only way in.
+        senders.start();
+        let receiving = store.start();
+        if (!receiving && senders.state().sessions.is_empty()) || cfg!(not(windows)) {
             Shell::open_menu(cx);
         }
         Shell::store_changed(cx);
@@ -176,14 +211,28 @@ impl Shell {
         }
     }
 
+    fn senders_changed(cx: &mut App) {
+        let model = cx.global::<Shell>().model.clone();
+        model.update(cx, |model, cx| {
+            model.sender_state = model.senders.state();
+            cx.notify();
+        });
+    }
+
+    fn nudge(cx: &mut App) {
+        let model = cx.global::<Shell>().model.read(cx);
+        model.store.nudge();
+        model.senders.nudge();
+    }
+
     fn handle(event: PlatformEvent, cx: &mut App) {
         match event {
             PlatformEvent::TrayClicked => Shell::toggle_menu(cx),
             PlatformEvent::OpenMenu => Shell::open_menu(cx),
             PlatformEvent::Quit => cx.quit(),
-            PlatformEvent::NetworkChanged => cx.global::<Shell>().model.read(cx).store.nudge(),
+            PlatformEvent::NetworkChanged => Shell::nudge(cx),
             PlatformEvent::Resumed => {
-                cx.global::<Shell>().model.read(cx).store.nudge();
+                Shell::nudge(cx);
                 Shell::displays_changed(cx);
             }
             PlatformEvent::DisplaysChanged => Shell::displays_changed(cx),

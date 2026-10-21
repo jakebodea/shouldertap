@@ -1,77 +1,17 @@
 //! Ported from apps/macos/Tests/ShouldertapCoreTests/StoreTests.swift: the
 //! store against a stubbed server.
 
-use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+mod common;
 
-use shouldertap_core::api::{HttpRequest, HttpResponse};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use common::{Stub, eventually};
 use shouldertap_core::*;
 
 const SNAPSHOT: &str = include_str!("../../../macos/Tests/ShouldertapCoreTests/Fixtures/snapshot.json");
 const ACKED_TAP: &str = r#"{"id":"t1","senderId":"s1","senderName":"Rosa","senderColor":"rose","body":"Hi","createdAt":1,"state":"acknowledged","displayedAt":1,"acknowledgedAt":2,"acknowledgedBy":"Test","response":{"kind":"on_it"},"sequence":2}"#;
-
-/// What a stub saw: the request path, method, token and JSON body.
-#[derive(Clone)]
-struct Seen {
-    path: String,
-    method: &'static str,
-    token: Option<String>,
-    body: Option<serde_json::Value>,
-}
-
-type Handler = dyn Fn(&Seen) -> (u16, String) + Send + Sync;
-
-/// Answers from a per-test handler instead of the network, and counts calls.
-struct Stub {
-    handler: Box<Handler>,
-    calls: Mutex<HashMap<String, usize>>,
-    last: Mutex<Vec<Seen>>,
-}
-
-impl Stub {
-    fn new(handler: impl Fn(&Seen) -> (u16, String) + Send + Sync + 'static) -> Arc<Self> {
-        Arc::new(Self {
-            handler: Box::new(handler),
-            calls: Default::default(),
-            last: Default::default(),
-        })
-    }
-
-    fn count(&self, path: &str) -> usize {
-        self.calls.lock().unwrap().get(path).copied().unwrap_or(0)
-    }
-
-    fn body_for(&self, path: &str) -> Option<serde_json::Value> {
-        self.last
-            .lock()
-            .unwrap()
-            .iter()
-            .rev()
-            .find(|seen| seen.path == path)?
-            .body
-            .clone()
-    }
-}
-
-impl Transport for Stub {
-    fn send(&self, request: HttpRequest) -> Result<HttpResponse, String> {
-        let path = request.url.trim_start_matches("https://api.test").to_string();
-        let seen = Seen {
-            path: path.clone(),
-            method: request.method,
-            token: request.token,
-            body: request.body.and_then(|body| serde_json::from_slice(&body).ok()),
-        };
-        *self.calls.lock().unwrap().entry(path).or_default() += 1;
-        self.last.lock().unwrap().push(seen.clone());
-        let (status, body) = (self.handler)(&seen);
-        Ok(HttpResponse {
-            status,
-            body: body.into_bytes(),
-        })
-    }
-}
 
 /// Clones share their contents, so a test keeps a handle on what the store saved.
 #[derive(Clone, Default)]
@@ -127,17 +67,6 @@ fn make_store(
         transport: stub.clone(),
         ack_retry_delay: Duration::from_millis(50),
     })
-}
-
-fn eventually(condition: impl Fn() -> bool) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while Instant::now() < deadline {
-        if condition() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    condition()
 }
 
 #[test]
@@ -361,7 +290,10 @@ fn a_sender_invite_is_refused() {
     let error = store
         .join("https://shouldertap.app/join#inbox123.invite12.secret1234")
         .unwrap_err();
-    assert!(error.message.contains("sender invite"));
+    assert_eq!(
+        error.message,
+        "That's an invite to tap someone. Add it under “You can tap” instead."
+    );
     assert_eq!(persistence.load_credential(), None);
     assert_eq!(store.state().phase, Phase::Setup);
 }

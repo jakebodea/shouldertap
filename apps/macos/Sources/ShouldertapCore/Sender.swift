@@ -2,8 +2,8 @@ import Foundation
 import Observation
 
 // The sender half of the client: what apps/web does in lib/pairing.ts and
-// lib/use-sender.ts, for the native iOS sender (apps/ios). One phone can be
-// paired with several recipients; each pairing is its own sender credential
+// lib/use-sender.ts, for the native senders (apps/ios and the Mac app). One
+// device can be paired with several recipients; each pairing is its own sender credential
 // on that recipient's inbox, with its own taps, outbox and live socket.
 
 // MARK: Invites
@@ -49,8 +49,8 @@ public func newRequestId() -> String {
 
 // MARK: Models
 
-/// One recipient this phone can tap. `token` is the secret; keep it in the
-/// Keychain. Mirrors `Pairing` in apps/web/src/lib/pairing.ts.
+/// One recipient this device can tap. `token` is the secret; keep it in the
+/// Keychain or an owner-only file. Mirrors `Pairing` in apps/web/src/lib/pairing.ts.
 public struct SenderPairing: Sendable, Codable, Hashable, Identifiable {
   public var token: String
   public var credentialId: String
@@ -294,7 +294,7 @@ public final class SenderSession: Identifiable {
 
 // MARK: All pairings
 
-/// Every recipient this phone can tap, persisted and connected.
+/// Every recipient this device can tap, persisted and connected.
 @MainActor @Observable
 public final class SenderStore {
   /// Oldest pairing first.
@@ -345,7 +345,7 @@ public final class SenderStore {
     guard grant.kind == .sender else {
       throw APIError(
         code: .invalidRequest,
-        message: "That code is for pairing another Mac. Enter it in the Shouldertap Mac app.", status: 400)
+        message: "That code links one of your own devices, not someone to tap. Paste it where you set up this device.", status: 400)
     }
     let pairing = SenderPairing(
       token: grant.token, credentialId: grant.credentialId, recipientName: grant.recipientName,

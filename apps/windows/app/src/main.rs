@@ -1,5 +1,5 @@
 //! Shouldertap for Windows: a tray app that covers every display with a tap
-//! until it's answered. The Windows twin of apps/macos; the protocol and
+//! until it's answered, and sends taps to the people this PC can tap. The Windows twin of apps/macos; the protocol and
 //! store live in `shouldertap-core`.
 
 // No console window in release builds.
@@ -13,6 +13,7 @@ mod menu;
 mod overlay;
 mod platform;
 mod qr;
+mod send;
 mod shell;
 #[cfg(not(windows))]
 mod snapshots;

@@ -17,6 +17,7 @@ use crate::assets::{Icon, MARK_PATH};
 use crate::config;
 use crate::platform::{self, TrayAnchor};
 use crate::qr::qr_code;
+use crate::send::{SendTarget, latest_status};
 use crate::shell::{Model, Shell};
 use crate::text_field::{TextField, TextFieldEvent};
 use crate::theme::{self, BRICOLAGE, Surface};
@@ -362,6 +363,8 @@ impl MenuView {
             ))
             .when_some(self.error.clone(), |el, error| el.child(error_text(s, error)))
             .when(self.busy, |el| el.child(muted(s, "Working…")))
+            // A PC can tap people without receiving any taps itself.
+            .child(self.you_can_tap(s, cx))
             .child(self.footer(s, cx))
     }
 
@@ -415,10 +418,94 @@ impl MenuView {
             .child(support)
             .child(self.invite_sender(s, cx))
             .child(section(s, "Can tap you", people))
+            .child(self.you_can_tap(s, cx))
             .child(section(s, "Your devices", your_devices))
             .child(section(s, "Accessibility", vec![self.appearance_row(s, &state, cx)]))
             .child(section(s, "Recent", recent))
             .child(self.footer(s, cx))
+    }
+
+    /// The people this PC can tap: each opens the Send window on them.
+    fn you_can_tap(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let state = self.model.read(cx).sender_state.clone();
+        let now = now_ms();
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if let Some(notice) = state.notice.clone() {
+            let senders = self.model.read(cx).senders.clone();
+            rows.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(muted(s, &notice).flex_1())
+                    .child(
+                        menu_button(s, "dismiss-notice", "OK", None, Kind::Plain, false, false)
+                            .on_click(move |_, _, _| senders.clear_notice()),
+                    )
+                    .into_any_element(),
+            );
+        }
+        for session in &state.sessions {
+            let id = session.id().to_string();
+            rows.push(
+                row(s, SharedString::from(format!("tap-person-{id}")))
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| Shell::open_send(SendTarget::Person(id.clone()), cx))
+                    .child(avatar(&session.pairing.recipient_name, session.color()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .truncate()
+                                    .child(session.pairing.recipient_name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(s.secondary)
+                                    .truncate()
+                                    .child(latest_status(session, now)),
+                            ),
+                    )
+                    .child(svg().path(Icon::Send.path()).size(px(16.)).text_color(s.secondary))
+                    .into_any_element(),
+            );
+        }
+        let first = state.sessions.is_empty();
+        rows.push(
+            row(s, "add-tap-person")
+                .cursor_pointer()
+                .on_click(|_, _, cx| Shell::open_send(SendTarget::Add, cx))
+                .child(glyph(s, Icon::Invite))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(s.secondary)
+                                .child(if first {
+                                    "Tap someone"
+                                } else {
+                                    "Add someone you can tap"
+                                }),
+                        )
+                        .when(first, |el| {
+                            el.child(muted(s, "Got an invite link? Pair to tap them from this PC."))
+                        }),
+                )
+                .into_any_element(),
+        );
+        section(s, "You can tap", rows).into_any_element()
     }
 
     /// Opens the Appearance window; shows what taps look like right now.

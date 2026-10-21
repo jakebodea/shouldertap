@@ -1,6 +1,6 @@
 [package]
 name = "shouldertap-core"
-description = "Shouldertap's receiver: contracts, API client, live socket and store"
+description = "Shouldertap's receiver and sender: contracts, API client, live socket and stores"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -17,3 +17,5 @@ percent-encoding = "2"
 ureq = { version = "3.4", default-features = false, features = ["native-tls"] }
 tungstenite = { version = "0.28", features = ["native-tls"] }
 native-tls = "0.2"
+# Request ids for sends (`new_request_id`).
+getrandom = "0.3"
