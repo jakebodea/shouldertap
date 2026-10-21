@@ -2,11 +2,7 @@ import AppKit
 import ShouldertapCore
 import SwiftUI
 
-/// The Appearance window, opened from the menu. People who tap you choose how
-/// their own taps look (a patron benefit of theirs); here you see that with a
-/// live preview drawn by the real overlay views, and keep the free controls:
-/// show their styles or always plain, and motion. Settings live on the
-/// server, so every computer follows the change.
+/// Motion preferences sync across the recipient’s computers; senders own tap styles.
 @MainActor
 final class AppearanceController {
   private let store: ReceiverStore
@@ -19,7 +15,7 @@ final class AppearanceController {
       let window = NSWindow(
         contentRect: NSRect(x: 0, y: 0, width: 760, height: 720), styleMask: [.titled, .closable, .miniaturizable],
         backing: .buffered, defer: false)
-      window.title = "Tap Appearance"
+      window.title = "Tap Motion"
       window.isReleasedWhenClosed = false
       window.contentView = NSHostingView(rootView: AppearanceView(store: store))
       window.center()
@@ -59,16 +55,15 @@ struct AppearanceView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       VStack(alignment: .leading, spacing: 4) {
-        Text("How taps look on your computers").font(.system(size: 17, weight: .semibold))
+        Text("Tap motion").font(.system(size: 17, weight: .semibold))
         Text(
-          "People who tap you can send their taps in a style of their choosing. You never pay to see it, and you can always show every tap plain."
+          "Each tap arrives in the style its sender chose. You can reduce its animation."
         )
         .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
       preview
       senders
       Divider()
-      senderThemes
       motion
       if !store.appearanceSupported {
         Text("This server doesn't support appearance settings yet. Taps show in Default.")
@@ -140,28 +135,6 @@ struct AppearanceView: View {
     }
   }
 
-  /// The free override: every sender's style, or every tap plain.
-  private var senderThemes: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Picker(
-        "Senders' styles",
-        selection: Binding(get: { store.appearance.senderThemes }, set: { save(senderThemes: $0) })
-      ) {
-        Text("Show their styles").tag(SenderThemePreference.show)
-        Text("Always plain").tag(SenderThemePreference.plain)
-      }
-      .pickerStyle(.segmented)
-      .frame(width: 320)
-      .disabled(busy || !store.appearanceSupported)
-      Text(
-        store.appearance.senderThemes == .plain
-          ? "Every tap shows in Default, whoever sent it."
-          : "Each tap shows in the style its sender chose. Answering works the same in every style."
-      )
-      .font(.system(size: 12)).foregroundStyle(.secondary)
-    }
-  }
-
   private var motion: some View {
     VStack(alignment: .leading, spacing: 6) {
       Picker(
@@ -195,12 +168,12 @@ struct AppearanceView: View {
     model.arrival += 1
   }
 
-  private func save(motion: MotionPreference? = nil, senderThemes: SenderThemePreference? = nil) {
+  private func save(motion: MotionPreference) {
     busy = true
     error = nil
     Task {
       defer { busy = false }
-      do { try await store.updateAppearance(motion: motion, senderThemes: senderThemes) } catch {
+      do { try await store.updateAppearance(motion: motion) } catch {
         self.error = error.localizedDescription
       }
     }

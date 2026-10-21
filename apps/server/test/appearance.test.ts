@@ -21,7 +21,7 @@ describe("the recipient's free appearance settings", () => {
       }
     }));
 
-  it("saves the plain override and reduced motion for anyone, keeping the other field, across restart", () =>
+  it("ignores legacy plain overrides and preserves reduced motion across restart", () =>
     withFile(async (path) => {
       const first = open(path);
       migrate(first.sqlite);
@@ -46,8 +46,8 @@ describe("the recipient's free appearance settings", () => {
         )
       );
       expect(saved).toStrictEqual({
-        plain: { motion: "system", senderThemes: "plain" },
-        motion: { motion: "reduced", senderThemes: "plain" },
+        plain: { motion: "system", senderThemes: "show" },
+        motion: { motion: "reduced", senderThemes: "show" },
       });
       first.sqlite.close();
       const reopened = open(path);
@@ -57,7 +57,7 @@ describe("the recipient's free appearance settings", () => {
         );
         expect(read).toStrictEqual({
           motion: "reduced",
-          senderThemes: "plain",
+          senderThemes: "show",
         });
       } finally {
         reopened.sqlite.close();
@@ -74,6 +74,25 @@ describe("the recipient's free appearance settings", () => {
         )
         .run();
       migrate(sqlite, { after: "20261021162409_tap_appearance" });
+      try {
+        const read = await Effect.runPromise(
+          Effect.scoped(db.pipe(Effect.flatMap(readAppearance)))
+        );
+        expect(read).toStrictEqual({ motion: "reduced", senderThemes: "show" });
+      } finally {
+        sqlite.close();
+      }
+    }));
+
+  it("ignores previously saved plain preferences without losing motion", () =>
+    withFile(async (path) => {
+      const { sqlite, db } = open(path);
+      migrate(sqlite);
+      sqlite
+        .prepare(
+          "INSERT INTO appearance (id, motion, sender_themes, updated_at, updated_by) VALUES (1, 'reduced', 'plain', 0, 'mac_1')"
+        )
+        .run();
       try {
         const read = await Effect.runPromise(
           Effect.scoped(db.pipe(Effect.flatMap(readAppearance)))

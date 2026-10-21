@@ -10,7 +10,7 @@ use gpui::{
 };
 use shouldertap_core::{
     ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, MAX_NAME_LENGTH, Patron, Phase,
-    ReceiverStore, ResponseKind, SenderInvite, SenderThemePreference, Tap, now_ms,
+    ReceiverStore, ResponseKind, SenderInvite, Tap, now_ms,
 };
 
 use crate::assets::{Icon, MARK_PATH};
@@ -416,7 +416,7 @@ impl MenuView {
             .child(self.invite_sender(s, cx))
             .child(section(s, "Can tap you", people))
             .child(section(s, "Your devices", your_devices))
-            .child(section(s, "Appearance", vec![self.appearance_row(s, &state, cx)]))
+            .child(section(s, "Accessibility", vec![self.appearance_row(s, &state, cx)]))
             .child(section(s, "Recent", recent))
             .child(self.footer(s, cx))
     }
@@ -431,13 +431,13 @@ impl MenuView {
         row(s, "appearance")
             .cursor_pointer()
             .on_click(|_, _, cx| Shell::open_appearance(cx))
-            .child(div().flex_1().font_weight(FontWeight::MEDIUM).child("Tap appearance"))
+            .child(div().flex_1().font_weight(FontWeight::MEDIUM).child("Tap motion"))
             .child(div().text_size(px(12.)).text_color(s.secondary).child(format!(
                 "{} ›",
-                if state.appearance.sender_themes == SenderThemePreference::Plain {
-                    "Always plain"
+                if state.appearance.motion == shouldertap_core::MotionPreference::Reduced {
+                    "Reduced"
                 } else {
-                    "Senders' styles"
+                    "Follow system"
                 }
             )))
             .into_any_element()
@@ -494,7 +494,7 @@ impl MenuView {
         }
         div().flex().flex_col().gap(px(6.))
             .child(div().font_weight(FontWeight::SEMIBOLD).child("Patron themes"))
-            .child(muted(s, "Shouldertap is free to receive and answer. Patron support belongs to the people who tap you: it lets them send their taps in a style, to everyone they tap. You never pay to see it, and Tap appearance can show every tap plain."))
+            .child(muted(s, "Shouldertap is free to receive and answer. Patron support belongs to the people who tap you: it lets them send their taps in a style, to everyone they tap. You never pay to see it."))
             .children(actions).children(self.plan_messages(s)).into_any_element()
     }
 

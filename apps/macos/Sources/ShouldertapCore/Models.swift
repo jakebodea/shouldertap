@@ -322,7 +322,7 @@ public enum MotionPreference: String, CaseIterable, Sendable, Codable, Hashable 
   }
 }
 
-/// The recipient's free override of senders' themes.
+/// Legacy wire values, retained for compatibility. They do not control rendering.
 public enum SenderThemePreference: String, CaseIterable, Sendable, Codable, Hashable {
   /// Each tap in the theme its sender sent it with.
   case show
@@ -359,9 +359,9 @@ public struct Appearance: Sendable, Decodable, Hashable {
     senderThemes = (try? container.decode(SenderThemePreference.self, forKey: .senderThemes)) ?? .show
   }
 
-  /// The theme to draw `tap` in: its sender's, unless the recipient chose plain.
+  /// The theme to draw `tap` in: its sender's style.
   public func theme(for tap: Tap) -> TapTheme {
-    senderThemes == .plain ? .default : tap.senderTheme
+    tap.senderTheme
   }
 
   /// Calm entrances when the system asks for them or the recipient does.

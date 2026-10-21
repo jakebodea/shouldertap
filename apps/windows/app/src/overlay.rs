@@ -147,7 +147,7 @@ impl OverlayView {
 }
 
 /// How the recipient's computers show the active tap: in its own sender's
-/// theme (or plain, if the recipient chose that), with their motion setting.
+/// theme, with the recipient’s motion setting.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
     pub theme: TapTheme,

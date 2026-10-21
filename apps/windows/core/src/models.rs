@@ -435,10 +435,7 @@ pub struct Appearance {
 impl Appearance {
     /// The theme to draw `tap` in: its sender's, unless the recipient chose plain.
     pub fn theme_for(&self, tap: &Tap) -> TapTheme {
-        match self.sender_themes {
-            SenderThemePreference::Plain => TapTheme::Default,
-            SenderThemePreference::Show => tap.sender_theme(),
-        }
+        tap.sender_theme()
     }
 
     /// Calm entrances when the system asks for them or the recipient does.
