@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   forgetIntent,
+  hasUnsavedSenders,
+  membershipChoices,
   patronPlan,
   resolveIntent,
   styleOffer,
@@ -56,6 +58,30 @@ describe("patron plan on this browser", () => {
         checkoutEnabled: false,
       })
     ).toStrictEqual({ kind: "use", patronId: "patronA" });
+  });
+
+  it("requires a choice when the account has multiple memberships", () => {
+    expect(
+      patronPlan({
+        localPatronId: null,
+        accountPatronIds: ["patronA", "patronB"],
+        checkoutEnabled: true,
+      })
+    ).toStrictEqual({ kind: "choose" });
+    expect(
+      patronPlan({
+        localPatronId: "patronB",
+        accountPatronIds: ["patronA", "patronB"],
+        checkoutEnabled: true,
+      })
+    ).toStrictEqual({ kind: "here" });
+    expect(
+      patronPlan({
+        localPatronId: "patronC",
+        accountPatronIds: ["patronA", "patronB"],
+        checkoutEnabled: true,
+      })
+    ).toStrictEqual({ kind: "kept" });
   });
 
   it("keeps a different membership already on this browser", () => {
@@ -122,5 +148,83 @@ describe("Style's patron call to action", () => {
         checkoutEnabled: false,
       })
     ).toBe("manage");
+  });
+});
+
+describe("saved sender identities", () => {
+  it("does not mistake another person in the same inbox for a saved sender", () => {
+    expect(
+      hasUnsavedSenders(
+        [{ inboxId: "inboxA", credentialId: "senderB" }],
+        [{ inboxId: "inboxA", credentialId: "senderA" }]
+      )
+    ).toBeTruthy();
+  });
+
+  it("recognizes a restored alias through its canonical sender identity", () => {
+    expect(
+      hasUnsavedSenders(
+        [{ inboxId: "inboxA", credentialId: "senderA" }],
+        [{ inboxId: "inboxA", credentialId: "senderA" }]
+      )
+    ).toBeFalsy();
+    expect(
+      hasUnsavedSenders(
+        [{ inboxId: "inboxB", credentialId: "senderA" }],
+        [{ inboxId: "inboxA", credentialId: "senderA" }]
+      )
+    ).toBeTruthy();
+  });
+});
+
+describe("membership choice labels", () => {
+  it("distinguishes memberships by billing status and paid period", () => {
+    const choices = membershipChoices([
+      {
+        id: "a",
+        name: "Patron membership",
+        billing: { status: "active", paidUntil: Date.UTC(2027, 0, 1) },
+      },
+      {
+        id: "b",
+        name: "Patron membership",
+        billing: { status: "inactive", paidUntil: null },
+      },
+    ]);
+    expect(
+      choices.map((choice) => ({
+        detail: choice.detail,
+        canChoose: choice.canChoose,
+      }))
+    ).toStrictEqual([
+      { detail: "Active · Paid through Jan 1, 2027", canChoose: true },
+      { detail: "Inactive", canChoose: true },
+    ]);
+  });
+
+  it("does not offer indistinguishable memberships or missing billing facts", () => {
+    const choices = membershipChoices([
+      {
+        id: "a",
+        name: "Patron membership",
+        billing: { status: "inactive", paidUntil: null },
+      },
+      {
+        id: "b",
+        name: "Patron membership",
+        billing: { status: "inactive", paidUntil: null },
+      },
+      { id: "c", name: "Other membership" },
+    ]);
+    expect(
+      choices.map((choice) => ({
+        detail: choice.detail,
+        canChoose: choice.canChoose,
+      }))
+    ).toStrictEqual([
+      { detail: "Inactive", canChoose: false },
+      { detail: "Inactive", canChoose: false },
+      { detail: "Membership details unavailable", canChoose: false },
+    ]);
   });
 });

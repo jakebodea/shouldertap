@@ -60,12 +60,18 @@ public final class AccountStore {
   }
   public func refresh() async {
     await loadAvailability()
-    guard token != nil else { return }
+    guard let sessionToken = token else { return }
     do {
-      let current: AccountSession = try await request("GET", "/api/auth/get-session")
+      let current: AccountSession? = try await request("GET", "/api/auth/get-session")
+      guard token == sessionToken else { return }
+      guard let current else { throw DevicePollError(code: "unauthorized", status: 401) }
+      let refreshed: AccountData = try await request("GET", "/account/data")
+      guard token == sessionToken else { return }
       email = current.user.email
-      data = try await request("GET", "/account/data")
+      data = refreshed
+      error = nil
     } catch {
+      guard token == sessionToken else { return }
       if let failure = error as? DevicePollError, failure.status == 401 {
         vault.delete(); token = nil; email = nil; data = nil
       }
@@ -140,11 +146,17 @@ public final class AccountStore {
       notice = "Saved to your account."
     } catch { self.error = error.localizedDescription }
   }
-  /// Identities on the account that `tokens` (this device's credentials) don't already cover.
-  public func hasUnsaved(tokens: [String]) -> Bool {
+  /// Receiver ownership and sender identity are separate even when they share an inbox.
+  /// Restored senders carry their canonical credentialId, not the individual token key id.
+  public func hasUnsaved(inboxToken: String?, senders: [SenderPairing] = []) -> Bool {
     guard let data else { return false }
-    let saved = Set(data.inboxes.map(\.id) + data.senders.compactMap(\.inboxId))
-    return tokens.compactMap(tokenInboxId).contains { !saved.contains($0) }
+    if let inboxToken {
+      guard let id = tokenInboxId(inboxToken), data.inboxes.contains(where: { $0.id == id }) else { return true }
+    }
+    return senders.contains { pairing in
+      guard let inboxID = pairing.inboxId else { return true }
+      return !data.senders.contains { $0.id == "\(inboxID):\(pairing.credentialId)" }
+    }
   }
   public func restore(kind: String, id: String, deviceName: String, platform: String) async throws -> CredentialGrant {
     try await request("POST", "/account/restore", body: ["kind": kind, "id": id, "deviceName": deviceName, "platform": platform])

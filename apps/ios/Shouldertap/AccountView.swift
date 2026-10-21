@@ -35,6 +35,8 @@ struct AccountView: View {
         } footer: { status(.top) }
       }
     }
+    .scrollContentBackground(.hidden)
+    .background(Paper.paper)
     .task {
       await account.refresh()
       usStorefront = await Storefront.current?.countryCode == "USA"
@@ -92,7 +94,7 @@ struct AccountView: View {
     }
     let tokens = localTokens
     Section {
-      if account.hasUnsaved(tokens: tokens) {
+      if account.hasUnsaved(inboxToken: inbox.accountCredential, senders: senders.sessions.map(\.pairing)) {
         Button {
           area = .device
           Task { await account.adopt(tokens: tokens) }

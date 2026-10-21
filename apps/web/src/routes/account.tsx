@@ -4,7 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { DocPage, DocSection } from "@/components/document";
-import { forgetIntent, patronPlan, resolveIntent } from "@/lib/account-flow";
+import {
+  forgetIntent,
+  hasUnsavedSenders,
+  membershipChoices,
+  patronPlan,
+  resolveIntent,
+} from "@/lib/account-flow";
 import type { PatronPlan } from "@/lib/account-flow";
 import { api } from "@/lib/api";
 import { addPairing, inboxOf, loadPairings } from "@/lib/pairing";
@@ -18,6 +24,8 @@ interface Resource {
   name: string;
   kind: "sender" | "patron";
   inboxId?: string;
+  credentialId?: string;
+  billing?: { status: string; paidUntil: number | null };
 }
 
 type Section = "browser" | "connections" | "patron";
@@ -38,6 +46,7 @@ const leaveForStyle = () => {
 
 const PatronPanel = ({
   plan,
+  memberships,
   busy,
   canStyle,
   notice,
@@ -46,6 +55,7 @@ const PatronPanel = ({
   onCheckout,
 }: {
   plan: PatronPlan;
+  memberships: readonly Resource[];
   busy: boolean;
   canStyle: boolean;
   notice?: string;
@@ -95,6 +105,39 @@ const PatronPanel = ({
           </button>
           {manage}
         </Actions>
+      </>
+    ),
+    choose: (
+      <>
+        <p>Choose the membership to use on this browser.</p>
+        {membershipChoices(memberships).map((membership) => (
+          <div
+            className="border-line flex flex-wrap items-center justify-between gap-3 border-t py-4"
+            key={membership.id}
+          >
+            <div>
+              <strong>{membership.name}</strong>
+              <p className="text-tone text-sm">{membership.detail}</p>
+            </div>
+            <button
+              className="pill"
+              disabled={busy || !membership.canChoose}
+              type="button"
+              onClick={() => onUse(membership.id)}
+            >
+              Use this membership
+            </button>
+          </div>
+        ))}
+        {membershipChoices(memberships).some(
+          (membership) => !membership.canChoose
+        ) ? (
+          <p>
+            Some memberships cannot be distinguished here. Open billing to
+            review them, or contact support before choosing.
+          </p>
+        ) : null}
+        <Actions>{manage}</Actions>
       </>
     ),
     kept: (
@@ -304,9 +347,34 @@ const Account = () => {
         senders: Omit<Resource, "kind">[];
         patrons: Omit<Resource, "kind">[];
       };
+      let billing: {
+        memberships: {
+          id: string;
+          status: { patron: { status: string; paidUntil: number | null } };
+        }[];
+      } | null = null;
+      if (data.patrons.length > 1) {
+        try {
+          const billingResponse = await fetch(
+            `${accountOrigin}/account/patron/status`,
+            { credentials: "include" }
+          );
+          if (billingResponse.ok) {
+            billing = await billingResponse.json();
+          }
+        } catch {
+          /* Keep ambiguous choices disabled when billing is unavailable. */
+        }
+      }
       setResources([
         ...data.senders.map((item) => ({ ...item, kind: "sender" as const })),
-        ...data.patrons.map((item) => ({ ...item, kind: "patron" as const })),
+        ...data.patrons.map((item) => ({
+          ...item,
+          kind: "patron" as const,
+          billing: billing?.memberships.find(
+            (membership) => membership.id === item.id
+          )?.status.patron,
+        })),
       ]);
       setLoadError(false);
     } catch {
@@ -339,8 +407,15 @@ const Account = () => {
   const isLocal = (resource: Resource) =>
     pairings.some((pairing) => inboxOf(pairing.token) === resource.inboxId);
   const unsaved =
-    pairings.some(
-      (pairing) => !senders.some((s) => s.inboxId === inboxOf(pairing.token))
+    hasUnsavedSenders(
+      pairings.map((pairing) => ({
+        inboxId: inboxOf(pairing.token),
+        credentialId: pairing.credentialId,
+      })),
+      senders.map((sender) => ({
+        inboxId: sender.inboxId ?? null,
+        credentialId: sender.credentialId ?? "",
+      }))
     ) ||
     (localPatronId !== null && !patrons.some((p) => p.id === localPatronId));
 
@@ -466,6 +541,7 @@ const Account = () => {
         }
       }}
       plan={plan}
+      memberships={patrons}
     />
   );
 

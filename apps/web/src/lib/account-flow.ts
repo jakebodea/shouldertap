@@ -70,6 +70,8 @@ export type PatronPlan =
   | { kind: "here" }
   /** The account has a membership this browser can add. */
   | { kind: "use"; patronId: string }
+  /** More than one membership requires an explicit choice. */
+  | { kind: "choose" }
   /** This browser has a different membership; it stays. */
   | { kind: "kept" }
   /** This browser's membership isn't saved to the account yet. */
@@ -92,6 +94,9 @@ export const patronPlan = ({
     }
     return accountPatronIds.length ? { kind: "kept" } : { kind: "save" };
   }
+  if (accountPatronIds.length > 1) {
+    return { kind: "choose" };
+  }
   const [first] = accountPatronIds;
   if (first) {
     return { kind: "use", patronId: first };
@@ -113,4 +118,63 @@ export const styleOffer = ({
     return "manage";
   }
   return checkoutEnabled ? "subscribe" : "soon";
+};
+
+interface SenderIdentity {
+  inboxId: string | null;
+  credentialId: string;
+}
+
+/** Same inbox can contain several people; adoption tracks the canonical sender. */
+export const hasUnsavedSenders = (
+  local: readonly SenderIdentity[],
+  saved: readonly SenderIdentity[]
+) =>
+  local.some(
+    (pairing) =>
+      !saved.some(
+        (sender) =>
+          sender.inboxId === pairing.inboxId &&
+          sender.credentialId === pairing.credentialId
+      )
+  );
+
+interface MembershipChoice {
+  id: string;
+  name: string;
+  billing?: { status: string; paidUntil: number | null };
+}
+
+/** Only enable choices that the available billing facts let a person distinguish. */
+export const membershipChoices = (memberships: readonly MembershipChoice[]) => {
+  const labels: Record<string, string> = {
+    none: "No subscription",
+    active: "Active",
+    ending: "Ending",
+    payment_issue: "Payment issue",
+    inactive: "Inactive",
+  };
+  const choices = memberships.map((membership) => {
+    const { billing } = membership;
+    const date = billing?.paidUntil
+      ? new Intl.DateTimeFormat("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          timeZone: "UTC",
+        }).format(billing.paidUntil)
+      : null;
+    const detail = billing
+      ? `${labels[billing.status] ?? "Status unavailable"}${date ? ` · Paid through ${date}` : ""}`
+      : "Membership details unavailable";
+    return { ...membership, detail };
+  });
+  return choices.map((choice) => ({
+    ...choice,
+    canChoose:
+      Boolean(choice.billing) &&
+      choices.filter(
+        (other) => other.name === choice.name && other.detail === choice.detail
+      ).length === 1,
+  }));
 };

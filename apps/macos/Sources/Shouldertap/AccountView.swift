@@ -117,7 +117,7 @@ struct AccountView: View {
     }
     let tokens = [inbox.accountCredential].compactMap { $0 }
     Section {
-      if account.hasUnsaved(tokens: tokens) {
+      if account.hasUnsaved(inboxToken: inbox.accountCredential) {
         HStack {
           Text("Save so you can restore this inbox.")
           Spacer()
