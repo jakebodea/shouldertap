@@ -12,6 +12,7 @@ import {
 import type {
   AcknowledgeRequest,
   ActivityTokenRequest,
+  Appearance,
   ConnectTicket,
   CreateInboxRequest,
   CreateInviteRequest,
@@ -28,6 +29,7 @@ import type {
   ServerEvent,
   Snapshot,
   Tap,
+  UpdateAppearanceRequest,
 } from "@shouldertap/domain";
 import type { RuntimeContext } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
@@ -50,6 +52,7 @@ import {
   startActivityPayload,
 } from "./apns";
 import type { ApnsRequest, PushContext } from "./apns";
+import { readAppearance, saveAppearance } from "./appearance";
 import { isObjectionable } from "./content";
 import { patronOf } from "./patron";
 import type { PatronEvent } from "./patron";
@@ -227,6 +230,11 @@ export interface InboxRpc {
     push?: PushContext
   ) => Rpc<Tap, Unauthorized | Conflict | TooManyRequests | InvalidRequest>;
   readonly snapshot: (token: ParsedToken) => Rpc<Snapshot, Unauthorized>;
+  /** The recipient's own screens; devices only. */
+  readonly updateAppearance: (
+    token: ParsedToken,
+    request: UpdateAppearanceRequest
+  ) => Rpc<Appearance, Unauthorized | Conflict>;
 }
 
 type InboxShape = InboxRpc &
@@ -855,6 +863,11 @@ export const InboxLive = Inbox.make(
           const byId = new Map(
             [...recent, ...pending].map((r) => [r.tap.id, toTap(r)])
           );
+          const patron = patronOf(
+            (yield* db.select().from(patronEvents)).map((r) => r.event),
+            yield* now,
+            (row?.paidAt ?? null) !== null
+          );
           return {
             kind: "device" as const,
             credentialId: actor.id,
@@ -865,13 +878,26 @@ export const InboxLive = Inbox.make(
             ),
             credentials: yield* listCredentials,
             plan: planOf(row, yield* now),
-            patron: patronOf(
-              (yield* db.select().from(patronEvents)).map((r) => r.event),
-              yield* now,
-              (row?.paidAt ?? null) !== null
-            ),
+            patron,
+            appearance: yield* readAppearance(db, patron),
           };
         }, orDieOnStorage),
+
+        updateAppearance: Effect.fn("Inbox.updateAppearance")(
+          function* updateAppearance(token, request) {
+            const actor = yield* requireDevice(token);
+            const saved = yield* saveAppearance(
+              db,
+              request,
+              actor.id,
+              yield* now
+            );
+            // Other computers refetch the snapshot and restyle.
+            yield* broadcastCredentials;
+            return saved;
+          },
+          orDieOnStorage
+        ),
 
         createInvite: Effect.fn("Inbox.createInvite")(function* createInvite(
           token,

@@ -313,6 +313,12 @@ impl ApiClient {
         self.send::<(), _>("POST", "/v1/patron/manage", None)
     }
 
+    /// Devices only. `Conflict` for a theme other than Default without active
+    /// patron support; servers older than themes answer `NotFound`.
+    pub fn update_appearance(&self, update: &UpdateAppearance) -> Result<Appearance, ApiError> {
+        self.send("PUT", "/v1/appearance", Some(update))
+    }
+
     pub fn connect_ticket(&self) -> Result<ConnectTicket, ApiError> {
         self.send::<(), _>("POST", "/v1/connect-tickets", None)
     }

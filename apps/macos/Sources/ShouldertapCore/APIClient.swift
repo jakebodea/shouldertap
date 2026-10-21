@@ -159,6 +159,12 @@ public struct APIClient: Sendable {
     try await send("POST", "/v1/patron/prompt")
   }
 
+  /// Devices only. `conflict` for a theme other than Default without active
+  /// patron support; servers older than themes answer `notFound`.
+  public func updateAppearance(theme: TapTheme?, motion: MotionPreference?) async throws -> Appearance {
+    try await send("PUT", "/v1/appearance", body: UpdateAppearance(theme: theme, motion: motion))
+  }
+
   /// `ws(s)://…/v1/connect?ticket=…`: the one-time ticket keeps the long-lived
   /// credential out of URLs.
   public func socketURL(ticket: String) -> URL? {
@@ -182,6 +188,10 @@ public struct APIClient: Sendable {
     var name: String
     var color: PersonColor?  // omitted when nil, like the optional key in the contract
     var platform: DevicePlatform?  // likewise
+  }
+  private struct UpdateAppearance: Encodable {
+    var theme: TapTheme?  // omitted when nil: keep the saved value
+    var motion: MotionPreference?
   }
   private struct Revoked: Decodable { var revoked: Bool }
   private struct Registered: Decodable { var registered: Bool }

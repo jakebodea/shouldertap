@@ -1,12 +1,17 @@
+import { MOTION_PREFERENCES, TAP_THEMES } from "@shouldertap/domain";
 import type {
   CredentialKind,
   DevicePlatform,
+  MotionPreference,
   PersonColor,
   PushEnvironment,
   TapResponse,
   TapState,
+  TapTheme,
 } from "@shouldertap/domain";
+import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   sqliteTable,
@@ -52,6 +57,38 @@ export const patronCheckout = sqliteTable("patron_checkout", {
 export const refundedOrders = sqliteTable("refunded_orders", {
   id: text("id").primaryKey(),
 });
+
+/** `'a', 'b'` for a CHECK constraint over a fixed set of literals. */
+const oneOf = (values: readonly string[]) =>
+  sql.raw(values.map((v) => `'${v}'`).join(", "));
+
+/**
+ * At most one row: how taps look on this recipient's computers. No row means
+ * Default and system motion. The CHECK constraints mirror the domain's
+ * literal lists, so storing a theme no client can render needs a migration.
+ */
+export const appearance = sqliteTable(
+  "appearance",
+  {
+    id: integer("id").primaryKey(),
+    theme: text("theme").$type<TapTheme>().notNull().default("default"),
+    motion: text("motion")
+      .$type<MotionPreference>()
+      .notNull()
+      .default("system"),
+    updatedAt: integer("updated_at").notNull(),
+    /** The device credential that last changed it. */
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    check("appearance_single_row", sql`${table.id} = 1`),
+    check("appearance_theme", sql`${table.theme} in (${oneOf(TAP_THEMES)})`),
+    check(
+      "appearance_motion",
+      sql`${table.motion} in (${oneOf(MOTION_PREFERENCES)})`
+    ),
+  ]
+);
 
 /** Linked Macs and iPhones ("device") and trusted senders ("sender"). */
 export const credentials = sqliteTable("credentials", {

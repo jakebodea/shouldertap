@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   collectProtocolSyncErrors,
   parseRustSwatches,
+  parseRustThemes,
+  parseSwiftThemes,
   parseTsSwatches,
+  parseTsThemes,
 } from "./check-protocol-sync.ts";
 
 describe("check-protocol-sync", () => {
@@ -20,5 +23,23 @@ describe("check-protocol-sync", () => {
     );
     expect(ts.get("moss")?.ink).toBe("#f4f1e8");
     expect(rust.get("moss")?.ink).toBe("#000000");
+  });
+
+  it("reads each mirror's theme list so a missing renderer is caught", () => {
+    expect(
+      parseTsThemes(
+        `export const TAP_THEMES = [\n  "default",\n  "note",\n] as const;`
+      )
+    ).toStrictEqual(["default", "note"]);
+    expect(
+      parseSwiftThemes(
+        "public enum TapTheme: String, CaseIterable {\n  case `default`, note\n"
+      )
+    ).toStrictEqual(["default", "note"]);
+    expect(
+      parseRustThemes(
+        "impl TapTheme {\n    pub const ALL: [TapTheme; 1] = [Self::Default];"
+      )
+    ).toStrictEqual(["default"]);
   });
 });

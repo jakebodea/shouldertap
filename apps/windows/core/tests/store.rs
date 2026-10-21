@@ -461,3 +461,52 @@ fn display_is_reported_once() {
     store.did_display("t1");
     assert!(eventually(|| stub.count("/v1/taps/t1/displayed") == 2));
 }
+
+const PATRON_SNAPSHOT: &str = r#"{"kind":"device","credentialId":"d1","recipientName":"Jake","sequence":1,"taps":[],"credentials":[],"plan":{"status":"paid","trialEndsAt":1},"patron":{"active":true,"status":"active","paidUntil":1824163200000,"canManage":true,"canSubscribe":false,"legacySupporter":false},"appearance":{"theme":"note","shownTheme":"note","motion":"system","canChooseTheme":true}}"#;
+
+#[test]
+fn saving_appearance_sends_only_the_changed_field_and_adopts_the_servers_answer() {
+    let stub = Stub::new(|seen| match (seen.method, seen.path.as_str()) {
+        ("GET", "/v1/me") => (200, PATRON_SNAPSHOT.into()),
+        ("PUT", "/v1/appearance") => (
+            200,
+            r#"{"theme":"terminal","shownTheme":"terminal","motion":"system","canChooseTheme":true}"#.into(),
+        ),
+        _ => (503, String::new()),
+    });
+    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
+    store.start();
+    store.refresh();
+    assert!(eventually(|| store.state().appearance.theme == TapTheme::Note));
+    store
+        .update_appearance(UpdateAppearance {
+            theme: Some(TapTheme::Terminal),
+            motion: None,
+        })
+        .unwrap();
+    assert_eq!(stub.body_for("/v1/appearance").unwrap(), serde_json::json!({"theme": "terminal"}));
+    // October 21, 2026: inside the paid period.
+    assert_eq!(store.state().theme_on_screen(1_792_540_800_000.0), TapTheme::Terminal);
+}
+
+#[test]
+fn a_refused_theme_keeps_the_saved_appearance() {
+    let stub = Stub::new(|seen| match (seen.method, seen.path.as_str()) {
+        ("PUT", "/v1/appearance") => (
+            409,
+            r#"{"_tag":"Conflict","message":"Tap themes are part of patron support. Default is always available."}"#
+                .into(),
+        ),
+        _ => (503, String::new()),
+    });
+    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
+    store.start();
+    let error = store
+        .update_appearance(UpdateAppearance {
+            theme: Some(TapTheme::Billboard),
+            motion: None,
+        })
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Conflict);
+    assert_eq!(store.state().theme_on_screen(now_ms()), TapTheme::Default);
+}

@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 import {
   AcknowledgeRequest,
   ActivityTokenRequest,
+  Appearance,
   Checkout,
   ConnectTicket,
   CreateInboxRequest,
@@ -21,6 +22,7 @@ import {
   SendTapRequest,
   Snapshot,
   Tap,
+  UpdateAppearanceRequest,
 } from "./contracts";
 import {
   Conflict,
@@ -139,6 +141,13 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
     }),
     HttpApiEndpoint.post("claimSupportPrompt", "/patron/prompt", {
       success: Schema.Struct({ show: Schema.Boolean }),
+    }),
+    // The recipient's own screens; devices only. Conflict: a theme other
+    // than Default needs active patron support.
+    HttpApiEndpoint.put("updateAppearance", "/appearance", {
+      payload: UpdateAppearanceRequest,
+      success: Appearance,
+      error: Conflict,
     }),
     HttpApiEndpoint.post("connectTicket", "/connect-tickets", {
       success: ConnectTicket.pipe(created),

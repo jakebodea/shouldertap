@@ -354,3 +354,75 @@ private func jsonBody(_ request: URLRequest) -> [String: String]? {
   }
   return try? JSONDecoder().decode([String: String].self, from: data)
 }
+
+private let patronSnapshot =
+    #"{"kind":"device","credentialId":"d1","recipientName":"Jake","sequence":1,"taps":[],"credentials":[],"plan":{"status":"paid","trialEndsAt":1},"patron":{"active":true,"status":"active","paidUntil":1824163200000,"canManage":true,"canSubscribe":false,"legacySupporter":false},"appearance":{"theme":"note","shownTheme":"note","motion":"system","canChooseTheme":true}}"#
+
+@Suite(.serialized) @MainActor struct AppearanceBehavior {
+  @Test func savingSendsOnlyTheChangedFieldAndAdoptsTheServersAnswer() async {
+    let sent = Sent()
+    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
+      switch (request.httpMethod, request.url!.path) {
+      case ("GET", "/v1/me"): return (200, patronSnapshot)
+      case ("PUT", "/v1/appearance"):
+        sent.body = jsonBody(request)
+        return (200, #"{"theme":"terminal","shownTheme":"terminal","motion":"system","canChooseTheme":true}"#)
+      default: return (503, "")
+      }
+    }
+    store.start()
+    store.refresh()
+    #expect(await eventually { store.appearance.theme == .note })
+    try? await store.updateAppearance(theme: .terminal)
+    #expect(sent.body == ["theme": "terminal"])
+    #expect(store.appearance.shownTheme == .terminal)
+    // October 21, 2026: inside the paid period.
+    #expect(store.themeOnScreen(now: Date(timeIntervalSince1970: 1_792_540_800)) == .terminal)
+  }
+
+  @Test func refusedThemeKeepsTheSavedAppearance() async {
+    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
+      switch (request.httpMethod, request.url!.path) {
+      case ("PUT", "/v1/appearance"):
+        return (409, #"{"_tag":"Conflict","message":"Tap themes are part of patron support. Default is always available."}"#)
+      default: return (503, "")
+      }
+    }
+    store.start()
+    await #expect(throws: APIError.self) { try await store.updateAppearance(theme: .billboard) }
+    #expect(store.appearance == .standard)
+    #expect(store.themeOnScreen() == .default)
+  }
+}
+
+@Suite struct AppearanceContracts {
+  private func receiver(_ json: String) throws -> ReceiverSnapshot {
+    guard case let .receiver(snapshot) = try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8)) else {
+      throw CocoaError(.coderReadCorrupt)
+    }
+    return snapshot
+  }
+
+  @Test func unknownThemesAndMotionFromANewerServerShowDefault() throws {
+    let snapshot = try receiver(
+      #"{"kind":"device","credentialId":"d","recipientName":"J","sequence":1,"taps":[],"credentials":[],"appearance":{"theme":"neon","shownTheme":"neon","motion":"wiggle","canChooseTheme":"yes"}}"#)
+    #expect(
+      snapshot.appearance
+        == Appearance(theme: .default, shownTheme: .default, motion: .system, canChooseTheme: false))
+  }
+
+  @Test func aLapsedPaidPeriodFallsBackToDefaultWithoutANewSnapshot() throws {
+    let snapshot = try receiver(
+      #"{"kind":"device","credentialId":"d","recipientName":"J","sequence":1,"taps":[],"credentials":[],"patron":{"active":true,"status":"ending","paidUntil":1824163200000,"canManage":true,"canSubscribe":false,"legacySupporter":false},"appearance":{"theme":"broadsheet","shownTheme":"broadsheet","motion":"reduced","canChooseTheme":true}}"#)
+    let appearance = try #require(snapshot.appearance)
+    // Paid through October 21, 2027 (1824163200000 ms).
+    let before = Date(timeIntervalSince1970: 1_824_076_800)  // October 20, 2027
+    let after = Date(timeIntervalSince1970: 1_824_249_600)  // October 22, 2027
+    #expect(appearance.themeOnScreen(patron: snapshot.patron, now: before) == .broadsheet)
+    #expect(appearance.themeOnScreen(patron: snapshot.patron, now: after) == .default)
+    #expect(appearance.themeOnScreen(patron: nil, now: before) == .default)
+    #expect(appearance.reducesMotion(systemSetting: false) == true)
+    #expect(Appearance.standard.reducesMotion(systemSetting: true) == true)
+    #expect(Appearance.standard.reducesMotion(systemSetting: false) == false)
+  }
+}

@@ -62,6 +62,11 @@ pub struct StoreState {
     /// older than payments.
     pub plan: Option<Plan>,
     pub patron: Option<crate::Patron>,
+    /// How taps look on this inbox's computers. Default until the first
+    /// snapshot, and from servers older than themes.
+    pub appearance: crate::Appearance,
+    /// False for servers older than themes: there is nothing to change yet.
+    pub appearance_supported: bool,
     /// Newest first.
     pub taps: Vec<Tap>,
     pub status: LiveStatus,
@@ -78,6 +83,8 @@ impl Default for StoreState {
             credentials: Vec::new(),
             plan: None,
             patron: None,
+            appearance: crate::Appearance::default(),
+            appearance_supported: false,
             taps: Vec::new(),
             status: LiveStatus::Connecting,
             pending_acks: BTreeMap::new(),
@@ -86,6 +93,11 @@ impl Default for StoreState {
 }
 
 impl StoreState {
+    /// The theme to show a tap in at `now`.
+    pub fn theme_on_screen(&self, now: crate::Timestamp) -> crate::TapTheme {
+        self.appearance.theme_on_screen(self.patron.as_ref(), now)
+    }
+
     pub fn active_tap(&self) -> Option<ActiveTap> {
         if self.phase != Phase::Ready {
             return None;
@@ -208,6 +220,28 @@ impl ReceiverStore {
 
     pub fn manage_patron_url(&self) -> Result<String, ApiError> {
         self.inner.api().manage_patron().map(|checkout| checkout.url)
+    }
+
+    // Appearance
+
+    /// Saves a change for every computer on the inbox. The server checks
+    /// patron support; on `Conflict` the snapshot is refreshed.
+    pub fn update_appearance(&self, update: crate::UpdateAppearance) -> Result<(), ApiError> {
+        match self.inner.api().update_appearance(&update) {
+            Ok(appearance) => {
+                self.inner.update(|state| {
+                    state.appearance = appearance;
+                    state.appearance_supported = true;
+                });
+                Ok(())
+            }
+            Err(error) => {
+                if error.code == ErrorCode::Conflict {
+                    self.inner.resync();
+                }
+                Err(error)
+            }
+        }
     }
 
     // Overlay
@@ -402,6 +436,8 @@ impl Inner {
                     state.credentials = snapshot.credentials;
                     state.plan = snapshot.plan;
                     state.patron = snapshot.patron;
+                    state.appearance_supported = snapshot.appearance.is_some();
+                    state.appearance = snapshot.appearance.unwrap_or_default();
                     state.taps = merge_snapshot(&state.taps, &snapshot.taps);
                 }),
                 Ok(Snapshot::Sender(_)) => return,

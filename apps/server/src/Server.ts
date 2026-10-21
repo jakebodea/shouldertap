@@ -366,6 +366,13 @@ export default class Server extends Cloudflare.Worker<Server>()(
             return { url };
           })
         )
+        .handle("updateAppearance", ({ payload }) =>
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) =>
+              stub.updateAppearance(token, payload)
+            )
+          )
+        )
         .handle("connectTicket", () =>
           forCaller.pipe(
             Effect.flatMap(({ token, stub }) => stub.createTicket(token))

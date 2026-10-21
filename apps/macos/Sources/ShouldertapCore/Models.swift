@@ -230,9 +230,11 @@ public struct ReceiverSnapshot: Sendable, Decodable {
   /// Missing from servers older than payments; the menu then shows no plan.
   public var plan: Plan?
   public var patron: Patron?
+  /// Missing from servers older than themes.
+  public var appearance: Appearance?
 
   private enum CodingKeys: String, CodingKey {
-    case credentialId, recipientName, sequence, taps, credentials, plan, patron
+    case credentialId, recipientName, sequence, taps, credentials, plan, patron, appearance
   }
 
   public init(from decoder: any Decoder) throws {
@@ -245,16 +247,97 @@ public struct ReceiverSnapshot: Sendable, Decodable {
     // A plan shaped differently by a newer server mustn't fail the snapshot.
     plan = try? container.decodeIfPresent(Plan.self, forKey: .plan)
     patron = try? container.decodeIfPresent(Patron.self, forKey: .patron)
+    appearance = try? container.decodeIfPresent(Appearance.self, forKey: .appearance)
   }
 }
 
-public struct Patron: Sendable, Decodable {
+public struct Patron: Sendable, Decodable, Hashable {
   public var active: Bool
   public var status: String
   public var paidUntil: Timestamp?
   public var canManage: Bool
   public var canSubscribe: Bool
   public var legacySupporter: Bool
+}
+
+/// `TapTheme` from packages/domain/src/contracts.ts: how taps look on the
+/// recipient's own computers. Each case is a whole composition the overlay
+/// renders natively; there is no free-form styling.
+public enum TapTheme: String, CaseIterable, Sendable, Codable, Hashable {
+  case `default`, broadsheet, billboard, terminal, note
+
+  /// Unknown themes (a newer server) show Default instead of failing the decode.
+  public init(from decoder: any Decoder) throws {
+    let raw = try decoder.singleValueContainer().decode(String.self)
+    self = TapTheme(rawValue: raw) ?? .default
+  }
+
+  public var label: String {
+    switch self {
+    case .default: "Default"
+    case .broadsheet: "Broadsheet"
+    case .billboard: "Billboard"
+    case .terminal: "Terminal"
+    case .note: "Note"
+    }
+  }
+}
+
+/// `system` follows the computer's Reduce Motion; `reduced` always shows the
+/// calm entrance.
+public enum MotionPreference: String, CaseIterable, Sendable, Codable, Hashable {
+  case system, reduced
+
+  public init(from decoder: any Decoder) throws {
+    let raw = try decoder.singleValueContainer().decode(String.self)
+    self = MotionPreference(rawValue: raw) ?? .system
+  }
+}
+
+/// The recipient's appearance settings, owned by the server and shared by
+/// every computer on the inbox.
+public struct Appearance: Sendable, Decodable, Hashable {
+  /// The saved choice, kept while patron support lapses.
+  public var theme: TapTheme
+  /// What the server says computers show now.
+  public var shownTheme: TapTheme
+  public var motion: MotionPreference
+  public var canChooseTheme: Bool
+
+  public init(theme: TapTheme, shownTheme: TapTheme, motion: MotionPreference, canChooseTheme: Bool) {
+    self.theme = theme
+    self.shownTheme = shownTheme
+    self.motion = motion
+    self.canChooseTheme = canChooseTheme
+  }
+
+  /// Servers older than themes: Default, following the system.
+  public static let standard = Appearance(theme: .default, shownTheme: .default, motion: .system, canChooseTheme: false)
+
+  private enum CodingKeys: String, CodingKey { case theme, shownTheme, motion, canChooseTheme }
+
+  /// Each field falls back on its own, so one odd value never costs the rest.
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    theme = (try? container.decode(TapTheme.self, forKey: .theme)) ?? .default
+    shownTheme = (try? container.decode(TapTheme.self, forKey: .shownTheme)) ?? .default
+    motion = (try? container.decode(MotionPreference.self, forKey: .motion)) ?? .system
+    canChooseTheme = (try? container.decode(Bool.self, forKey: .canChooseTheme)) ?? false
+  }
+
+  /// The theme to put on screen at `now`. The server decides; this only ever
+  /// falls back to Default, once the paid period in a stale snapshot is over.
+  public func themeOnScreen(patron: Patron?, now: Date = .now) -> TapTheme {
+    guard shownTheme != .default, let patron, patron.active,
+      let until = patron.paidUntil, until > now.timeIntervalSince1970 * 1000
+    else { return .default }
+    return shownTheme
+  }
+
+  /// Calm entrances when the system asks for them or the recipient does.
+  public func reducesMotion(systemSetting: Bool) -> Bool {
+    systemSetting || motion == .reduced
+  }
 }
 
 public struct SupportPrompt: Sendable, Decodable {

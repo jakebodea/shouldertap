@@ -49,6 +49,11 @@ public final class ReceiverStore {
   /// older than payments.
   public private(set) var plan: Plan?
   public private(set) var patron: Patron?
+  /// How taps look on this inbox's computers. `.standard` until the first
+  /// snapshot, and from servers older than themes.
+  public private(set) var appearance: Appearance = .standard
+  /// False for servers older than themes: there is nothing to change yet.
+  public private(set) var appearanceSupported = false
   public private(set) var taps: [Tap] = []
   public private(set) var status: LiveStatus = .connecting
   /// Responses given on this Mac that the server hasn't confirmed yet.
@@ -132,6 +137,25 @@ public final class ReceiverStore {
       resync()
       throw error
     }
+  }
+
+  // MARK: Appearance
+
+  /// Saves a change for every computer on the inbox. The server checks patron
+  /// support; on `conflict` the snapshot is refreshed so the menu catches up.
+  public func updateAppearance(theme: TapTheme? = nil, motion: MotionPreference? = nil) async throws {
+    do {
+      appearance = try await api.updateAppearance(theme: theme, motion: motion)
+      appearanceSupported = true
+    } catch let error as APIError where error.code == .conflict {
+      resync()
+      throw error
+    }
+  }
+
+  /// The theme to show a tap in right now.
+  public func themeOnScreen(now: Date = .now) -> TapTheme {
+    appearance.themeOnScreen(patron: patron, now: now)
   }
 
   // MARK: Overlay
@@ -221,6 +245,8 @@ public final class ReceiverStore {
         credentials = snapshot.credentials
         plan = snapshot.plan
         patron = snapshot.patron
+        appearance = snapshot.appearance ?? .standard
+        appearanceSupported = snapshot.appearance != nil
         taps = mergeSnapshot(local: taps, snapshot: snapshot.taps)
       } catch let error as APIError where error.code == .unauthorized {
         forget()
@@ -252,6 +278,8 @@ public final class ReceiverStore {
     credentials = []
     plan = nil
     patron = nil
+    appearance = .standard
+    appearanceSupported = false
     taps = []
     status = .offline
     phase = .setup

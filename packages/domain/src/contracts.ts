@@ -217,6 +217,49 @@ export const Patron = Schema.Struct({
 });
 export type Patron = typeof Patron.Type;
 
+/**
+ * How taps look on the recipient's own computers. Only the recipient's
+ * devices read or change it; senders never see or choose it. Every value is a
+ * whole composition the Mac and Windows apps render natively; adding one is a
+ * protocol change (Swift `TapTheme`, Rust `TapTheme`, the Inbox's CHECK
+ * constraint), checked by `scripts/check-protocol-sync.ts`.
+ */
+export const TAP_THEMES = [
+  "default",
+  "broadsheet",
+  "billboard",
+  "terminal",
+  "note",
+] as const;
+export const TapTheme = Schema.Literals(TAP_THEMES);
+export type TapTheme = typeof TapTheme.Type;
+
+/** `system` follows the computer's Reduce Motion setting; `reduced` always
+ * shows the calm entrance. Free, like everything except theme choice. */
+export const MOTION_PREFERENCES = ["system", "reduced"] as const;
+export const MotionPreference = Schema.Literals(MOTION_PREFERENCES);
+export type MotionPreference = typeof MotionPreference.Type;
+
+export const Appearance = Schema.Struct({
+  /** The saved choice. Kept while patron support lapses, so it comes back. */
+  theme: TapTheme,
+  /** What computers show now: `theme` while patron support is active,
+   * otherwise `default`. Clients also fall back once `patron.paidUntil` has
+   * passed, without waiting for a new snapshot. */
+  shownTheme: TapTheme,
+  motion: MotionPreference,
+  /** Whether a theme other than `default` can be saved right now. */
+  canChooseTheme: Schema.Boolean,
+});
+export type Appearance = typeof Appearance.Type;
+
+/** `PUT /v1/appearance`: either field may be left out to keep it. */
+export const UpdateAppearanceRequest = Schema.Struct({
+  theme: Schema.optionalKey(TapTheme),
+  motion: Schema.optionalKey(MotionPreference),
+});
+export type UpdateAppearanceRequest = typeof UpdateAppearanceRequest.Type;
+
 export const ReceiverSnapshot = Schema.Struct({
   kind: Schema.Literal("device"),
   credentialId: Schema.String,
@@ -226,6 +269,8 @@ export const ReceiverSnapshot = Schema.Struct({
   credentials: Schema.Array(Credential),
   plan: Plan,
   patron: Schema.optional(Patron),
+  /** Missing from servers older than themes: show `default`. */
+  appearance: Schema.optional(Appearance),
 });
 export type ReceiverSnapshot = typeof ReceiverSnapshot.Type;
 

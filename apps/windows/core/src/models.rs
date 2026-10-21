@@ -324,6 +324,114 @@ pub struct Patron {
     pub legacy_supporter: bool,
 }
 
+/// `TapTheme` from packages/domain/src/contracts.ts: how taps look on the
+/// recipient's own computers. Each variant is a whole composition the overlay
+/// renders natively; there is no free-form styling.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TapTheme {
+    #[default]
+    Default,
+    Broadsheet,
+    Billboard,
+    Terminal,
+    Note,
+}
+
+impl TapTheme {
+    pub const ALL: [TapTheme; 5] = [Self::Default, Self::Broadsheet, Self::Billboard, Self::Terminal, Self::Note];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Broadsheet => "Broadsheet",
+            Self::Billboard => "Billboard",
+            Self::Terminal => "Terminal",
+            Self::Note => "Note",
+        }
+    }
+}
+
+/// Unknown themes (a newer server) show Default instead of failing the decode.
+impl<'de> Deserialize<'de> for TapTheme {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Ok(match raw.as_str() {
+            "broadsheet" => Self::Broadsheet,
+            "billboard" => Self::Billboard,
+            "terminal" => Self::Terminal,
+            "note" => Self::Note,
+            _ => Self::Default,
+        })
+    }
+}
+
+/// `system` follows the computer's reduced-motion setting; `reduced` always
+/// shows the calm entrance.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MotionPreference {
+    #[default]
+    System,
+    Reduced,
+}
+
+impl<'de> Deserialize<'de> for MotionPreference {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Ok(if raw == "reduced" { Self::Reduced } else { Self::System })
+    }
+}
+
+/// The recipient's appearance settings, owned by the server and shared by
+/// every computer on the inbox. Each field falls back on its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Appearance {
+    /// The saved choice, kept while patron support lapses.
+    #[serde(default, deserialize_with = "lenient_value")]
+    pub theme: TapTheme,
+    /// What the server says computers show now.
+    #[serde(default, deserialize_with = "lenient_value")]
+    pub shown_theme: TapTheme,
+    #[serde(default, deserialize_with = "lenient_value")]
+    pub motion: MotionPreference,
+    #[serde(default, deserialize_with = "lenient_value")]
+    pub can_choose_theme: bool,
+}
+
+impl Appearance {
+    /// The theme to put on screen at `now`. The server decides; this only
+    /// ever falls back to Default, once the paid period in a stale snapshot
+    /// is over.
+    pub fn theme_on_screen(&self, patron: Option<&Patron>, now: Timestamp) -> TapTheme {
+        match patron {
+            Some(patron)
+                if self.shown_theme != TapTheme::Default
+                    && patron.active
+                    && patron.paid_until.is_some_and(|until| until > now) =>
+            {
+                self.shown_theme
+            }
+            _ => TapTheme::Default,
+        }
+    }
+
+    /// Calm entrances when the system asks for them or the recipient does.
+    pub fn reduces_motion(&self, system_setting: bool) -> bool {
+        system_setting || self.motion == MotionPreference::Reduced
+    }
+}
+
+/// `PUT /v1/appearance`: a missing field keeps the saved value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct UpdateAppearance {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<TapTheme>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motion: Option<MotionPreference>,
+}
+
 /// What a paired computer sees: every pending tap plus recent history.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -339,6 +447,9 @@ pub struct ReceiverSnapshot {
     pub plan: Option<Plan>,
     #[serde(default, deserialize_with = "lenient")]
     pub patron: Option<Patron>,
+    /// Missing from servers older than themes.
+    #[serde(default, deserialize_with = "lenient")]
+    pub appearance: Option<Appearance>,
 }
 
 /// What a sender sees: only their own recent taps.
@@ -405,6 +516,14 @@ impl<'de> Deserialize<'de> for ServerEvent {
             _ => Self::Unknown,
         })
     }
+}
+
+/// A value shaped differently by a newer server falls back to its default.
+fn lenient_value<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned + Default>(
+    deserializer: D,
+) -> Result<T, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
 fn lenient<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned>(deserializer: D) -> Result<Option<T>, D::Error> {
