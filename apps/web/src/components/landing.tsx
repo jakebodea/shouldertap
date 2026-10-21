@@ -17,6 +17,7 @@ import { DocLinks } from "@/components/document";
 import { InkIcon, InkMark, InkText } from "@/components/ink";
 import { MacDownloadLink } from "@/components/mac-download-link";
 import { Mark, Wordmark } from "@/components/mark";
+import { PageShell } from "@/components/page-shell";
 import { Swept } from "@/components/swept";
 import { WipeEdges } from "@/components/wipe-edges";
 import { useThemeColor } from "@/lib/frame";
@@ -493,8 +494,8 @@ export const Landing = () => {
   }, [advance]);
 
   return (
-    <div
-      className="landing-frame paper-light text-frame-ink absolute inset-0 overflow-hidden"
+    <PageShell
+      className="landing-frame paper-light"
       ref={rootRef}
       style={
         {
@@ -509,54 +510,61 @@ export const Landing = () => {
           "--ink-to": swatches[scene.color].ink,
         } as CSSProperties
       }
-    >
-      <WipeEdges
-        frame={rootRef}
-        from={swatches[from].base}
-        to={swatches[scene.color].base}
-      />
-      <div
-        aria-hidden="true"
-        className="frame-fill pointer-events-none absolute inset-0"
-      />
-      <header className="landing-header absolute inset-x-0 z-10 flex h-16 items-center gap-6 px-5 text-[0.9375rem] font-semibold md:h-24 md:px-[72px] md:text-lg">
-        <a
-          aria-label="Shouldertap home"
-          className="mr-auto inline-flex items-center gap-[0.32em] text-xl font-extrabold tracking-[-0.035em] md:text-[1.625rem]"
-          href="/"
-        >
-          <InkMark className="size-[1.05em]" />
-          <InkText>Shouldertap</InkText>
-        </a>
-        <a
-          className="hidden opacity-85 hover:opacity-100 sm:inline"
-          href="#how"
-        >
-          <InkText>How it works</InkText>
-        </a>
-        <a
-          className="hidden opacity-85 hover:opacity-100 sm:inline"
-          href="#pricing"
-        >
-          <InkText>Pricing</InkText>
-        </a>
-        {pairing ? (
+      backdrop={
+        <>
+          <WipeEdges
+            frame={rootRef}
+            from={swatches[from].base}
+            to={swatches[scene.color].base}
+          />
+          <div
+            aria-hidden="true"
+            className="frame-fill pointer-events-none absolute inset-0"
+          />
+        </>
+      }
+      header={
+        <>
           <a
-            className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
-            href="/tap"
+            aria-label="Shouldertap home"
+            className="mr-auto inline-flex items-center gap-[0.32em] text-xl font-extrabold tracking-[-0.035em] md:text-[1.625rem]"
+            href="/"
           >
-            <span className="frame-fill-text">Tap {pairing.recipientName}</span>
+            <InkMark className="size-[1.05em]" />
+            <InkText>Shouldertap</InkText>
           </a>
-        ) : (
-          <MacDownloadLink className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base">
-            <span className="frame-fill-text">
-              Download<span className="hidden sm:inline">&nbsp;for Mac</span>
-            </span>
-          </MacDownloadLink>
-        )}
-      </header>
-
-      <main className="landing-page bg-paper text-ink absolute inset-x-2.5 z-10 overflow-y-auto overscroll-contain rounded-[1.5rem] md:inset-x-10 md:rounded-[1.75rem]">
+          <a
+            className="hidden opacity-85 hover:opacity-100 sm:inline"
+            href="#how"
+          >
+            <InkText>How it works</InkText>
+          </a>
+          <a
+            className="hidden opacity-85 hover:opacity-100 sm:inline"
+            href="#pricing"
+          >
+            <InkText>Pricing</InkText>
+          </a>
+          {pairing ? (
+            <a
+              className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
+              href="/tap"
+            >
+              <span className="frame-fill-text">
+                Tap {pairing.recipientName}
+              </span>
+            </a>
+          ) : (
+            <MacDownloadLink className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base">
+              <span className="frame-fill-text">
+                Download<span className="hidden sm:inline">&nbsp;for Mac</span>
+              </span>
+            </MacDownloadLink>
+          )}
+        </>
+      }
+    >
+      <main className="h-full">
         <section
           aria-label="A tap, live"
           className="flex min-h-full flex-col px-6 pt-10 pb-8 md:px-[72px] md:pt-16 md:pb-14"
@@ -660,6 +668,6 @@ export const Landing = () => {
         <Pricing />
         <Close />
       </main>
-    </div>
+    </PageShell>
   );
 };

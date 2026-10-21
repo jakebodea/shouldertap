@@ -1,22 +1,39 @@
+import { swatches } from "@shouldertap/domain";
+import type { PersonColor } from "@shouldertap/domain";
 import type { ReactNode } from "react";
 
 import { Mark } from "@/components/mark";
+import { PageShell } from "@/components/page-shell";
+import { FrameSafariEdgeStrips } from "@/components/safari-edge-strips";
+import { frameStyle, useThemeColor } from "@/lib/frame";
 
-/** Public pages use the full paper canvas; Frame belongs to the sender UI. */
-export const SitePage = ({ children }: { children: ReactNode }) => (
-  <div className="bg-paper text-ink min-h-svh px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-10">
-    <div className="mx-auto max-w-5xl">
-      <header>
+export const SitePage = ({
+  children,
+  color = "moss",
+}: {
+  children: ReactNode;
+  color?: PersonColor;
+}) => {
+  useThemeColor(swatches[color].base);
+  return (
+    <PageShell
+      backdrop={<FrameSafariEdgeStrips />}
+      className="bg-frame transition-colors duration-500"
+      header={
         <a
           aria-label="Shouldertap home"
-          className="inline-flex min-h-11 items-center gap-2 text-xl font-extrabold tracking-[-0.035em]"
+          className="inline-flex min-h-11 items-center gap-[0.32em] text-xl font-extrabold tracking-[-0.035em] md:text-[1.625rem]"
           href="/"
         >
-          <Mark className="size-6" />
+          <Mark className="size-[1.05em]" />
           Shouldertap
         </a>
-      </header>
-      {children}
-    </div>
-  </div>
-);
+      }
+      style={frameStyle(color)}
+    >
+      <div className="mx-auto max-w-6xl px-6 py-10 md:px-[72px] md:py-16">
+        {children}
+      </div>
+    </PageShell>
+  );
+};

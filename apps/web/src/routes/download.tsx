@@ -23,7 +23,7 @@ const STEPS = [
 
 const DownloadComponent = () => (
   <SitePage>
-    <main className="grid gap-12 py-12 md:grid-cols-2 md:gap-16 md:py-20">
+    <main className="grid gap-12 pb-12 md:grid-cols-2 md:gap-16 md:pb-20">
       <section className="flex flex-col items-start gap-5">
         <h1 className="text-[2.75rem] leading-[0.95] font-extrabold tracking-[-0.04em] text-balance sm:text-6xl">
           Shouldertap for Mac

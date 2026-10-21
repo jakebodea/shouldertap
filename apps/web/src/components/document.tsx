@@ -50,7 +50,7 @@ export const DocPage = ({
   children: ReactNode;
 }) => (
   <SitePage>
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 pt-12 sm:pt-20">
+    <main className="mx-auto flex max-w-3xl flex-col gap-6">
       <div className="flex flex-col gap-3">
         <h1 className="text-[2.75rem] leading-[0.95] font-extrabold tracking-[-0.04em] text-balance">
           {title}
