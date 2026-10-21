@@ -65,7 +65,7 @@ describe("Creem SDK boundary", () => {
     expect(failure.message).toBe("Annual support is not configured correctly");
   });
 
-  it("sends the real checkout API snake-case metadata and request correlation", async () => {
+  it("puts a new checkout in the sender's patron identity, never an inbox", async () => {
     let requestBody: unknown;
     const client = sdk(async (request) => {
       requestBody = await request.json();
@@ -81,7 +81,7 @@ describe("Creem SDK boundary", () => {
     const result = await Effect.runPromise(
       createCheckout(client, {
         productId: "prod_patron",
-        inboxId: "inbox123",
+        patronId: "patron123",
         requestId: "attempt-1",
       })
     );
@@ -92,7 +92,7 @@ describe("Creem SDK boundary", () => {
     expect(requestBody).toStrictEqual({
       product_id: "prod_patron",
       request_id: "attempt-1",
-      metadata: { inbox_id: "inbox123" },
+      metadata: { patron_id: "patron123" },
     });
   });
 
@@ -116,44 +116,55 @@ describe("Creem SDK boundary", () => {
   });
 });
 
+const refundOf = (metadata: Record<string, string>) => {
+  const client = sdk(() =>
+    Promise.resolve({
+      id: "sub_1",
+      mode: "test",
+      object: "subscription",
+      product: "prod_patron",
+      customer: "cust_1",
+      collection_method: "charge_automatically",
+      status: "canceled",
+      created_at: "2026-10-21T00:00:00Z",
+      updated_at: "2026-10-21T00:00:00Z",
+      metadata,
+    })
+  );
+  const body = JSON.stringify({
+    id: "evt_ref",
+    eventType: "refund.created",
+    created_at: 1_792_540_800_000,
+    object: {
+      status: "succeeded",
+      subscription: "sub_1",
+      transaction: { id: "tran_1" },
+    },
+  });
+  return Effect.runPromise(
+    readWebhookAction(client, body, "prod_legacy", "prod_patron")
+  );
+};
+
 describe("refund and checkout recovery", () => {
-  it("hydrates a bare subscription id through the supported API before routing a refund", async () => {
-    const client = sdk(() =>
-      Promise.resolve({
-        id: "sub_1",
-        mode: "test",
-        object: "subscription",
-        product: "prod_patron",
-        customer: "cust_1",
-        collection_method: "charge_automatically",
-        status: "canceled",
-        created_at: "2026-10-21T00:00:00Z",
-        updated_at: "2026-10-21T00:00:00Z",
-        metadata: { inbox_id: "inbox123" },
-      })
-    );
-    const body = JSON.stringify({
-      id: "evt_ref",
-      eventType: "refund.created",
-      created_at: 1_792_540_800_000,
-      object: {
-        status: "succeeded",
-        subscription: "sub_1",
-        transaction: { id: "tran_1" },
-      },
-    });
-    const action = await Effect.runPromise(
-      readWebhookAction(client, body, "prod_legacy", "prod_patron")
-    );
-    expect(action).toMatchObject({
+  it("hydrates a bare subscription id and routes a sender membership's refund to its patron identity", async () => {
+    await expect(refundOf({ patron_id: "patron123" })).resolves.toMatchObject({
       kind: "patron",
-      inboxId: "inbox123",
+      owner: { kind: "patron", id: "patron123" },
       subscriptionId: "sub_1",
       event: {
         type: "refund.created",
         refundTransactionId: "tran_1",
         customerId: "cust_1",
       },
+    });
+  });
+
+  it("keeps routing a historical receiver subscription's refund to its inbox, not to any sender", async () => {
+    await expect(refundOf({ inbox_id: "inbox123" })).resolves.toMatchObject({
+      kind: "patron",
+      owner: { kind: "inbox", id: "inbox123" },
+      subscriptionId: "sub_1",
     });
   });
 

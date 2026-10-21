@@ -1,10 +1,15 @@
-import { MOTION_PREFERENCES, TAP_THEMES } from "@shouldertap/domain";
+import {
+  MOTION_PREFERENCES,
+  SENDER_THEME_PREFERENCES,
+  TAP_THEMES,
+} from "@shouldertap/domain";
 import type {
   CredentialKind,
   DevicePlatform,
   MotionPreference,
   PersonColor,
   PushEnvironment,
+  SenderThemePreference,
   TapResponse,
   TapState,
   TapTheme,
@@ -34,17 +39,22 @@ export const inbox = sqliteTable("inbox", {
   orderId: text("order_id"),
   /** The buyer's email, kept to restore the purchase on a new Mac. */
   purchaseEmail: text("purchase_email"),
+  /** Retired: the recipient support prompt's history. Kept, no longer written. */
   firstAnsweredAt: integer("first_answered_at"),
   answeredCount: integer("answered_count").notNull().default(0),
   supportAskAfter: integer("support_ask_after").notNull().default(0),
 });
 
+/** Signed provider facts. In an Inbox these are historical receiver-owned
+ * subscriptions (checkout metadata `inbox_id`), kept so they can still be
+ * managed, canceled and refunded; they grant nothing. In a Patron they are the
+ * sender's own membership (metadata `patron_id`). */
 export const patronEvents = sqliteTable("patron_events", {
   id: text("id").primaryKey(),
   event: text("event", { mode: "json" }).$type<PatronEvent>().notNull(),
 });
 
-/** One outstanding checkout per inbox, shared by all devices. An uncertain
+/** One outstanding checkout per billing subject. An uncertain
  * provider response stays reserved rather than risking a second subscription. */
 export const patronCheckout = sqliteTable("patron_checkout", {
   id: integer("id").primaryKey(),
@@ -63,9 +73,10 @@ const oneOf = (values: readonly string[]) =>
   sql.raw(values.map((v) => `'${v}'`).join(", "));
 
 /**
- * At most one row: how taps look on this recipient's computers. No row means
- * Default and system motion. The CHECK constraints mirror the domain's
- * literal lists, so storing a theme no client can render needs a migration.
+ * At most one row: the recipient's free settings for their own computers. No
+ * row means senders' themes shown, system motion. `theme` is retired: it held
+ * the receiver-owned theme experiment's choice, which no longer affects
+ * anything (themes now come from each sender's tap).
  */
 export const appearance = sqliteTable(
   "appearance",
@@ -76,6 +87,10 @@ export const appearance = sqliteTable(
       .$type<MotionPreference>()
       .notNull()
       .default("system"),
+    senderThemes: text("sender_themes")
+      .$type<SenderThemePreference>()
+      .notNull()
+      .default("show"),
     updatedAt: integer("updated_at").notNull(),
     /** The device credential that last changed it. */
     updatedBy: text("updated_by").notNull(),
@@ -86,6 +101,10 @@ export const appearance = sqliteTable(
     check(
       "appearance_motion",
       sql`${table.motion} in (${oneOf(MOTION_PREFERENCES)})`
+    ),
+    check(
+      "appearance_sender_themes",
+      sql`${table.senderThemes} in (${oneOf(SENDER_THEME_PREFERENCES)})`
     ),
   ]
 );
@@ -137,10 +156,17 @@ export const taps = sqliteTable(
     acknowledgedBy: text("acknowledged_by"),
     response: text("response", { mode: "json" }).$type<TapResponse>(),
     sequence: integer("sequence").notNull(),
+    /** The sender's theme, fixed when the tap was accepted. Null on taps from
+     * before sender themes, which show Default. */
+    theme: text("theme").$type<TapTheme>(),
   },
   (table) => [
     uniqueIndex("taps_sender_request").on(table.senderId, table.requestId),
     index("taps_created_at").on(table.createdAt),
+    check(
+      "taps_theme",
+      sql`${table.theme} IS NULL OR ${table.theme} in (${oneOf(TAP_THEMES)})`
+    ),
   ]
 );
 

@@ -5,6 +5,7 @@ import m0003 from './20261002221852_device_platform/migration.sql';
 import m0004 from './20261002230031_push/migration.sql';
 import m0005 from './20261021152554_free_core_patrons/migration.sql';
 import m0006 from './20261021162409_tap_appearance/migration.sql';
+import m0007 from './20261021173050_sender_themes/migration.sql';
 
   export default {
     migrations: {
@@ -14,7 +15,8 @@ import m0006 from './20261021162409_tap_appearance/migration.sql';
 "20261002221852_device_platform": m0003,
 "20261002230031_push": m0004,
 "20261021152554_free_core_patrons": m0005,
-"20261021162409_tap_appearance": m0006
+"20261021162409_tap_appearance": m0006,
+"20261021173050_sender_themes": m0007
 }
   }
   

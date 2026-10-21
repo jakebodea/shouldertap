@@ -43,13 +43,31 @@ export const open = (path: string) => {
   return { sqlite, db };
 };
 
-/** Applies every committed migration in order, as an Inbox does on activation. */
-export const migrate = (sqlite: DatabaseSync) => {
-  const dir = new URL("../drizzle/", import.meta.url);
+/**
+ * Applies committed migrations in order, as a Durable Object does on
+ * activation: the Inbox's (`drizzle`) by default, or the SenderPatron's
+ * (`drizzle-patron`). `through` stops after that migration, to set up data
+ * the way an older server stored it; `after` then applies the rest.
+ */
+export const migrate = (
+  sqlite: DatabaseSync,
+  {
+    folder = "drizzle",
+    through,
+    after,
+  }: {
+    folder?: "drizzle" | "drizzle-patron";
+    through?: string;
+    after?: string;
+  } = {}
+) => {
+  const dir = new URL(`../${folder}/`, import.meta.url);
   for (const name of readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .toSorted()) {
+    .toSorted()
+    .filter((entry) => !through || entry <= through)
+    .filter((entry) => !after || entry > after)) {
     sqlite.exec(
       readFileSync(new URL(`${name}/migration.sql`, dir), "utf-8").replaceAll(
         "--> statement-breakpoint",

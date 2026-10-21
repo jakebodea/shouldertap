@@ -139,53 +139,52 @@ test(
     const plan = snapshot.kind === "device" ? snapshot.plan : null;
     // Old clients' unlocked wire value.
     expect(plan?.status).toBe("paid");
+    // Recipients no longer buy support; it belongs to senders.
     expect(
-      snapshot.kind === "device" ? snapshot.patron?.canSubscribe : false
-    ).toBeTruthy();
+      snapshot.kind === "device" ? snapshot.patron?.canSubscribe : true
+    ).toBeFalsy();
 
     const trialTap = yield* (yield* client(url, sender.token)).inbox.sendTap({
       payload: { requestId: crypto.randomUUID(), body: "Trial tap" },
     });
     expect(trialTap.state).toBe("pending");
 
-    // Senders cannot start checkout. Payment creation is reserved for the
-    // explicit sandbox workflow: local test stages can load real test keys.
+    // The receiver-side checkouts are retired: a recipient's device gets a
+    // clear Conflict, a sender's pairing credential isn't a device at all.
+    // Payment creation is reserved for the explicit sandbox workflow: local
+    // test stages can load real test keys.
     const senderCheckout = yield* (yield* client(url, sender.token)).inbox
       .createPatronCheckout()
       .pipe(Effect.flip);
     expect(senderCheckout._tag).toBe("Unauthorized");
+    const receiverCheckout = yield* (yield* client(url, macA.token)).inbox
+      .createPatronCheckout()
+      .pipe(Effect.flip);
+    expect(receiverCheckout.message).toBe(
+      "Patron support now belongs to the person sending taps: it lets them send taps in a theme to everyone they tap. Receiving and answering stay free."
+    );
     const legacyCheckout = yield* (yield* client(url, macA.token)).inbox
       .createCheckout()
       .pipe(Effect.flip);
     expect(legacyCheckout.message).toBe(
-      "Shouldertap is now free. Update the app to manage optional annual support."
+      "Shouldertap is now free. Update the app to see what's new."
     );
 
-    // Appearance belongs to the recipient's devices. Motion is free; a theme
-    // needs active patron support, so it's refused here and Default stays,
-    // on every computer.
+    // The recipient's free settings: motion and the plain override, on
+    // every computer. Senders can't change them.
     const recipient = yield* client(url, macA.token);
     const motion = yield* recipient.inbox.updateAppearance({
-      payload: { motion: "reduced" },
+      payload: { motion: "reduced", senderThemes: "plain" },
     });
-    expect(motion).toStrictEqual({
-      theme: "default",
-      shownTheme: "default",
-      motion: "reduced",
-      canChooseTheme: false,
-    });
-    const theme = yield* recipient.inbox
-      .updateAppearance({ payload: { theme: "broadsheet" } })
-      .pipe(Effect.flip);
-    expect(theme._tag).toBe("Conflict");
+    expect(motion).toStrictEqual({ motion: "reduced", senderThemes: "plain" });
     const senderAppearance = yield* (yield* client(url, sender.token)).inbox
-      .updateAppearance({ payload: { theme: "default" } })
+      .updateAppearance({ payload: { senderThemes: "show" } })
       .pipe(Effect.flip);
     expect(senderAppearance._tag).toBe("Unauthorized");
     const otherMac = yield* (yield* client(url, macB.token)).inbox.me();
     expect(
-      otherMac.kind === "device" ? otherMac.appearance?.motion : null
-    ).toBe("reduced");
+      otherMac.kind === "device" ? otherMac.appearance : null
+    ).toStrictEqual({ motion: "reduced", senderThemes: "plain" });
 
     // An iPhone links with the same device invite and manages the inbox, but
     // can't leave it without a Mac. (Shares this inbox: tests stay under the
@@ -676,6 +675,78 @@ test(
     expect(own.taps).toHaveLength(1);
     expect(own.taps[0]?.state).toBe("pending");
   })
+);
+
+test(
+  "a sender's patron key, not a pairing, decides themes; cosmetics never block delivery",
+  Effect.gen(function* senderThemes() {
+    const url = (yield* stack).server;
+    const { anon, macA, sender, senderInvite } = yield* pairedInbox(url);
+    const senderApi = yield* client(url, sender.token);
+
+    // No key: delivered, in Default.
+    const plain = yield* senderApi.inbox.sendTap({
+      payload: {
+        requestId: crypto.randomUUID(),
+        body: "Dinner",
+        theme: "broadsheet",
+      },
+    });
+    expect([plain.state, plain.theme]).toStrictEqual(["pending", "default"]);
+
+    // A patron identity that never paid: still Default. Its key isn't a
+    // pairing credential, and a pairing credential isn't a patron key.
+    const grant = yield* anon.patronSetup.createPatron();
+    const patronApi = yield* makeShouldertapClient(url, null, grant.key);
+    const status = yield* patronApi.patron.patronStatus();
+    expect([status.patron.active, status.keys]).toStrictEqual([false, 1]);
+    const unpaid = yield* senderApi.inbox.sendTap({
+      payload: {
+        requestId: crypto.randomUUID(),
+        body: "Call me",
+        theme: "terminal",
+        patronKey: grant.key,
+      },
+    });
+    expect(unpaid.theme).toBe("default");
+    const pairingAsKey = yield* (yield* makeShouldertapClient(
+      url,
+      null,
+      sender.token
+    )).patron
+      .patronStatus()
+      .pipe(Effect.flip);
+    expect(pairingAsKey._tag).toBe("Unauthorized");
+    const inviteAsLink = yield* anon.patronSetup
+      .redeemPatronLink({ payload: { code: senderInvite.code } })
+      .pipe(Effect.flip);
+    expect(inviteAsLink._tag).toBe("NotFound");
+
+    // Another of the sender's devices joins the same identity once.
+    const { code } = yield* patronApi.patron.patronLinkCode();
+    const second = yield* anon.patronSetup.redeemPatronLink({
+      payload: { code },
+    });
+    expect(second.patronId).toBe(grant.patronId);
+    const reused = yield* anon.patronSetup
+      .redeemPatronLink({ payload: { code } })
+      .pipe(Effect.flip);
+    expect(reused._tag).toBe("Expired");
+    const both = yield* (yield* makeShouldertapClient(
+      url,
+      null,
+      second.key
+    )).patron.patronStatus();
+    expect(both.keys).toBe(2);
+
+    // The recipient sees each tap's stored theme in their snapshot.
+    const inbox = yield* (yield* client(url, macA.token)).inbox.me();
+    expect(inbox.taps.map((t) => [t.body, t.theme])).toStrictEqual([
+      ["Call me", "default"],
+      ["Dinner", "default"],
+    ]);
+  }),
+  { timeout: 60_000 }
 );
 
 test(

@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { webhookAction } from "../src/Creem";
 import { patronOf } from "../src/patron";
 import {
-  claimPrompt,
   reserveCheckout,
   storePatronEvent,
   storeLegacyPurchase,
@@ -17,45 +16,6 @@ import { migrate, open, withFile } from "./do-sqlite";
 const NOW = Date.UTC(2026, 9, 21);
 
 describe("durable support boundaries", () => {
-  it("migrates an expired inbox, claims once across devices and persists the cooldown across restart", () =>
-    withFile(async (path) => {
-      const first = open(path);
-      migrate(first.sqlite);
-      first.sqlite
-        .prepare(
-          "INSERT INTO inbox (id,inbox_id,recipient_name,trial_ends_at,first_answered_at,answered_count) VALUES (1,'inbox123','Jake',1,1791331200000,10)"
-        )
-        .run();
-      const result = await Effect.runPromise(
-        Effect.scoped(
-          Effect.gen(function* claims() {
-            const db = yield* first.db;
-            const one = yield* claimPrompt(db, NOW);
-            const two = yield* claimPrompt(db, NOW);
-            return [one, two];
-          })
-        )
-      );
-      expect(result).toStrictEqual([{ show: true }, { show: false }]);
-      first.sqlite.close();
-      const reopened = open(path);
-      try {
-        const resultAfterRestart = await Effect.runPromise(
-          Effect.scoped(
-            reopened.db.pipe(
-              Effect.flatMap((db) => claimPrompt(db, Date.UTC(2027, 0, 18)))
-            )
-          )
-        );
-        expect(resultAfterRestart).toStrictEqual({ show: false });
-        expect(
-          reopened.sqlite.prepare("SELECT support_ask_after FROM inbox").get()
-        ).toMatchObject({ support_ask_after: 1_800_316_800_000 });
-      } finally {
-        reopened.sqlite.close();
-      }
-    }));
-
   it("reserves one checkout and reuses its URL after restart instead of creating another", () =>
     withFile(async (path) => {
       const first = open(path);
