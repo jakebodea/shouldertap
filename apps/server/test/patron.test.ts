@@ -86,6 +86,31 @@ describe("annual patron lifecycle", () => {
     expect(patronOf([refund, renewal, paid], NOW + 4000).active).toBeTruthy();
   });
 
+  it("a refunded payment replay with a new event identity cannot overwrite cancellation", () => {
+    const canceled = fact({
+      id: "evt_canceled",
+      type: "subscription.canceled",
+      at: NOW + 1000,
+    });
+    const refund = fact({
+      id: "evt_refund",
+      type: "refund.created",
+      at: NOW + 2000,
+      refundTransactionId: "tran_1",
+    });
+    const replay = fact({ id: "evt_replayed_paid", at: NOW + 3000 });
+    expect(
+      patronOf([paid, canceled, refund, replay], NOW + 4000)
+    ).toStrictEqual({
+      active: false,
+      status: "inactive",
+      paidUntil: 0,
+      canManage: true,
+      canSubscribe: true,
+      legacySupporter: false,
+    });
+  });
+
   it("old subscriptions cannot overwrite another active membership and completed cancellation allows subscribing again", () => {
     const old = fact({
       id: "evt_old",

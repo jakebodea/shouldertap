@@ -143,6 +143,8 @@ await deliver(
 await expectPatron("active", false);
 await deliver(paid);
 await expectPatron("active", false);
+await deliver(payload("subscription.paid", 5.5, subscription));
+await expectPatron("canSubscribe", true);
 console.log(
   "SIGNED FIXTURES: invalid signature, checkout alone, paid, duplicate, cancellation paid-through, refund, late paid replay passed"
 );

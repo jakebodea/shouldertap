@@ -59,6 +59,15 @@ export const patronOf = (
   );
   const subscriptions = new Map<string, { until: number; status: string }>();
   for (const event of ordered) {
+    // A replay can receive a new provider event ID/time. A refunded payment
+    // cannot change lifecycle state either, especially after cancellation.
+    if (
+      event.type === "subscription.paid" &&
+      event.transactionId &&
+      refunds.has(event.transactionId)
+    ) {
+      continue;
+    }
     const current = subscriptions.get(event.subscriptionId) ?? {
       until: 0,
       status: "unknown",
