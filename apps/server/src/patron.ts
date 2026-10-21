@@ -101,25 +101,3 @@ export const patronOf = (
     canManage: current.length > 0,
   };
 };
-
-export interface PromptHistory {
-  firstAnsweredAt: number | null;
-  answeredCount: number;
-  supportAskAfter: number;
-}
-/** Recipient only; claim is atomic in the Inbox and consumes a 90-day cooldown. */
-export const promptEligible = (
-  history: PromptHistory,
-  patron: Patron,
-  pending: boolean,
-  at: number
-) =>
-  !patron.active &&
-  !patron.canManage &&
-  !patron.legacySupporter &&
-  !pending &&
-  history.answeredCount >= 10 &&
-  history.firstAnsweredAt !== null &&
-  at >= history.firstAnsweredAt + 14 * 86_400_000 &&
-  at >= history.supportAskAfter;
-export const nextSupportAsk = (at: number) => at + 90 * 86_400_000;

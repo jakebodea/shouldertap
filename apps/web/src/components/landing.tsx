@@ -17,6 +17,7 @@ import { DocLinks } from "@/components/document";
 import { InkIcon, InkMark, InkText } from "@/components/ink";
 import { MacDownloadLink } from "@/components/mac-download-link";
 import { Mark, Wordmark } from "@/components/mark";
+import { PageShell } from "@/components/page-shell";
 import { Swept } from "@/components/swept";
 import { WipeEdges } from "@/components/wipe-edges";
 import { useThemeColor } from "@/lib/frame";
@@ -244,9 +245,9 @@ const HowItWorks = ({ scene, earlier }: { scene: Scene; earlier: Scene }) => (
     >
       Harder to miss than a text. Kinder than yelling up the stairs.
     </h2>
-    <Step art={<MiniMenuBar />} title="Invite them from your iPhone or Mac">
-      Create an inbox in the iPhone app or your Mac menu bar. Share an invite
-      link or QR code. Only people you invite can tap you.
+    <Step art={<MiniMenuBar />} title="Invite them from your Mac">
+      Shouldertap lives in your menu bar. Create an invite link and they scan it
+      with their iPhone camera. Only people you invite can tap you.
     </Step>
     <Step
       art={<MiniPhone scene={scene} />}
@@ -258,11 +259,11 @@ const HowItWorks = ({ scene, earlier }: { scene: Scene; earlier: Scene }) => (
     </Step>
     <Step
       art={<MiniOverlay scene={scene} />}
-      title="Receive a tap, send an answer"
+      title="It covers your screens until you answer"
     >
-      On iPhone, receive notifications and Live Activities, or a full-screen tap
-      while the app is open. Add a Mac to cover every display, above full-screen
-      apps. Answer on any device and it clears from the others.
+      Every display on every paired Mac, above full-screen apps. Answer with On
+      it, In 10 min, or a quick reply. Answer on one Mac and it clears from all
+      of them.
     </Step>
     <Step
       art={<MiniAnswer earlier={earlier} scene={scene} />}
@@ -313,8 +314,8 @@ const Consent = () => {
 const Pricing = () => {
   const points = [
     "Core messaging is free. Safety limits and recipient controls apply to everyone.",
-    "The people who tap you never pay. They use any iPhone with Safari.",
-    "Optional patron support helps cover running costs. No extra features or promised rewards.",
+    "Nobody has to pay to tap or be tapped. Senders use any iPhone with Safari.",
+    "Patrons help cover running costs and can send their taps in a theme, to everyone they tap. The people they tap never pay to see it, and can always choose plain.",
   ];
   return (
     <section
@@ -342,8 +343,8 @@ const Pricing = () => {
         <ul className="flex max-w-xl flex-col gap-4">
           <li className="text-[1.0625rem] leading-relaxed md:text-lg">
             Send and receive taps for free. If Shouldertap helps your household,
-            you can become a patron from the app’s Support Shouldertap menu.
-            Cancel renewal in the billing portal; tapping stays free.
+            you can become a patron from Style in the web sender. Cancel renewal
+            in the billing portal; tapping stays free.
           </li>
           {points.map((point) => (
             <li
@@ -370,7 +371,7 @@ const Close = () => (
         Download for Mac
       </MacDownloadLink>
       <span className="text-tone text-[0.9375rem]">
-        Free on iPhone. Add a Mac for screen takeover. Send from Safari, too.
+        Free. Mac app plus any iPhone with Safari.
       </span>
     </div>
     <footer className="border-line text-tone mt-16 flex flex-wrap items-center justify-between gap-4 border-t-[1.5px] pt-6 text-sm">
@@ -495,8 +496,8 @@ export const Landing = () => {
   }, [advance]);
 
   return (
-    <div
-      className="landing-frame paper-light text-frame-ink absolute inset-0 overflow-hidden"
+    <PageShell
+      className="landing-frame paper-light"
       ref={rootRef}
       style={
         {
@@ -511,54 +512,61 @@ export const Landing = () => {
           "--ink-to": swatches[scene.color].ink,
         } as CSSProperties
       }
-    >
-      <WipeEdges
-        frame={rootRef}
-        from={swatches[from].base}
-        to={swatches[scene.color].base}
-      />
-      <div
-        aria-hidden="true"
-        className="frame-fill pointer-events-none absolute inset-0"
-      />
-      <header className="landing-header absolute inset-x-0 z-10 flex h-16 items-center gap-6 px-5 text-[0.9375rem] font-semibold md:h-24 md:px-[72px] md:text-lg">
-        <a
-          aria-label="Shouldertap home"
-          className="mr-auto inline-flex items-center gap-[0.32em] text-xl font-extrabold tracking-[-0.035em] md:text-[1.625rem]"
-          href="/"
-        >
-          <InkMark className="size-[1.05em]" />
-          <InkText>Shouldertap</InkText>
-        </a>
-        <a
-          className="hidden opacity-85 hover:opacity-100 sm:inline"
-          href="#how"
-        >
-          <InkText>How it works</InkText>
-        </a>
-        <a
-          className="hidden opacity-85 hover:opacity-100 sm:inline"
-          href="#pricing"
-        >
-          <InkText>Pricing</InkText>
-        </a>
-        {pairing ? (
+      backdrop={
+        <>
+          <WipeEdges
+            frame={rootRef}
+            from={swatches[from].base}
+            to={swatches[scene.color].base}
+          />
+          <div
+            aria-hidden="true"
+            className="frame-fill pointer-events-none absolute inset-0"
+          />
+        </>
+      }
+      header={
+        <>
           <a
-            className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
-            href="/tap"
+            aria-label="Shouldertap home"
+            className="mr-auto inline-flex items-center gap-[0.32em] text-xl font-extrabold tracking-[-0.035em] md:text-[1.625rem]"
+            href="/"
           >
-            <span className="frame-fill-text">Tap {pairing.recipientName}</span>
+            <InkMark className="size-[1.05em]" />
+            <InkText>Shouldertap</InkText>
           </a>
-        ) : (
-          <MacDownloadLink className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base">
-            <span className="frame-fill-text">
-              Download<span className="hidden sm:inline">&nbsp;for Mac</span>
-            </span>
-          </MacDownloadLink>
-        )}
-      </header>
-
-      <main className="landing-page bg-paper text-ink absolute inset-x-2.5 z-10 overflow-y-auto overscroll-contain rounded-[1.5rem] md:inset-x-10 md:rounded-[1.75rem]">
+          <a
+            className="hidden opacity-85 hover:opacity-100 sm:inline"
+            href="#how"
+          >
+            <InkText>How it works</InkText>
+          </a>
+          <a
+            className="hidden opacity-85 hover:opacity-100 sm:inline"
+            href="#pricing"
+          >
+            <InkText>Pricing</InkText>
+          </a>
+          {pairing ? (
+            <a
+              className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
+              href="/tap"
+            >
+              <span className="frame-fill-text">
+                Tap {pairing.recipientName}
+              </span>
+            </a>
+          ) : (
+            <MacDownloadLink className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base">
+              <span className="frame-fill-text">
+                Download<span className="hidden sm:inline">&nbsp;for Mac</span>
+              </span>
+            </MacDownloadLink>
+          )}
+        </>
+      }
+    >
+      <main className="h-full">
         <section
           aria-label="A tap, live"
           className="flex min-h-full flex-col px-6 pt-10 pb-8 md:px-[72px] md:pt-16 md:pb-14"
@@ -622,8 +630,8 @@ export const Landing = () => {
 
           <div className="border-line mt-10 grid gap-6 border-t-[1.5px] pt-8 md:mt-12 md:grid-cols-[1fr_auto] md:items-end md:gap-12 md:pt-9">
             <h1 className="max-w-[30em] text-[1.625rem] leading-[1.12] font-bold tracking-[-0.025em] text-balance md:text-[2.125rem]">
-              When someone at home needs you, receive their tap on iPhone or
-              across your Mac screens.{" "}
+              When someone at home needs you, their message covers your Mac
+              until you answer.{" "}
               <span className="text-tone">
                 They see your reply the moment you send it.
               </span>
@@ -662,6 +670,6 @@ export const Landing = () => {
         <Pricing />
         <Close />
       </main>
-    </div>
+    </PageShell>
   );
 };

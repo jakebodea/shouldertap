@@ -86,9 +86,13 @@ const PrivacyComponent = () => (
         records remain. For patrons we store Creem subscription, customer,
         transaction and event IDs, paid-period dates, and signed billing
         lifecycle facts to show membership and handle renewals, cancellations
-        and refunds. Payment details stay with Creem. We also store the first
-        answered tap’s date, a count of answers, and the next allowed support
-        prompt time, shared across your inbox’s devices.
+        and refunds. A patron membership is a separate record identified by a
+        random ID, not tied to any inbox; your browser or app keeps a key for
+        it, and we keep only a hash of that key and when it was last used. Each
+        tap stores the theme it was sent with. Payment details stay with Creem.
+        Older inboxes may still hold the first answered tap’s date, a count of
+        answers and a support prompt time from an earlier version; they are no
+        longer used.
       </p>
       <p>
         When you open the site or the app talks to our servers, your IP address

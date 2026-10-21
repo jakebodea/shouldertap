@@ -112,7 +112,7 @@ pub enum DevicePlatform {
 }
 
 impl DevicePlatform {
-    /// Computers cover other apps; iPhone shows a takeover only while open.
+    /// Macs and Windows PCs put taps on screen; an iPhone only manages.
     pub fn shows_desktop_overlay(self) -> bool {
         self != Self::Iphone
     }
@@ -211,6 +211,18 @@ pub struct Tap {
     pub acknowledged_by: Option<String>,
     pub response: Option<TapResponse>,
     pub sequence: i64,
+    /// The theme its sender sent it with, fixed by the server when it
+    /// accepted the tap. Missing from older servers and older taps; unknown
+    /// values from a newer server decode as Default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<TapTheme>,
+}
+
+impl Tap {
+    /// What the sender chose, Default when they chose nothing.
+    pub fn sender_theme(&self) -> TapTheme {
+        self.theme.unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -324,6 +336,127 @@ pub struct Patron {
     pub legacy_supporter: bool,
 }
 
+/// `TapTheme` from packages/domain/src/contracts.ts: how a tap looks on the
+/// recipient's computers, chosen by its sender (an active patron) and carried
+/// on the tap. Each variant is a whole composition the overlay renders
+/// natively; there is no free-form styling and nothing from the sender but text.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TapTheme {
+    #[default]
+    Default,
+    Broadsheet,
+    Billboard,
+    Terminal,
+    Note,
+}
+
+impl TapTheme {
+    pub const ALL: [TapTheme; 5] = [
+        Self::Default,
+        Self::Broadsheet,
+        Self::Billboard,
+        Self::Terminal,
+        Self::Note,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Broadsheet => "Broadsheet",
+            Self::Billboard => "Billboard",
+            Self::Terminal => "Terminal",
+            Self::Note => "Note",
+        }
+    }
+}
+
+/// Unknown themes (a newer server) show Default instead of failing the decode.
+impl<'de> Deserialize<'de> for TapTheme {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Ok(match raw.as_str() {
+            "broadsheet" => Self::Broadsheet,
+            "billboard" => Self::Billboard,
+            "terminal" => Self::Terminal,
+            "note" => Self::Note,
+            _ => Self::Default,
+        })
+    }
+}
+
+/// `system` follows the computer's reduced-motion setting; `reduced` always
+/// shows the calm entrance.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MotionPreference {
+    #[default]
+    System,
+    Reduced,
+}
+
+impl<'de> Deserialize<'de> for MotionPreference {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Ok(if raw == "reduced" { Self::Reduced } else { Self::System })
+    }
+}
+
+/// The recipient's free override of senders' themes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SenderThemePreference {
+    /// Each tap in the theme its sender sent it with.
+    #[default]
+    Show,
+    /// Every tap in Default.
+    Plain,
+}
+
+impl<'de> Deserialize<'de> for SenderThemePreference {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Ok(if raw == "plain" { Self::Plain } else { Self::Show })
+    }
+}
+
+/// The recipient's free settings, owned by the server and shared by every
+/// computer on the inbox. Each field falls back on its own; the
+/// receiver-owned theme experiment's `theme`/`shownTheme` are ignored.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Appearance {
+    #[serde(default, deserialize_with = "lenient_value")]
+    pub motion: MotionPreference,
+    #[serde(default, deserialize_with = "lenient_value")]
+    pub sender_themes: SenderThemePreference,
+}
+
+impl Appearance {
+    /// The theme to draw `tap` in: its sender's, unless the recipient chose plain.
+    pub fn theme_for(&self, tap: &Tap) -> TapTheme {
+        match self.sender_themes {
+            SenderThemePreference::Plain => TapTheme::Default,
+            SenderThemePreference::Show => tap.sender_theme(),
+        }
+    }
+
+    /// Calm entrances when the system asks for them or the recipient does.
+    pub fn reduces_motion(&self, system_setting: bool) -> bool {
+        system_setting || self.motion == MotionPreference::Reduced
+    }
+}
+
+/// `PUT /v1/appearance`: a missing field keeps the saved value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAppearance {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motion: Option<MotionPreference>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_themes: Option<SenderThemePreference>,
+}
+
 /// What a paired computer sees: every pending tap plus recent history.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -339,6 +472,9 @@ pub struct ReceiverSnapshot {
     pub plan: Option<Plan>,
     #[serde(default, deserialize_with = "lenient")]
     pub patron: Option<Patron>,
+    /// Missing from servers older than themes.
+    #[serde(default, deserialize_with = "lenient")]
+    pub appearance: Option<Appearance>,
 }
 
 /// What a sender sees: only their own recent taps.
@@ -405,6 +541,14 @@ impl<'de> Deserialize<'de> for ServerEvent {
             _ => Self::Unknown,
         })
     }
+}
+
+/// A value shaped differently by a newer server falls back to its default.
+fn lenient_value<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned + Default>(
+    deserializer: D,
+) -> Result<T, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
 fn lenient<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned>(deserializer: D) -> Result<Option<T>, D::Error> {

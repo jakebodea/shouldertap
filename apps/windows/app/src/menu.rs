@@ -10,7 +10,7 @@ use gpui::{
 };
 use shouldertap_core::{
     ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, MAX_NAME_LENGTH, Patron, Phase,
-    ReceiverStore, ResponseKind, SenderInvite, Tap, TapState, now_ms,
+    ReceiverStore, ResponseKind, SenderInvite, SenderThemePreference, Tap, now_ms,
 };
 
 use crate::assets::{Icon, MARK_PATH};
@@ -185,19 +185,15 @@ impl MenuView {
 
     // Plan
 
-    fn unlock(&mut self, manage: bool, cx: &mut Context<Self>) {
+    /// Opens the billing portal for earlier receiver-owned support. Nothing is
+    /// sold here: patron support belongs to senders now.
+    fn manage_support(&mut self, cx: &mut Context<Self>) {
         self.plan_busy = true;
         self.plan_error = None;
         self.plan_notice = None;
         self.run(
             cx,
-            move |store| {
-                if manage {
-                    store.manage_patron_url()
-                } else {
-                    store.checkout_url()
-                }
-            },
+            move |store| store.manage_patron_url(),
             |this, result, cx| {
                 this.plan_busy = false;
                 match result {
@@ -205,7 +201,6 @@ impl MenuView {
                         cx.open_url(&url);
                         this.plan_opened = true;
                     }
-                    // Already paid: the store refreshes the plan, so say so quietly.
                     Err(error) if error.code == ErrorCode::Conflict => this.plan_notice = Some(error.message),
                     Err(error) => this.plan_error = Some(error.to_string()),
                 }
@@ -421,8 +416,31 @@ impl MenuView {
             .child(self.invite_sender(s, cx))
             .child(section(s, "Can tap you", people))
             .child(section(s, "Your devices", your_devices))
+            .child(section(s, "Appearance", vec![self.appearance_row(s, &state, cx)]))
             .child(section(s, "Recent", recent))
             .child(self.footer(s, cx))
+    }
+
+    /// Opens the Appearance window; shows what taps look like right now.
+    fn appearance_row(
+        &mut self,
+        s: Surface,
+        state: &shouldertap_core::StoreState,
+        _cx: &mut Context<Self>,
+    ) -> AnyElement {
+        row(s, "appearance")
+            .cursor_pointer()
+            .on_click(|_, _, cx| Shell::open_appearance(cx))
+            .child(div().flex_1().font_weight(FontWeight::MEDIUM).child("Tap appearance"))
+            .child(div().text_size(px(12.)).text_color(s.secondary).child(format!(
+                "{} ›",
+                if state.appearance.sender_themes == SenderThemePreference::Plain {
+                    "Always plain"
+                } else {
+                    "Senders' styles"
+                }
+            )))
+            .into_any_element()
     }
 
     fn support(&mut self, s: Surface, patron: Option<&Patron>, cx: &mut Context<Self>) -> AnyElement {
@@ -464,34 +482,19 @@ impl MenuView {
                 menu_button(
                     s,
                     "manage-support",
-                    "Manage or cancel support",
+                    "Manage or cancel earlier support",
                     None,
                     Kind::Plain,
                     false,
                     self.plan_busy,
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.unlock(true, cx)))
-                .into_any_element(),
-            );
-        }
-        if patron.is_some_and(|p| p.can_subscribe) {
-            actions.push(
-                menu_button(
-                    s,
-                    "support",
-                    "Become a patron · $24/year",
-                    None,
-                    Kind::Plain,
-                    false,
-                    self.plan_busy,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.unlock(false, cx)))
+                .on_click(cx.listener(|this, _, _, cx| this.manage_support(cx)))
                 .into_any_element(),
             );
         }
         div().flex().flex_col().gap(px(6.))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Support Shouldertap"))
-            .child(muted(s, if patron.is_some_and(|p| p.active) { "Thank you for supporting Shouldertap. Core use stays free." } else { "Shouldertap is free. Optional support: $2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. No extra features or promised rewards. Not a tax-deductible donation." }))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child("Patron themes"))
+            .child(muted(s, "Shouldertap is free to receive and answer. Patron support belongs to the people who tap you: it lets them send their taps in a style, to everyone they tap. You never pay to see it, and Tap appearance can show every tap plain."))
             .children(actions).children(self.plan_messages(s)).into_any_element()
     }
 
@@ -501,13 +504,7 @@ impl MenuView {
         } else if let Some(notice) = &self.plan_notice {
             Some(muted(s, notice).into_any_element())
         } else if self.plan_opened {
-            Some(
-                muted(
-                    s,
-                    "Finish checking out in your browser. This updates on its own once you've paid.",
-                )
-                .into_any_element(),
-            )
+            Some(muted(s, "Manage or cancel it in your browser.").into_any_element())
         } else {
             None
         }
@@ -970,7 +967,7 @@ fn section(s: Surface, title: &str, children: Vec<AnyElement>) -> impl IntoEleme
         .child(div().flex().flex_col().gap(px(8.)).children(children))
 }
 
-fn muted(s: Surface, text: &str) -> gpui::Div {
+pub(crate) fn muted(s: Surface, text: &str) -> gpui::Div {
     div()
         .text_size(px(12.))
         .line_height(px(16.))
@@ -982,7 +979,7 @@ fn muted_center(s: Surface, text: &str) -> gpui::Div {
     muted(s, text).text_center()
 }
 
-fn error_text(s: Surface, text: String) -> impl IntoElement {
+pub(crate) fn error_text(s: Surface, text: String) -> impl IntoElement {
     div()
         .text_size(px(12.))
         .line_height(px(16.))
@@ -1107,14 +1104,14 @@ fn row(s: Surface, id: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Kind {
+pub(crate) enum Kind {
     Primary,
     Secondary,
     Danger,
     Plain,
 }
 
-fn menu_button(
+pub(crate) fn menu_button(
     s: Surface,
     id: &'static str,
     title: &str,

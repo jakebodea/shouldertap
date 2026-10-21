@@ -12,12 +12,22 @@ import * as Effect from "effect/Effect";
 import type { PatronEvent } from "./patron";
 
 /**
- * Creem, the merchant of record: checkouts out, webhooks in. The inbox id
- * rides in checkout metadata, so every webhook names the inbox it's for.
+ * Creem, the merchant of record: checkouts out, webhooks in. Checkout
+ * metadata names who a payment belongs to, and Creem copies it to the
+ * subscription, so every webhook names its billing subject.
  */
 
-/** Checkout metadata key carrying the inbox being paid for. */
+/** Historical: the recipient inbox of a one-time purchase or of receiver-owned
+ * annual support. Still routed so those can be canceled and refunded, never
+ * converted into a sender membership. */
 export const INBOX_METADATA_KEY = "inbox_id";
+/** Current: the sender's patron identity (SenderPatron). */
+export const PATRON_METADATA_KEY = "patron_id";
+
+/** Who a subscription fact belongs to. */
+export type BillingOwner =
+  | { readonly kind: "patron"; readonly id: string }
+  | { readonly kind: "inbox"; readonly id: string };
 
 export class CreemError extends Data.TaggedError("CreemError")<{
   message: string;
@@ -37,17 +47,25 @@ export const createCheckout = (
   client: CreemCore,
   {
     productId,
-    inboxId,
+    patronId,
     requestId,
-  }: { productId: string; inboxId: string; requestId?: string }
+    successUrl,
+  }: {
+    productId: string;
+    patronId: string;
+    requestId: string;
+    successUrl: string;
+  }
 ) =>
   Effect.tryPromise({
     try: () =>
       checkoutsCreate(client, {
         productId,
-        // Correlation only; the Inbox reservation prevents duplicate creation.
-        requestId: requestId ?? `patron-${inboxId}`,
-        metadata: { [INBOX_METADATA_KEY]: inboxId },
+        // Correlation only; the reservation prevents duplicate creation.
+        requestId,
+        successUrl,
+        // New memberships only ever belong to a sender's patron identity.
+        metadata: { [PATRON_METADATA_KEY]: patronId },
       }),
     catch: (cause) =>
       new CreemError({ message: "Creem checkout request failed", cause }),
@@ -93,7 +111,8 @@ export type WebhookAction =
     }
   | {
       readonly kind: "patron";
-      readonly inboxId: string | null;
+      /** Null when only the subscription id is known: look it up. */
+      readonly owner: BillingOwner | null;
       readonly subscriptionId: string;
       readonly event: PatronEvent;
     }
@@ -110,6 +129,22 @@ const inboxIdOf = (checkout: unknown) =>
   isObject(checkout) && isObject(checkout.metadata)
     ? str(checkout.metadata[INBOX_METADATA_KEY])
     : null;
+
+/** A sender patron id wins; an inbox id marks a historical receiver
+ * subscription. Never both by construction. */
+export const ownerOfMetadata = (metadata: unknown): BillingOwner | null => {
+  if (!isObject(metadata)) {
+    return null;
+  }
+  const patronId = str(metadata[PATRON_METADATA_KEY]);
+  if (patronId) {
+    return { kind: "patron", id: patronId };
+  }
+  const inboxId = str(metadata[INBOX_METADATA_KEY]);
+  return inboxId ? { kind: "inbox", id: inboxId } : null;
+};
+const ownerOf = (value: unknown) =>
+  isObject(value) ? ownerOfMetadata(value.metadata) : null;
 
 const subscriptionTypes = new Set([
   "subscription.paid",
@@ -175,7 +210,7 @@ const patronAction = (
   }
   return {
     kind: "patron",
-    inboxId: inboxIdOf(subscription) ?? inboxIdOf(data.checkout),
+    owner: ownerOf(subscription) ?? ownerOf(data.checkout),
     subscriptionId,
     event: {
       id: event.id,
@@ -309,17 +344,14 @@ export const customerPortal = (client: CreemCore, customerId: string) =>
   });
 
 /** Subscription metadata also routes renewals/refunds whose checkout is only an id. */
-export const subscriptionInboxId = (
-  client: CreemCore,
-  subscriptionId: string
-) =>
+export const subscriptionOwner = (client: CreemCore, subscriptionId: string) =>
   Effect.tryPromise({
     try: async () => {
       const result = await subscriptionsGet(client, subscriptionId);
       if (!result.ok) {
         throw result.error;
       }
-      return str(result.value.metadata?.[INBOX_METADATA_KEY]);
+      return ownerOfMetadata(result.value.metadata);
     },
     catch: (cause) =>
       new CreemError({ message: "Subscription lookup failed", cause }),

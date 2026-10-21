@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Frame } from "@/components/frame";
-import { Mark } from "@/components/mark";
+import { SitePage } from "@/components/site-page";
 
 export const SUPPORT_EMAIL = "support@shouldertap.app";
 
@@ -19,7 +18,7 @@ export const DocLinks = ({ className }: { className?: string }) => (
   >
     {PAGES.map((page) => (
       <a
-        className="hover:text-ink underline-offset-[3px] hover:underline"
+        className="hover:text-ink inline-flex min-h-11 items-center underline-offset-[3px] hover:underline"
         href={page.href}
         key={page.href}
       >
@@ -38,10 +37,7 @@ export const EmailLink = () => (
   </a>
 );
 
-/**
- * A long-form reading page (support, privacy, terms): Shouldertap's own
- * neutral frame around a paper page.
- */
+/** A long-form reading page (support, privacy, terms) on the paper canvas. */
 export const DocPage = ({
   title,
   effective,
@@ -53,43 +49,33 @@ export const DocPage = ({
   intro?: ReactNode;
   children: ReactNode;
 }) => (
-  <Frame color="graphite">
-    <header className="flex items-center justify-between">
-      <a
-        aria-label="Shouldertap home"
-        className="inline-flex items-center gap-2 text-xl font-extrabold tracking-[-0.035em]"
-        href="/"
-      >
-        <Mark className="size-6" />
-        Shouldertap
-      </a>
-    </header>
+  <SitePage>
+    <main className="mx-auto flex max-w-3xl flex-col gap-10">
+      <div className="flex flex-col gap-3">
+        <h1 className="text-[2.75rem] leading-none font-extrabold tracking-[-0.04em] text-balance md:text-6xl">
+          {title}
+        </h1>
+        {effective ? (
+          <p className="text-tone text-[0.9375rem] tabular-nums">
+            Effective {effective}
+          </p>
+        ) : null}
+        {intro ? (
+          <p className="text-tone pt-3 text-[1.0625rem] leading-relaxed md:text-xl">
+            {intro}
+          </p>
+        ) : null}
+      </div>
 
-    <div className="flex flex-col gap-3 pt-6">
-      <h1 className="text-[2.75rem] leading-[0.95] font-extrabold tracking-[-0.04em] text-balance">
-        {title}
-      </h1>
-      {effective ? (
-        <p className="text-tone text-[0.9375rem] tabular-nums">
-          Effective {effective}
-        </p>
-      ) : null}
-      {intro ? (
-        <p className="text-tone pt-2 text-[1.0625rem] leading-relaxed">
-          {intro}
-        </p>
-      ) : null}
-    </div>
-
-    <div className="divide-line flex flex-col divide-y">{children}</div>
-
-    <footer className="text-tone mt-auto flex flex-col items-center gap-2 pt-2 text-[0.8125rem]">
-      <DocLinks className="justify-center" />
+      <div className="divide-line flex flex-col divide-y">{children}</div>
+    </main>
+    <footer className="text-tone border-line mx-auto mt-12 flex max-w-3xl flex-wrap items-center justify-between gap-4 border-t pt-4 text-sm">
+      <DocLinks />
       <span>
         Questions? <EmailLink />
       </span>
     </footer>
-  </Frame>
+  </SitePage>
 );
 
 /** One titled section of a reading page. */
@@ -100,8 +86,8 @@ export const DocSection = ({
   title: string;
   children: ReactNode;
 }) => (
-  <section className="flex flex-col gap-3 py-6 text-[1rem] leading-relaxed [&_li]:pl-1 [&_ul]:flex [&_ul]:list-disc [&_ul]:flex-col [&_ul]:gap-2 [&_ul]:pl-5">
-    <h2 className="text-[1.25rem] leading-tight font-bold tracking-[-0.02em]">
+  <section className="flex flex-col gap-3 py-8 text-[1.0625rem] leading-relaxed [&_li]:pl-1 [&_ul]:flex [&_ul]:list-disc [&_ul]:flex-col [&_ul]:gap-2 [&_ul]:pl-5">
+    <h2 className="text-[1.375rem] leading-tight font-bold tracking-[-0.02em]">
       {title}
     </h2>
     {children}

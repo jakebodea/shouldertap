@@ -35,7 +35,7 @@ struct HelpView: View {
             .font(.footnote).foregroundStyle(.secondary)
         }
         Section("Support and privacy") {
-          Link("Support", destination: URL(string: "https://shouldertap.app/support")!)
+          Link("Email support", destination: URL(string: "mailto:support@shouldertap.app")!)
           Link("Privacy Policy", destination: URL(string: "https://shouldertap.app/privacy")!)
           Link("Terms of Use", destination: URL(string: "https://shouldertap.app/terms")!)
           NavigationLink("Report a problem or abuse") { ReportView() }

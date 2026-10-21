@@ -1,19 +1,13 @@
 import { Conflict } from "@shouldertap/domain";
-import { and, count, eq, lt, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import type { EffectSQLiteDoDatabase } from "drizzle-orm/effect-sqlite-do";
 import * as Effect from "effect/Effect";
 import type { SqlError } from "effect/sql/SqlError";
 
 import type { PatronEvent } from "./patron";
-import { patronOf, promptEligible, nextSupportAsk } from "./patron";
-import {
-  inbox,
-  taps,
-  patronEvents,
-  patronCheckout,
-  refundedOrders,
-} from "./schema";
+import { patronOf } from "./patron";
+import { inbox, patronEvents, patronCheckout, refundedOrders } from "./schema";
 
 /** Storage operations shared by the DO and real SQLite boundary tests. */
 export const reserveCheckout = Effect.fn(function* reserveCheckout(
@@ -50,39 +44,6 @@ export const reserveCheckout = Effect.fn(function* reserveCheckout(
         .insert(patronCheckout)
         .values({ id: 1, requestId, createdAt: at, url: null });
       return { requestId, url: null, providerId: null };
-    })
-  );
-});
-
-export const claimPrompt = Effect.fn(function* claimPrompt(
-  db: EffectSQLiteDoDatabase,
-  at: number
-) {
-  return yield* db.transaction((tx) =>
-    Effect.gen(function* claim() {
-      const [row] = yield* tx.select().from(inbox).where(eq(inbox.id, 1));
-      const events = (yield* tx.select().from(patronEvents)).map(
-        (r) => r.event
-      );
-      const [pending] = yield* tx
-        .select({ n: count() })
-        .from(taps)
-        .where(eq(taps.state, "pending"));
-      const show =
-        !!row &&
-        promptEligible(
-          row,
-          patronOf(events, at, row.paidAt !== null),
-          (pending?.n ?? 0) > 0,
-          at
-        );
-      if (show) {
-        yield* tx
-          .update(inbox)
-          .set({ supportAskAfter: nextSupportAsk(at) })
-          .where(eq(inbox.id, 1));
-      }
-      return { show };
     })
   );
 });

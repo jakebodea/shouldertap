@@ -5,6 +5,7 @@
 // No console window in release builds.
 #![cfg_attr(not(dev_build), windows_subsystem = "windows")]
 
+mod appearance;
 mod assets;
 mod config;
 mod mark;
@@ -13,8 +14,11 @@ mod overlay;
 mod platform;
 mod qr;
 mod shell;
+#[cfg(not(windows))]
+mod snapshots;
 mod text_field;
 mod theme;
+mod themes;
 mod updates;
 
 use std::borrow::Cow;
@@ -37,6 +41,12 @@ fn main() {
         let fonts = assets::FONTS.iter().map(|font| Cow::Borrowed(*font)).collect();
         cx.text_system().add_fonts(fonts).expect("load the bundled fonts");
         text_field::bind_keys(cx);
+        #[cfg(not(windows))]
+        if config::DEV
+            && let Ok(directory) = std::env::var("SHOULDERTAP_RENDER_THEMES")
+        {
+            return snapshots::run(directory, cx);
+        }
         shell::Shell::launch(cx);
     });
 }

@@ -1,10 +1,15 @@
-import { Authorization, ShouldertapApi } from "@shouldertap/domain";
+import {
+  Authorization,
+  PatronAuthorization,
+  ShouldertapApi,
+} from "@shouldertap/domain";
 import type {
   AcknowledgeRequest,
   CreateInboxRequest,
   CredentialKind,
   RedeemInviteRequest,
   SendTapRequest,
+  UpdateAppearanceRequest,
 } from "@shouldertap/domain";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -14,12 +19,29 @@ import * as HttpApiMiddleware from "effect/http-api/HttpApiMiddleware";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 
-/** A typed client for the Shouldertap API, derived from the shared spec. */
-export const makeShouldertapClient = (baseUrl: string, token: string | null) =>
+/**
+ * A typed client for the Shouldertap API, derived from the shared spec.
+ * `token` is a pairing credential (inbox endpoints); `patronKey` is the
+ * sender's separate patron key (patron endpoints).
+ */
+export const makeShouldertapClient = (
+  baseUrl: string,
+  token: string | null,
+  patronKey: string | null = null
+) =>
   HttpApiClient.make(ShouldertapApi, { baseUrl }).pipe(
     Effect.provide(
       HttpApiMiddleware.layerClient(Authorization, ({ next, request }) =>
         next(token ? HttpClientRequest.bearerToken(request, token) : request)
+      )
+    ),
+    Effect.provide(
+      HttpApiMiddleware.layerClient(PatronAuthorization, ({ next, request }) =>
+        next(
+          patronKey
+            ? HttpClientRequest.bearerToken(request, patronKey)
+            : request
+        )
       )
     ),
     Effect.provide(FetchHttpClient.layer)
@@ -96,18 +118,26 @@ const toApiError = (failure: unknown): ApiError => {
 export class ApiClient {
   readonly baseUrl: string;
   readonly token: string | null;
+  readonly patronKey: string | null;
   private client: Promise<ShouldertapClient> | null = null;
 
   constructor(options: {
     readonly baseUrl: string;
     readonly token?: string | null;
+    readonly patronKey?: string | null;
   }) {
     this.baseUrl = options.baseUrl.replace(TRAILING_SLASH, "");
     this.token = options.token ?? null;
+    this.patronKey = options.patronKey ?? null;
   }
 
   withToken(token: string | null): ApiClient {
     return new ApiClient({ baseUrl: this.baseUrl, token });
+  }
+
+  /** A client for the sender's own patron membership. */
+  withPatronKey(patronKey: string | null): ApiClient {
+    return new ApiClient({ baseUrl: this.baseUrl, patronKey });
   }
 
   get socketUrl(): string {
@@ -157,11 +187,47 @@ export class ApiClient {
     return this.call((c) => c.inbox.connectTicket());
   }
 
+  updateAppearance(payload: UpdateAppearanceRequest) {
+    return this.call((c) => c.inbox.updateAppearance({ payload }));
+  }
+
+  // Sender patron membership (needs `withPatronKey`, except the first two).
+
+  createPatron() {
+    return this.call((c) => c.patronSetup.createPatron());
+  }
+
+  redeemPatronLink(code: string) {
+    return this.call((c) =>
+      c.patronSetup.redeemPatronLink({ payload: { code } })
+    );
+  }
+
+  patronStatus() {
+    return this.call((c) => c.patron.patronStatus());
+  }
+
+  patronCheckout() {
+    return this.call((c) => c.patron.patronCheckout());
+  }
+
+  patronManage() {
+    return this.call((c) => c.patron.patronManage());
+  }
+
+  patronLinkCode() {
+    return this.call((c) => c.patron.patronLinkCode());
+  }
+
+  forgetPatronKey() {
+    return this.call((c) => c.patron.forgetPatronKey());
+  }
+
   private async call<A, E>(
     request: (client: ShouldertapClient) => Effect.Effect<A, E>
   ): Promise<A> {
     this.client ??= Effect.runPromise(
-      makeShouldertapClient(this.baseUrl, this.token)
+      makeShouldertapClient(this.baseUrl, this.token, this.patronKey)
     );
     const client = await this.client;
     const exit = await Effect.runPromiseExit(request(client));

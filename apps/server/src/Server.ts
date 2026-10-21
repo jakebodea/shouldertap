@@ -3,7 +3,10 @@ import {
   Caller,
   Conflict,
   NotFound,
+  parsePatronKey,
   parseToken,
+  PatronAuthorization,
+  PatronCaller,
   ShouldertapApi,
   TooManyRequests,
   Unauthorized,
@@ -29,7 +32,7 @@ import type { PushContext } from "./apns";
 import {
   checkoutInboxId,
   customerPortal,
-  subscriptionInboxId,
+  subscriptionOwner,
   validatePatronProduct,
   createCheckout,
   creemClient,
@@ -38,9 +41,16 @@ import {
   retrieveCheckout,
 } from "./Creem";
 import { Inbox, InboxLive } from "./Inbox";
+import { themeForSend } from "./presentation";
+import { SenderPatron, SenderPatronLive } from "./SenderPatron";
 import { TrialLedger, TrialLedgerLive } from "./TrialLedger";
 
 const newInboxId = Effect.sync(() => crypto.randomUUID().replaceAll("-", ""));
+const newPatronId = newInboxId;
+
+/** Shown to a recipient's (older) app that tries to buy support for itself. */
+const RECEIVER_CHECKOUT_RETIRED =
+  "Patron support now belongs to the person sending taps: it lets them send taps in a theme to everyone they tap. Receiving and answering stay free.";
 
 /**
  * An effect that succeeds with nothing. `Effect.void` is `Effect<void>`, which
@@ -77,6 +87,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
   Effect.gen(function* serverMain() {
     const inboxes = yield* Inbox;
     const versionMetadata = yield* Cloudflare.Workers.VersionMetadata();
+    const patrons = yield* SenderPatron;
     // Payments are optional so previews and dev run without Creem: checkout
     // answers 503 and the webhook 404 until all three are configured.
     const creem = Option.all({
@@ -99,8 +110,8 @@ export default class Server extends Cloudflare.Worker<Server>()(
       }))
     );
 
-    // Fail closed until the optional-support rollout has explicit merchant approval.
-    // Free core and existing subscription management/webhooks remain available.
+    // New sender signups remain off until merchant approval and product copy are ready.
+    // Existing subscription management, webhooks and free messages are unaffected.
     const patronCheckoutEnabled = yield* Config.Boolean(
       "PATRON_CHECKOUT_ENABLED"
     ).pipe(Config.withDefault(false));
@@ -138,6 +149,25 @@ export default class Server extends Cloudflare.Worker<Server>()(
       namespaceId: 7201,
       simple: { limit: INBOX_CREATION_LIMIT, period: 60 },
     });
+
+    const patronCreation = yield* Cloudflare.RateLimit("PATRON_CREATION", {
+      namespaceId: 7202,
+      simple: { limit: INBOX_CREATION_LIMIT, period: 60 },
+    });
+
+    const PatronAuthorizationLive = Layer.succeed(
+      PatronAuthorization,
+      PatronAuthorization.of({
+        bearer: (httpEffect, { credential }) => {
+          const key = parsePatronKey(Redacted.value(credential));
+          return key
+            ? Effect.provideService(httpEffect, PatronCaller, key)
+            : Effect.fail(
+                new Unauthorized({ message: "Missing or malformed patron key" })
+              );
+        },
+      })
+    );
 
     const AuthorizationLive = Layer.succeed(
       Authorization,
@@ -219,7 +249,17 @@ export default class Server extends Cloudflare.Worker<Server>()(
         .handle("sendTap", ({ payload }) =>
           Effect.gen(function* sendTap() {
             const { token, stub } = yield* forCaller;
-            return yield* stub.sendTap(token, payload, yield* pushContext);
+            const { theme: requested, patronKey, ...message } = payload;
+            // Only the sender's own patron key can put a theme on a tap.
+            const theme = yield* themeForSend(requested, patronKey, (key) =>
+              patrons.getByName(key.patronId).isActive(key)
+            );
+            return yield* stub.sendTap(
+              token,
+              message,
+              theme,
+              yield* pushContext
+            );
           })
         )
         .handle("markDisplayed", ({ params }) =>
@@ -272,88 +312,29 @@ export default class Server extends Cloudflare.Worker<Server>()(
         )
         .handle("createCheckout", () =>
           forCaller.pipe(
-            Effect.flatMap(({ token, stub }) => stub.checkoutContext(token)),
+            Effect.flatMap(({ token, stub }) => stub.requireDevice(token)),
             Effect.flatMap(() =>
               Effect.fail(
                 new Conflict({
                   message:
-                    "Shouldertap is now free. Update the app to manage optional annual support.",
+                    "Shouldertap is now free. Update the app to see what's new.",
                 })
               )
             )
           )
         )
         .handle("createPatronCheckout", () =>
-          Effect.gen(function* startCheckout() {
-            const { token, stub } = yield* forCaller;
-            const context = yield* stub.checkoutContext(token);
-            if (
-              !patronCheckoutEnabled ||
-              Option.isNone(creem) ||
-              !creem.value.patronProductId
-            ) {
-              return yield* new Unavailable({
-                message:
-                  "Optional patron signup is not available yet. Messaging remains free.",
-              });
-            }
-            const billing = creem.value;
-            const url = yield* validatePatronProduct(
-              billing.client,
-              billing.patronProductId
-            ).pipe(
-              Effect.andThen(
-                Effect.gen(function* checkoutOnce() {
-                  let attempt = yield* stub.reservePatronCheckout(token);
-                  if (attempt.url && attempt.providerId) {
-                    const remote = yield* retrieveCheckout(
-                      billing.client,
-                      attempt.providerId
-                    );
-                    if (remote.status === "expired") {
-                      yield* stub.releaseExpiredCheckout(attempt.requestId);
-                      attempt = yield* stub.reservePatronCheckout(token);
-                    } else if (remote.status === "pending") {
-                      return attempt.url;
-                    } else {
-                      return yield* new Conflict({
-                        message:
-                          "Checkout is processing or complete. Please wait for your membership to update, or contact support.",
-                      });
-                    }
-                  }
-                  if (attempt.url) {
-                    return attempt.url;
-                  }
-                  const checkoutUrl = yield* createCheckout(billing.client, {
-                    productId: billing.patronProductId,
-                    inboxId: context.inboxId,
-                    requestId: attempt.requestId,
-                  });
-                  yield* stub.finishPatronCheckout(
-                    attempt.requestId,
-                    checkoutUrl.id,
-                    checkoutUrl.url
-                  );
-                  return checkoutUrl.url;
-                })
-              ),
-              Effect.tapError((error) => Effect.logError(error)),
-              Effect.mapError((error) =>
-                error._tag === "CreemError"
-                  ? new Unavailable({
-                      message:
-                        "Couldn't prepare checkout. Contact support if this persists; an uncertain checkout is held to avoid duplicate subscriptions.",
-                    })
-                  : error
-              )
-            );
-            return { url };
-          })
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) => stub.requireDevice(token)),
+            Effect.flatMap(() =>
+              Effect.fail(new Conflict({ message: RECEIVER_CHECKOUT_RETIRED }))
+            )
+          )
         )
         .handle("claimSupportPrompt", () =>
           forCaller.pipe(
-            Effect.flatMap(({ token, stub }) => stub.claimSupportPrompt(token))
+            Effect.flatMap(({ token, stub }) => stub.requireDevice(token)),
+            Effect.as({ show: false })
           )
         )
         .handle("managePatron", () =>
@@ -379,6 +360,13 @@ export default class Server extends Cloudflare.Worker<Server>()(
             return { url };
           })
         )
+        .handle("updateAppearance", ({ payload }) =>
+          forCaller.pipe(
+            Effect.flatMap(({ token, stub }) =>
+              stub.updateAppearance(token, payload)
+            )
+          )
+        )
         .handle("connectTicket", () =>
           forCaller.pipe(
             Effect.flatMap(({ token, stub }) => stub.createTicket(token))
@@ -386,10 +374,170 @@ export default class Server extends Cloudflare.Worker<Server>()(
         );
     });
 
+    const patronSetup = HttpApiBuilder.group(
+      ShouldertapApi,
+      "patronSetup",
+      (handlers) =>
+        handlers
+          .handle("createPatron", () =>
+            Effect.gen(function* createPatron() {
+              const request = yield* HttpServerRequest;
+              const { success } = yield* patronCreation
+                .limit({
+                  key: request.headers["cf-connecting-ip"] ?? "unknown",
+                })
+                .pipe(
+                  Effect.catchTag("RateLimitError", () =>
+                    Effect.succeed({ success: true })
+                  )
+                );
+              if (!success) {
+                return yield* new TooManyRequests({
+                  message:
+                    "Too many requests from this network. Try again in a minute.",
+                });
+              }
+              const patronId = yield* newPatronId;
+              return yield* patrons
+                .getByName(patronId)
+                .initialize(patronId)
+                .pipe(Effect.orDie);
+            })
+          )
+          .handle("redeemPatronLink", ({ payload }) => {
+            const code = parsePatronKey(payload.code);
+            return code
+              ? patrons.getByName(code.patronId).redeemLinkCode(code)
+              : Effect.fail(new NotFound({ message: "This code isn't valid" }));
+          })
+    );
+
+    const patron = HttpApiBuilder.group(
+      ShouldertapApi,
+      "patron",
+      (handlers) => {
+        const forPatron = Effect.gen(function* forPatron() {
+          const key = yield* PatronCaller;
+          return { key, stub: patrons.getByName(key.patronId) };
+        });
+        return handlers
+          .handle("patronStatus", () =>
+            forPatron.pipe(Effect.flatMap(({ key, stub }) => stub.status(key)))
+          )
+          .handle("patronCheckout", () =>
+            Effect.gen(function* startCheckout() {
+              const { key, stub } = yield* forPatron;
+              const request = yield* HttpServerRequest;
+              // Authenticates the key before touching the provider.
+              yield* stub.status(key);
+              if (
+                !patronCheckoutEnabled ||
+                Option.isNone(creem) ||
+                !creem.value.patronProductId
+              ) {
+                return yield* new Unavailable({
+                  message:
+                    "New patron signup is not available yet. Messaging remains free.",
+                });
+              }
+              const billing = creem.value;
+              const url = yield* validatePatronProduct(
+                billing.client,
+                billing.patronProductId
+              ).pipe(
+                Effect.andThen(
+                  Effect.gen(function* checkoutOnce() {
+                    let attempt = yield* stub.reserveCheckout(key);
+                    if (attempt.url && attempt.providerId) {
+                      const remote = yield* retrieveCheckout(
+                        billing.client,
+                        attempt.providerId
+                      );
+                      if (remote.status === "expired") {
+                        yield* stub.releaseExpiredCheckout(attempt.requestId);
+                        attempt = yield* stub.reserveCheckout(key);
+                      } else if (remote.status === "pending") {
+                        return attempt.url;
+                      } else {
+                        return yield* new Conflict({
+                          message:
+                            "Checkout is processing or complete. Please wait for your membership to update, or contact support.",
+                        });
+                      }
+                    }
+                    if (attempt.url) {
+                      return attempt.url;
+                    }
+                    const checkout = yield* createCheckout(billing.client, {
+                      productId: billing.patronProductId,
+                      patronId: key.patronId,
+                      requestId: attempt.requestId,
+                      successUrl: new URL(
+                        "/v1/patrons/return",
+                        request.originalUrl
+                      ).href,
+                    });
+                    yield* stub.finishCheckout(
+                      attempt.requestId,
+                      checkout.id,
+                      checkout.url
+                    );
+                    return checkout.url;
+                  })
+                ),
+                Effect.tapError((error) => Effect.logError(error)),
+                Effect.mapError((error) =>
+                  error._tag === "CreemError"
+                    ? new Unavailable({
+                        message:
+                          "Couldn't prepare checkout. Contact support if this persists; an uncertain checkout is held to avoid duplicate subscriptions.",
+                      })
+                    : error
+                )
+              );
+              return { url };
+            })
+          )
+          .handle("patronManage", () =>
+            Effect.gen(function* managePatron() {
+              const { key, stub } = yield* forPatron;
+              const customerId = yield* stub.customer(key);
+              if (Option.isNone(creem)) {
+                return yield* new Unavailable({
+                  message: "Billing is unavailable here.",
+                });
+              }
+              const url = yield* customerPortal(
+                creem.value.client,
+                customerId
+              ).pipe(
+                Effect.mapError(
+                  () =>
+                    new Unavailable({
+                      message: "Couldn't open billing. Try again shortly.",
+                    })
+                )
+              );
+              return { url };
+            })
+          )
+          .handle("patronLinkCode", () =>
+            forPatron.pipe(
+              Effect.flatMap(({ key, stub }) => stub.createLinkCode(key))
+            )
+          )
+          .handle("forgetPatronKey", () =>
+            forPatron.pipe(
+              Effect.flatMap(({ key, stub }) => stub.forgetKey(key))
+            )
+          );
+      }
+    );
+
     const api = yield* HttpRouter.toHttpEffect(
       HttpApiBuilder.layer(ShouldertapApi).pipe(
-        Layer.provide([pairing, inbox]),
-        Layer.provide(AuthorizationLive),
+        Layer.provide([pairing, inbox, patronSetup, patron]),
+        Layer.provide([AuthorizationLive, PatronAuthorizationLive]),
         Layer.provide([HttpPlatform.layer, Etag.layer]),
         // Bearer credentials only, no cookies: any origin may call the API.
         Layer.provide(
@@ -439,15 +587,19 @@ export default class Server extends Cloudflare.Worker<Server>()(
         patronProductId
       );
       if (action.kind === "patron") {
-        const inboxId =
-          action.inboxId ??
-          (yield* subscriptionInboxId(client, action.subscriptionId));
-        if (!inboxId) {
+        const owner =
+          action.owner ??
+          (yield* subscriptionOwner(client, action.subscriptionId));
+        if (!owner) {
           return HttpServerResponse.text("Missing subscription metadata", {
             status: 500,
           });
         }
-        yield* inboxes.getByName(inboxId).recordPatronEvent(action.event);
+        // Each fact goes only to the subject named in its own metadata: a
+        // historical receiver subscription never becomes a sender's.
+        yield* owner.kind === "patron"
+          ? patrons.getByName(owner.id).recordEvent(action.event)
+          : inboxes.getByName(owner.id).recordPatronEvent(action.event);
       } else if (action.kind === "purchase") {
         const at = Date.now();
         const { applied } = yield* inboxes
@@ -503,6 +655,25 @@ export default class Server extends Cloudflare.Worker<Server>()(
           }
           return yield* inboxes.getByName(ticket.inboxId).fetch(request);
         }
+        // A provider redirect is navigation only, never proof of payment.
+        // No credentials, query values or remote markup are reflected here.
+        if (
+          request.url.split("?")[0] === "/v1/patrons/return" &&
+          request.method === "GET"
+        ) {
+          return HttpServerResponse.text(
+            `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Return to Shouldertap</title><main><h1>Return to Shouldertap</h1><p>Return to the Shouldertap tab you started from. If checkout replaced it, use your browser’s Back button to return to Style. Your draft is saved.</p><p>Your membership updates only after our server receives payment confirmation. If it is still processing, refresh Style shortly.</p></main></html>`,
+            {
+              headers: {
+                "content-type": "text/html; charset=utf-8",
+                "cache-control": "no-store",
+                "referrer-policy": "no-referrer",
+                "content-security-policy":
+                  "default-src 'none'; frame-ancestors 'none'",
+              },
+            }
+          );
+        }
         if (request.url === "/v1/webhooks/creem" && request.method === "POST") {
           return yield* creemWebhook;
         }
@@ -528,6 +699,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
   }).pipe(
     Effect.provide([
       InboxLive,
+      SenderPatronLive,
       TrialLedgerLive,
       Cloudflare.Workers.RateLimitBinding,
       Cloudflare.Workers.VersionMetadataBinding,

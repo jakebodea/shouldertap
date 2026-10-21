@@ -1,3 +1,5 @@
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { PersonColor } from "./colors";
@@ -42,6 +44,44 @@ export type TapResponse = typeof TapResponse.Type;
 export const TapState = Schema.Literals(["pending", "acknowledged"]);
 export type TapState = typeof TapState.Type;
 
+/**
+ * How a tap looks on the recipient's computers, chosen by its SENDER. Default
+ * is the free Frame; every other value is a whole composition the Mac and
+ * Windows apps render natively and the web sender previews. Only an active
+ * patron's send is stored with a theme other than Default (the server checks
+ * the sender's own patron identity, never the recipient's). Adding one is a
+ * protocol change (Swift `TapTheme`, Rust `TapTheme`, the Inbox's CHECK
+ * constraint), checked by `scripts/check-protocol-sync.ts`.
+ */
+export const TAP_THEMES = [
+  "default",
+  "broadsheet",
+  "billboard",
+  "terminal",
+  "note",
+] as const;
+export const TapTheme = Schema.Literals(TAP_THEMES);
+export type TapTheme = typeof TapTheme.Type;
+
+/** Decodes a theme from a server, falling back to Default for one this client
+ * doesn't know (a newer server), instead of failing the whole snapshot. */
+export const KnownTapTheme = TapTheme.pipe(
+  Schema.catchDecoding(() => Effect.succeed(Option.some<TapTheme>("default")))
+);
+
+/** `system` follows the computer's Reduce Motion setting; `reduced` always
+ * shows the calm entrance. Free, and the recipient's own. */
+export const MOTION_PREFERENCES = ["system", "reduced"] as const;
+export const MotionPreference = Schema.Literals(MOTION_PREFERENCES);
+export type MotionPreference = typeof MotionPreference.Type;
+
+/** The recipient's free override of senders' cosmetics: `show` renders each
+ * tap in the theme its sender sent it with; `plain` shows every tap in
+ * Default. It never affects delivery, controls or replies. */
+export const SENDER_THEME_PREFERENCES = ["show", "plain"] as const;
+export const SenderThemePreference = Schema.Literals(SENDER_THEME_PREFERENCES);
+export type SenderThemePreference = typeof SenderThemePreference.Type;
+
 export const Tap = Schema.Struct({
   id: Schema.String,
   senderId: Schema.String,
@@ -55,6 +95,10 @@ export const Tap = Schema.Struct({
   acknowledgedBy: Schema.NullOr(Schema.String),
   response: Schema.NullOr(TapResponse),
   sequence: Schema.Number,
+  /** The sender's theme, captured when the server accepted the tap and never
+   * rewritten. Missing from servers older than sender themes and on taps sent
+   * before them: show Default. */
+  theme: Schema.optionalKey(KnownTapTheme),
 });
 export type Tap = typeof Tap.Type;
 
@@ -88,7 +132,7 @@ export const CreateInboxRequest = Schema.Struct({
   deviceName: Name,
   /** Which computer is setting up, so its trial survives a fresh setup. Older apps omit it. */
   machine: Schema.optionalKey(MachineFingerprint),
-  /** Which kind of device is setting up. Older Macs omit it. */
+  /** Which kind of computer is setting up. Macs omit it. */
   platform: Schema.optionalKey(DevicePlatform),
 });
 export type CreateInboxRequest = typeof CreateInboxRequest.Type;
@@ -134,6 +178,13 @@ export const SendTapRequest = Schema.Struct({
       Schema.isMaxLength(MAX_TAP_LENGTH)
     )
   ),
+  /** The theme the sender chose. Anything but Default needs `patronKey` of an
+   * active patron; otherwise the server stores the tap in Default. Cosmetics
+   * never block delivery. Older clients omit both. */
+  theme: Schema.optionalKey(TapTheme),
+  /** The sender's patron key (`formatPatronKey`), separate from the pairing
+   * credential so one membership covers every person they tap. */
+  patronKey: Schema.optionalKey(Schema.String),
 });
 export type SendTapRequest = typeof SendTapRequest.Type;
 
@@ -200,7 +251,7 @@ export const Checkout = Schema.Struct({
 });
 export type Checkout = typeof Checkout.Type;
 
-/** What a paired Mac sees: every pending tap plus recent history. */
+/** Annual support state, folded from signed provider facts. */
 export const Patron = Schema.Struct({
   active: Schema.Boolean,
   status: Schema.Literals([
@@ -217,6 +268,56 @@ export const Patron = Schema.Struct({
 });
 export type Patron = typeof Patron.Type;
 
+/**
+ * The recipient's free settings for their own computers. Servers from the
+ * receiver-owned theme experiment also sent `theme`, `shownTheme` and
+ * `canChooseTheme`; current clients ignore them.
+ */
+export const Appearance = Schema.Struct({
+  motion: MotionPreference,
+  senderThemes: SenderThemePreference,
+});
+export type Appearance = typeof Appearance.Type;
+
+/** `PUT /v1/appearance`: either field may be left out to keep it. */
+export const UpdateAppearanceRequest = Schema.Struct({
+  motion: Schema.optionalKey(MotionPreference),
+  senderThemes: Schema.optionalKey(SenderThemePreference),
+});
+export type UpdateAppearanceRequest = typeof UpdateAppearanceRequest.Type;
+
+// Sender patrons
+
+/** A new key for a sender's patron identity: the only proof of membership.
+ * Pairing credentials and invite links never carry it. */
+export const PatronKeyGrant = Schema.Struct({
+  patronId: Schema.String,
+  keyId: Schema.String,
+  key: Schema.String,
+});
+export type PatronKeyGrant = typeof PatronKeyGrant.Type;
+
+/** A sender's own membership, read with their patron key. */
+export const PatronStatus = Schema.Struct({
+  patronId: Schema.String,
+  patron: Patron,
+  /** Active keys (this device included). */
+  keys: Schema.Number,
+});
+export type PatronStatus = typeof PatronStatus.Type;
+
+/** One-time code that adds another of the sender's own devices. */
+export const PatronLinkCode = Schema.Struct({
+  code: Schema.String,
+  expiresAt: Timestamp,
+});
+export type PatronLinkCode = typeof PatronLinkCode.Type;
+
+export const RedeemPatronLinkRequest = Schema.Struct({
+  code: Schema.String,
+});
+export type RedeemPatronLinkRequest = typeof RedeemPatronLinkRequest.Type;
+
 export const ReceiverSnapshot = Schema.Struct({
   kind: Schema.Literal("device"),
   credentialId: Schema.String,
@@ -225,7 +326,11 @@ export const ReceiverSnapshot = Schema.Struct({
   taps: Schema.Array(Tap),
   credentials: Schema.Array(Credential),
   plan: Plan,
+  /** Only a historical receiver-owned support subscription, so it can still
+   * be managed or canceled. Never used for themes. */
   patron: Schema.optional(Patron),
+  /** Missing from older servers: show senders' themes, system motion. */
+  appearance: Schema.optional(Appearance),
 });
 export type ReceiverSnapshot = typeof ReceiverSnapshot.Type;
 

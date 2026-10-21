@@ -1,22 +1,41 @@
-import { Conflict, TooManyRequests } from "@shouldertap/domain";
-import type { SendTapRequest } from "@shouldertap/domain";
-import { and, count, eq, gt, sql } from "drizzle-orm";
+import { Conflict, fallbackColor, TooManyRequests } from "@shouldertap/domain";
+import type { SendTapRequest, Tap } from "@shouldertap/domain";
+import { and, count, desc, eq, gt, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import type { EffectSQLiteDoDatabase } from "drizzle-orm/effect-sqlite-do";
 import * as Effect from "effect/Effect";
 
-import { inbox, taps } from "./schema";
+import type { VerifiedTheme } from "./presentation";
+import { credentials, inbox, taps } from "./schema";
 
-const TAPS_PER_HOUR = 30;
+/** Taps one sender may send in any rolling hour. */
+export const TAPS_PER_HOUR = 30;
 const HOUR_MS = 60 * 60 * 1000;
 
-/** Persist an authorized tap. Functional access deliberately has no billing
- * dependency: only idempotency and the shared safety limit can refuse it. */
-export const recordTap = (
+/** What the Inbox stores from a send: never the client's theme claim or key. */
+export type TapMessage = Omit<SendTapRequest, "theme" | "patronKey">;
+
+/**
+ * Accepts one send in a transaction. The theme is captured on the row now and
+ * never rewritten, so a sender changing style, or their membership lapsing or
+ * being refunded later, doesn't restyle taps already sent. A retry with the
+ * same request id returns the original tap, theme included.
+ */
+export const storeTap = (
   db: EffectSQLiteDoDatabase,
-  senderId: string,
-  request: SendTapRequest,
-  id: string,
-  createdAt: number
+  {
+    senderId,
+    message,
+    theme,
+    id,
+    at,
+  }: {
+    senderId: string;
+    message: TapMessage;
+    theme: VerifiedTheme;
+    id: string;
+    at: number;
+  }
 ) =>
   db.transaction((tx) =>
     Effect.gen(function* insertTap() {
@@ -26,12 +45,12 @@ export const recordTap = (
         .where(
           and(
             eq(taps.senderId, senderId),
-            eq(taps.requestId, request.requestId)
+            eq(taps.requestId, message.requestId)
           )
         );
       if (existing) {
         // Idempotent retry: same request id, same message → same tap.
-        if (existing.body !== request.body) {
+        if (existing.body !== message.body) {
           return yield* new Conflict({
             message: "Request id was reused with a different message",
           });
@@ -42,10 +61,7 @@ export const recordTap = (
         .select({ n: count() })
         .from(taps)
         .where(
-          and(
-            eq(taps.senderId, senderId),
-            gt(taps.createdAt, createdAt - HOUR_MS)
-          )
+          and(eq(taps.senderId, senderId), gt(taps.createdAt, at - HOUR_MS))
         );
       if ((recent?.n ?? 0) >= TAPS_PER_HOUR) {
         return yield* new TooManyRequests({
@@ -59,13 +75,58 @@ export const recordTap = (
         .returning({ sequence: inbox.sequence });
       yield* tx.insert(taps).values({
         id,
-        requestId: request.requestId,
+        requestId: message.requestId,
         senderId,
-        body: request.body,
-        createdAt,
+        body: message.body,
+        createdAt: at,
         state: "pending",
         sequence: row?.sequence ?? 0,
+        theme,
       });
       return { id, isNew: true };
     })
   );
+
+/** A stored tap as clients see it. Taps from before sender themes show Default. */
+export const toTap = ({
+  tap,
+  senderName,
+  senderColor,
+}: {
+  tap: typeof taps.$inferSelect;
+  senderName: string;
+  senderColor: typeof credentials.$inferSelect.color;
+}): Tap => ({
+  id: tap.id,
+  senderId: tap.senderId,
+  senderName,
+  senderColor: senderColor ?? fallbackColor(tap.senderId),
+  body: tap.body,
+  createdAt: tap.createdAt,
+  state: tap.state,
+  displayedAt: tap.displayedAt,
+  acknowledgedAt: tap.acknowledgedAt,
+  acknowledgedBy: tap.acknowledgedBy,
+  response: tap.response,
+  sequence: tap.sequence,
+  theme: tap.theme ?? "default",
+});
+
+/** Taps with their sender's name and color, newest first. */
+export const readTaps = (
+  db: EffectSQLiteDoDatabase,
+  where: SQL | undefined,
+  limit: number
+) =>
+  db
+    .select({
+      tap: taps,
+      senderName: credentials.name,
+      senderColor: credentials.color,
+    })
+    .from(taps)
+    .innerJoin(credentials, eq(credentials.id, taps.senderId))
+    .where(where)
+    .orderBy(desc(taps.createdAt))
+    .limit(limit)
+    .pipe(Effect.map((rows) => rows.map(toTap)));

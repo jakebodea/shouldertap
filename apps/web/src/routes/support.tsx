@@ -20,16 +20,26 @@ const SupportComponent = () => (
       <p>
         Core messaging is free. Optional patron support helps cover running
         costs: $2/month, billed $24 annually in USD, plus applicable tax. It
-        renews annually until canceled. There are no extra features or promised
-        rewards. It is not a tax-deductible donation.
+        renews annually until canceled. It belongs to whoever sends taps: while
+        it’s active, your taps can use a theme (Broadsheet, Billboard, Terminal
+        or Note) on the screens of everyone you tap. They never pay to see it,
+        and can always show taps plain. Sending, replies and the Default look
+        never need it, and themes aren’t a permanent purchase. It is not a
+        tax-deductible donation.
       </p>
       <p>
-        On your computer, open “Support Shouldertap” in the app menu. Use
-        “Become a patron” to check out with Creem, or “Manage or cancel support”
-        to manage your subscription, payment method, and receipts. Cancellation
-        takes effect at the end of your paid period. Core use stays free. For
-        billing help or a refund within 14 days of a support payment, email{" "}
+        In the web sender, open Style under the message field. Preview every
+        theme, then use “Become a patron” to check out with Creem, or “Manage
+        billing” to change your payment method, see receipts or cancel.
+        Cancellation takes effect at the end of your paid period; taps already
+        sent keep their theme. Use “Add another device” to add your membership
+        to another phone or browser with a one-time code. For billing help, a
+        lost device, or a refund within 14 days of a support payment, email{" "}
         <EmailLink />.
+      </p>
+      <p>
+        If you bought annual support from your computer before it moved to
+        senders, manage or cancel it there under “Patron themes”.
       </p>
       <p>
         If you previously paid $5, thank you. Your purchase is preserved and you

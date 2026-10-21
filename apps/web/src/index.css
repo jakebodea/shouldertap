@@ -254,31 +254,48 @@
   bottom: -6px;
 }
 
-/* Frame: shows exactly the frame's padding, max(9px, safe area), so the
-   frame stays put as a bezel while the paper page scrolls beneath it. */
 .frame-edge-top {
-  top: -3px;
-  height: calc(max(9px, env(safe-area-inset-top)) + 3px);
+  top: -6px;
+  height: 12px;
 }
 
 .frame-edge-bottom {
-  bottom: -3px;
-  height: calc(max(9px, env(safe-area-inset-bottom)) + 3px);
+  bottom: -6px;
+  height: 12px;
 }
 
-.landing-header {
-  top: env(safe-area-inset-top, 0px);
+/* The home page geometry is the only shell geometry. */
+.page-shell {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: 4rem minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
+  padding: env(safe-area-inset-top, 0px) 0
+    calc(0.625rem + env(safe-area-inset-bottom, 0px));
 }
 
-.landing-page {
-  top: calc(4rem + env(safe-area-inset-top, 0px));
-  bottom: calc(0.625rem + env(safe-area-inset-bottom, 0px));
+.page-shell-header {
+  padding-inline: 1.25rem;
+}
+
+.page-shell-paper {
+  margin-inline: 0.625rem;
+  border-radius: 1.5rem;
 }
 
 @media (min-width: 48rem) {
-  .landing-page {
-    top: calc(6rem + env(safe-area-inset-top, 0px));
-    bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  .page-shell {
+    grid-template-rows: 6rem minmax(0, 1fr);
+    padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .page-shell-header {
+    padding-inline: 72px;
+  }
+  .page-shell-paper {
+    margin-inline: 2.5rem;
+    border-radius: 1.75rem;
   }
 }
 

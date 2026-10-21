@@ -71,6 +71,93 @@ export const parseRustSwatches = (source: string): Map<string, Swatch> => {
   return out;
 };
 
+/** `TAP_THEMES` in contracts.ts, in order. */
+export const parseTsThemes = (source: string): string[] => {
+  const block = source.match(
+    /export const TAP_THEMES = \[(?<body>[\s\S]*?)\] as const;/u
+  );
+  return [...(block?.groups?.body ?? "").matchAll(/"(?<name>\w+)"/gu)].map(
+    (m) => m.groups?.name ?? ""
+  );
+};
+
+/** The cases of Swift's `TapTheme`, in order. */
+export const parseSwiftThemes = (source: string): string[] => {
+  const line = source.match(
+    /public enum TapTheme\b[^{]*\{\s*case (?<cases>[^\n]+)/u
+  );
+  return (line?.groups?.cases ?? "")
+    .split(",")
+    .map((name) => name.trim().replaceAll("`", ""))
+    .filter(Boolean);
+};
+
+/** Rust's `TapTheme::ALL`, in order and lowercased like its serde names. */
+export const parseRustThemes = (source: string): string[] => {
+  const all = source.match(
+    /impl TapTheme \{\s*pub const ALL: \[TapTheme; \d+\] = \[(?<body>[^\]]*)\]/u
+  );
+  return [...(all?.groups?.body ?? "").matchAll(/Self::(?<name>\w+)/gu)].map(
+    (m) => (m.groups?.name ?? "").toLowerCase()
+  );
+};
+
+/** `SENDER_THEME_PREFERENCES` in contracts.ts, in order. */
+export const parseTsSenderThemes = (source: string): string[] => {
+  const block = source.match(
+    /export const SENDER_THEME_PREFERENCES = \[(?<body>[\s\S]*?)\] as const;/u
+  );
+  return [...(block?.groups?.body ?? "").matchAll(/"(?<name>\w+)"/gu)].map(
+    (m) => m.groups?.name ?? ""
+  );
+};
+
+/** The cases of an enum's body, Swift (`case show`) or Rust (`Show,`). */
+export const parseEnumCases = (source: string, name: string): string[] => {
+  const body = source.match(
+    new RegExp(`enum ${name}\\b[^{]*\\{(?<body>[\\s\\S]*?)\\n\\}`, "u")
+  )?.groups?.body;
+  return [
+    ...(body ?? "").matchAll(
+      /^\s*(?:case\s+(?<swift>\w+)|(?<rust>[A-Z]\w*),)\s*$/gmu
+    ),
+  ].map((m) => (m.groups?.swift ?? m.groups?.rust ?? "").toLowerCase());
+};
+
+/** Every theme must render on both computers; a server can't store one
+ * either client lacks (the Inbox's CHECK constraint uses the same list). */
+const themeErrors = (swift: string, rust: string): string[] => {
+  const errors: string[] = [];
+  const contracts = read("packages/domain/src/contracts.ts");
+  const tsThemes = parseTsThemes(contracts).join(", ");
+  const swiftThemes = parseSwiftThemes(swift).join(", ");
+  const rustThemes = parseRustThemes(rust).join(", ");
+  if (!tsThemes) {
+    errors.push("Could not read TAP_THEMES from contracts.ts");
+  }
+  if (swiftThemes !== tsThemes) {
+    errors.push(`Tap themes: TS [${tsThemes}] != Swift [${swiftThemes}]`);
+  }
+  if (rustThemes !== tsThemes) {
+    errors.push(`Tap themes: TS [${tsThemes}] != Rust [${rustThemes}]`);
+  }
+  // The recipient's plain override must mean the same on every computer.
+  const tsPrefs = parseTsSenderThemes(contracts).join(", ");
+  const swiftPrefs = parseEnumCases(swift, "SenderThemePreference").join(", ");
+  const rustPrefs = parseEnumCases(rust, "SenderThemePreference").join(", ");
+  if (!tsPrefs) {
+    errors.push("Could not read SENDER_THEME_PREFERENCES from contracts.ts");
+  }
+  if (swiftPrefs !== tsPrefs) {
+    errors.push(`Sender themes: TS [${tsPrefs}] != Swift [${swiftPrefs}]`);
+  }
+  if (rustPrefs !== tsPrefs) {
+    errors.push(`Sender themes: TS [${tsPrefs}] != Rust [${rustPrefs}]`);
+  }
+
+  return errors;
+};
+
 export const collectProtocolSyncErrors = (): string[] => {
   const ts = read("packages/domain/src/colors.ts");
   const swift = read("apps/macos/Sources/ShouldertapCore/Models.swift");
@@ -128,6 +215,8 @@ export const collectProtocolSyncErrors = (): string[] => {
     );
   }
 
+  errors.push(...themeErrors(swift, rust));
+
   if (iosProject.includes("ShouldertapUITests")) {
     errors.push(
       "apps/ios still defines a ShouldertapUITests target; use swift test on ShouldertapCore instead"
@@ -150,6 +239,6 @@ if (import.meta.main) {
     read("packages/domain/src/colors.ts")
   ).size;
   console.log(
-    `OK: ${colorCount} person colors and tap length limits match across Swift and Rust.`
+    `OK: ${colorCount} person colors, tap themes, sender theme settings and tap length limits match across Swift and Rust.`
   );
 }
