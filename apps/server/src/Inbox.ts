@@ -55,6 +55,9 @@ import { readAppearance, saveAppearance } from "./appearance";
 import { isObjectionable } from "./content";
 import {
   authenticatePairing,
+  connectedPairingCondition,
+  connectedPairings,
+  requireSenderRestoreRoom,
   authorizePairingRevocation,
 } from "./pairing-auth";
 import { patronOf } from "./patron";
@@ -316,14 +319,6 @@ const send = (socket: Cloudflare.WebSocket, event: ServerEvent) =>
   // A dead socket is cleaned up by the runtime; clients resync on reconnect.
   socket.send(JSON.stringify(event)).pipe(Effect.ignore);
 
-/** Active (non-revoked) pairings of one kind. */
-const isActive = (kind: CredentialKind) =>
-  and(
-    eq(credentials.kind, kind),
-    isNull(credentials.revokedAt),
-    isNull(credentials.parentId)
-  );
-
 const unauthorized = (message: string) =>
   HttpServerResponse.text(message, { status: 401 });
 
@@ -359,27 +354,22 @@ export const InboxLive = Inbox.make(
         .where(eq(inbox.id, 1))
         .pipe(Effect.map(([row]) => row));
 
-      const listCredentials = db
-        .select()
-        .from(credentials)
-        .where(and(isNull(credentials.revokedAt), isNull(credentials.parentId)))
-        .orderBy(credentials.createdAt)
-        .pipe(
-          Effect.map((rows) =>
-            rows.map((row): Credential => ({
-              id: row.id,
-              kind: row.kind,
-              name: row.name,
-              color:
-                row.kind === "sender"
-                  ? (row.color ?? fallbackColor(row.id))
-                  : null,
-              platform: platformFor(row.kind, row.platform ?? undefined),
-              createdAt: row.createdAt,
-              lastSeenAt: row.lastSeenAt,
-            }))
-          )
-        );
+      const listCredentials = connectedPairings(db).pipe(
+        Effect.map((rows) =>
+          rows.map((row): Credential => ({
+            id: row.id,
+            kind: row.kind,
+            name: row.name,
+            color:
+              row.kind === "sender"
+                ? (row.color ?? fallbackColor(row.id))
+                : null,
+            platform: platformFor(row.kind, row.platform ?? undefined),
+            createdAt: row.createdAt,
+            lastSeenAt: row.lastSeenAt,
+          }))
+        )
+      );
 
       const authenticate = (token: ParsedToken) =>
         Effect.gen(function* authenticatePresentedKey() {
@@ -741,6 +731,11 @@ export const InboxLive = Inbox.make(
                       message: "This sender was removed",
                     });
                   }
+                  yield* requireSenderRestoreRoom(
+                    tx,
+                    senderId,
+                    PAIRING_CAPS.sender
+                  );
                   const [keys] = yield* tx
                     .select({ n: count() })
                     .from(credentials)
@@ -767,7 +762,7 @@ export const InboxLive = Inbox.make(
                   const [devices] = yield* tx
                     .select({ n: count() })
                     .from(credentials)
-                    .where(isActive("device"));
+                    .where(connectedPairingCondition("device"));
                   if ((devices?.n ?? 0) >= PAIRING_CAPS.device) {
                     return yield* new Conflict({
                       message: fullInviteMessage("device"),
@@ -903,7 +898,7 @@ export const InboxLive = Inbox.make(
           const [active] = yield* db
             .select({ n: count() })
             .from(credentials)
-            .where(isActive(request.kind));
+            .where(connectedPairingCondition(request.kind));
           if ((active?.n ?? 0) >= PAIRING_CAPS[request.kind]) {
             return yield* new Conflict({
               message: fullInviteMessage(request.kind),
@@ -956,7 +951,7 @@ export const InboxLive = Inbox.make(
               const [active] = yield* tx
                 .select({ n: count() })
                 .from(credentials)
-                .where(isActive(kind));
+                .where(connectedPairingCondition(kind));
               if ((active?.n ?? 0) >= PAIRING_CAPS[kind]) {
                 return yield* new Conflict({
                   message: fullInboxMessage(kind, recipientName),
