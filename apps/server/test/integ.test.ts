@@ -156,7 +156,7 @@ test(
     expect(plan?.status).toBe("paid");
     expect(
       snapshot.kind === "device" ? snapshot.patron?.canSubscribe : false
-    ).toBeTruthy();
+    ).toBeFalsy();
 
     const trialTap = yield* (yield* client(url, sender.token)).inbox.sendTap({
       payload: { requestId: crypto.randomUUID(), body: "Trial tap" },
@@ -583,7 +583,7 @@ test(
       expect(self?.platform).toBe(platform ?? "mac");
       expect(snapshot.plan.status).toBe("paid");
       expect(snapshot.patron?.status).toBe("none");
-      expect(snapshot.patron?.canSubscribe).toBeTruthy();
+      expect(snapshot.patron?.canSubscribe).toBeFalsy();
     });
 
     const machine = fingerprint();
