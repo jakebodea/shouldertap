@@ -484,7 +484,10 @@ fn saving_appearance_sends_only_the_changed_field_and_adopts_the_servers_answer(
             motion: None,
         })
         .unwrap();
-    assert_eq!(stub.body_for("/v1/appearance").unwrap(), serde_json::json!({"theme": "terminal"}));
+    assert_eq!(
+        stub.body_for("/v1/appearance").unwrap(),
+        serde_json::json!({"theme": "terminal"})
+    );
     // October 21, 2026: inside the paid period.
     assert_eq!(store.state().theme_on_screen(1_792_540_800_000.0), TapTheme::Terminal);
 }

@@ -25,6 +25,8 @@ ureq = { version = "3.4", default-features = false, features = ["native-tls", "j
 anyhow = "1"
 sha2 = "0.10"
 unicode-segmentation = "1"
+# Local dates and times on the Broadsheet and Note themes.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"

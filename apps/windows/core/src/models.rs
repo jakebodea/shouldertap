@@ -339,7 +339,13 @@ pub enum TapTheme {
 }
 
 impl TapTheme {
-    pub const ALL: [TapTheme; 5] = [Self::Default, Self::Broadsheet, Self::Billboard, Self::Terminal, Self::Note];
+    pub const ALL: [TapTheme; 5] = [
+        Self::Default,
+        Self::Broadsheet,
+        Self::Billboard,
+        Self::Terminal,
+        Self::Note,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {

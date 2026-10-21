@@ -10,7 +10,7 @@ use gpui::{
 };
 use shouldertap_core::{
     ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, MAX_NAME_LENGTH, Patron, Phase,
-    ReceiverStore, ResponseKind, SenderInvite, Tap, TapState, now_ms,
+    ReceiverStore, ResponseKind, SenderInvite, Tap, now_ms,
 };
 
 use crate::assets::{Icon, MARK_PATH};
@@ -421,8 +421,29 @@ impl MenuView {
             .child(self.invite_sender(s, cx))
             .child(section(s, "Can tap you", people))
             .child(section(s, "Your devices", your_devices))
+            .child(section(s, "Appearance", vec![self.appearance_row(s, &state, cx)]))
             .child(section(s, "Recent", recent))
             .child(self.footer(s, cx))
+    }
+
+    /// Opens the Appearance window; shows what taps look like right now.
+    fn appearance_row(
+        &mut self,
+        s: Surface,
+        state: &shouldertap_core::StoreState,
+        _cx: &mut Context<Self>,
+    ) -> AnyElement {
+        row(s, "appearance")
+            .cursor_pointer()
+            .on_click(|_, _, cx| Shell::open_appearance(cx))
+            .child(div().flex_1().font_weight(FontWeight::MEDIUM).child("Tap appearance"))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(s.secondary)
+                    .child(format!("{} ›", state.theme_on_screen(now_ms()).label())),
+            )
+            .into_any_element()
     }
 
     fn support(&mut self, s: Surface, patron: Option<&Patron>, cx: &mut Context<Self>) -> AnyElement {
@@ -491,7 +512,7 @@ impl MenuView {
         }
         div().flex().flex_col().gap(px(6.))
             .child(div().font_weight(FontWeight::SEMIBOLD).child("Support Shouldertap"))
-            .child(muted(s, if patron.is_some_and(|p| p.active) { "Thank you for supporting Shouldertap. Core use stays free." } else { "Shouldertap is free. Optional support: $2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. No extra features or promised rewards. Not a tax-deductible donation." }))
+            .child(muted(s, if patron.is_some_and(|p| p.active) { "Thank you for supporting Shouldertap. While it's active you can choose a tap theme in Tap appearance. Core use stays free." } else { "Shouldertap is free. Optional support: $2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. While it's active you can choose a tap theme for your computers; messaging, Default and accessibility settings never need it. Not a tax-deductible donation." }))
             .children(actions).children(self.plan_messages(s)).into_any_element()
     }
 
@@ -970,7 +991,7 @@ fn section(s: Surface, title: &str, children: Vec<AnyElement>) -> impl IntoEleme
         .child(div().flex().flex_col().gap(px(8.)).children(children))
 }
 
-fn muted(s: Surface, text: &str) -> gpui::Div {
+pub(crate) fn muted(s: Surface, text: &str) -> gpui::Div {
     div()
         .text_size(px(12.))
         .line_height(px(16.))
@@ -982,7 +1003,7 @@ fn muted_center(s: Surface, text: &str) -> gpui::Div {
     muted(s, text).text_center()
 }
 
-fn error_text(s: Surface, text: String) -> impl IntoElement {
+pub(crate) fn error_text(s: Surface, text: String) -> impl IntoElement {
     div()
         .text_size(px(12.))
         .line_height(px(16.))
@@ -1107,14 +1128,14 @@ fn row(s: Surface, id: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Kind {
+pub(crate) enum Kind {
     Primary,
     Secondary,
     Danger,
     Plain,
 }
 
-fn menu_button(
+pub(crate) fn menu_button(
     s: Surface,
     id: &'static str,
     title: &str,

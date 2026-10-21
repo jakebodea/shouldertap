@@ -37,6 +37,7 @@ pub struct Shell {
     overlays: Overlays,
     respond: Respond,
     menu: Option<WindowHandle<MenuView>>,
+    pub(crate) appearance: Option<WindowHandle<crate::appearance::AppearanceView>>,
     /// GPUI quits on Windows when its last window closes; this one is never
     /// shown, so the tray app lives on with no menu or overlay open.
     _anchor: AnyWindowHandle,
@@ -113,6 +114,7 @@ impl Shell {
             overlays: Overlays::default(),
             respond,
             menu: None,
+            appearance: None,
             _anchor: anchor,
             tray,
             knocking: None,
@@ -156,13 +158,14 @@ impl Shell {
         let model = cx.global::<Shell>().model.clone();
         let state = model.read(cx).store.state();
         let active = state.active_tap();
+        let look = crate::overlay::Look::of(&state);
         model.update(cx, |model, cx| {
             model.state = state;
             cx.notify();
         });
         cx.update_global::<Shell, _>(|shell, cx| {
             let respond = shell.respond.clone();
-            shell.overlays.update(active.clone(), &respond, cx);
+            shell.overlays.update(active.clone(), look, &respond, cx);
             shell.set_knocking(active.is_some(), cx);
             if let Some(tray) = &shell.tray {
                 tray.set_tooltip(&tooltip(active.as_ref()));
