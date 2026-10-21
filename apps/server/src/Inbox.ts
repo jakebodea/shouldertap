@@ -5,7 +5,6 @@ import {
   formatToken,
   InvalidRequest,
   NotFound,
-  PaymentRequired,
   parseToken,
   TooManyRequests,
   Unauthorized,
@@ -33,7 +32,7 @@ import type {
 import type { RuntimeContext } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Drizzle from "alchemy/Drizzle/Cloudflare";
-import { and, count, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { HttpServerRequest } from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
@@ -52,7 +51,16 @@ import {
 } from "./apns";
 import type { ApnsRequest, PushContext } from "./apns";
 import { isObjectionable } from "./content";
-import { planOf, requireActivePlan, TRIAL_MS } from "./plan";
+import { patronOf } from "./patron";
+import type { PatronEvent } from "./patron";
+import {
+  claimPrompt,
+  reserveCheckout,
+  storePatronEvent,
+  storeLegacyPurchase,
+  storeLegacyRefund,
+} from "./patron-storage";
+import { planOf, TRIAL_MS } from "./plan";
 import { retentionFilters } from "./retention";
 import {
   activityTokens,
@@ -60,9 +68,12 @@ import {
   inbox,
   invites,
   pushRegistrations,
+  patronEvents,
+  patronCheckout,
   taps,
   tickets,
 } from "./schema";
+import { recordTap } from "./tap-storage";
 
 const SENDER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEVICE_INVITE_TTL_MS = 15 * 60 * 1000;
@@ -71,8 +82,6 @@ const HISTORY_LIMIT = 25;
 const LAST_SEEN_WRITE_INTERVAL_MS = 60 * 1000;
 
 /** Taps one sender may send in any rolling hour. */
-const TAPS_PER_HOUR = 30;
-const HOUR_MS = 60 * 60 * 1000;
 /** Active (non-revoked) pairings an inbox may hold, by kind. */
 const PAIRING_CAPS: Record<CredentialKind, number> = {
   sender: 20,
@@ -112,14 +121,6 @@ const platformFor = (
   platform: DevicePlatform | undefined
 ): DevicePlatform | null => (kind === "device" ? (platform ?? "mac") : null);
 
-/** Macs and Windows PCs put taps on screen; an iPhone only manages the inbox. */
-const showsTaps = (platform: DevicePlatform | null | undefined) =>
-  platformFor("device", platform ?? undefined) !== "iphone";
-
-/** Why the last computer can't go while an iPhone is still linked. */
-const lastComputerMessage =
-  "This is the only computer on this inbox, and taps show up on computers. Add another Mac or Windows PC, or remove the linked iPhones first.";
-
 type Rpc<A, E = never> = Effect.Effect<A, E, RuntimeContext>;
 
 /** The Inbox's typed RPC surface, called by the Server Worker. */
@@ -141,6 +142,25 @@ export interface InboxRpc {
   readonly checkoutContext: (
     token: ParsedToken
   ) => Rpc<{ inboxId: string; recipientName: string }, Unauthorized | Conflict>;
+  readonly reservePatronCheckout: (
+    token: ParsedToken
+  ) => Rpc<
+    { requestId: string; url: string | null; providerId: string | null },
+    Unauthorized | Conflict
+  >;
+  readonly finishPatronCheckout: (
+    requestId: string,
+    providerId: string,
+    url: string
+  ) => Rpc<void>;
+  readonly releaseExpiredCheckout: (requestId: string) => Rpc<void>;
+  readonly patronCustomer: (
+    token: ParsedToken
+  ) => Rpc<string, Unauthorized | Conflict>;
+  readonly claimSupportPrompt: (
+    token: ParsedToken
+  ) => Rpc<{ show: boolean }, Unauthorized>;
+  readonly recordPatronEvent: (event: PatronEvent) => Rpc<{ applied: boolean }>;
   readonly createInvite: (
     token: ParsedToken,
     request: CreateInviteRequest
@@ -196,10 +216,7 @@ export interface InboxRpc {
     token: ParsedToken,
     request: SendTapRequest,
     push?: PushContext
-  ) => Rpc<
-    Tap,
-    Unauthorized | Conflict | TooManyRequests | PaymentRequired | InvalidRequest
-  >;
+  ) => Rpc<Tap, Unauthorized | Conflict | TooManyRequests | InvalidRequest>;
   readonly snapshot: (token: ParsedToken) => Rpc<Snapshot, Unauthorized>;
 }
 
@@ -228,7 +245,6 @@ export class Inbox extends Cloudflare.DurableObject<Inbox, InboxShape>()(
       Expired,
       InvalidRequest,
       TooManyRequests,
-      PaymentRequired,
     ],
   }
 ) {}
@@ -788,8 +804,8 @@ export const InboxLive = Inbox.make(
               });
               yield* tx.insert(credentials).values({
                 ...credential.row,
-                // Only a computer can set up an inbox; older Macs don't say.
-                platform: request.platform === "windows" ? "windows" : "mac",
+                // Older clients omit the platform and are Macs.
+                platform: request.platform ?? "mac",
               });
             })
           );
@@ -840,6 +856,11 @@ export const InboxLive = Inbox.make(
             ),
             credentials: yield* listCredentials,
             plan: planOf(row, yield* now),
+            patron: patronOf(
+              (yield* db.select().from(patronEvents)).map((r) => r.event),
+              yield* now,
+              (row?.paidAt ?? null) !== null
+            ),
           };
         }, orDieOnStorage),
 
@@ -951,64 +972,7 @@ export const InboxLive = Inbox.make(
           }
           const id = yield* randomId();
           const createdAt = yield* now;
-          const tapId = yield* db.transaction((tx) =>
-            Effect.gen(function* insertTap() {
-              const [existing] = yield* tx
-                .select()
-                .from(taps)
-                .where(
-                  and(
-                    eq(taps.senderId, actor.id),
-                    eq(taps.requestId, request.requestId)
-                  )
-                );
-              if (existing) {
-                // Idempotent retry: same request id, same message → same tap.
-                if (existing.body !== request.body) {
-                  return yield* new Conflict({
-                    message: "Request id was reused with a different message",
-                  });
-                }
-                return { id: existing.id, isNew: false };
-              }
-              // A paused inbox refuses new taps; retries above still resolve.
-              const [plan] = yield* tx
-                .select()
-                .from(inbox)
-                .where(eq(inbox.id, 1));
-              yield* requireActivePlan(plan, createdAt);
-              const [recent] = yield* tx
-                .select({ n: count() })
-                .from(taps)
-                .where(
-                  and(
-                    eq(taps.senderId, actor.id),
-                    gt(taps.createdAt, createdAt - HOUR_MS)
-                  )
-                );
-              if ((recent?.n ?? 0) >= TAPS_PER_HOUR) {
-                return yield* new TooManyRequests({
-                  message:
-                    "You've sent a lot of taps this hour. Try again later.",
-                });
-              }
-              const [row] = yield* tx
-                .update(inbox)
-                .set({ sequence: sql`${inbox.sequence} + 1` })
-                .where(eq(inbox.id, 1))
-                .returning({ sequence: inbox.sequence });
-              yield* tx.insert(taps).values({
-                id,
-                requestId: request.requestId,
-                senderId: actor.id,
-                body: request.body,
-                createdAt,
-                state: "pending",
-                sequence: row?.sequence ?? 0,
-              });
-              return { id, isNew: true };
-            })
-          );
+          const tapId = yield* recordTap(db, actor.id, request, id, createdAt);
           const tap = yield* getTap(tapId.id).pipe(Effect.orDie);
           if (tapId.isNew) {
             yield* broadcastTap(tap);
@@ -1067,7 +1031,11 @@ export const InboxLive = Inbox.make(
               Effect.gen(function* acknowledgeInTransaction() {
                 const [row] = yield* tx
                   .update(inbox)
-                  .set({ sequence: sql`${inbox.sequence} + 1` })
+                  .set({
+                    sequence: sql`${inbox.sequence} + 1`,
+                    firstAnsweredAt: sql`COALESCE(${inbox.firstAnsweredAt}, ${at})`,
+                    answeredCount: sql`${inbox.answeredCount} + 1`,
+                  })
                   .where(eq(inbox.id, 1))
                   .returning({ sequence: inbox.sequence });
                 const updated = yield* tx
@@ -1162,27 +1130,6 @@ export const InboxLive = Inbox.make(
           const at = yield* now;
           const revoked = yield* db.transaction((tx) =>
             Effect.gen(function* revokeInTransaction() {
-              const devices = yield* tx
-                .select({ id: credentials.id, platform: credentials.platform })
-                .from(credentials)
-                .where(isActive("device"));
-              const target = devices.find(
-                (device) => device.id === credentialId
-              );
-              // Computers are where taps show up: an inbox left with only
-              // iPhones would take taps that nothing displays. Removing the
-              // very last device (resetting the inbox) is still allowed.
-              if (target && showsTaps(target.platform)) {
-                const rest = devices.filter(
-                  (device) => device.id !== credentialId
-                );
-                const computersLeft = rest.filter((device) =>
-                  showsTaps(device.platform)
-                );
-                if (rest.length > 0 && computersLeft.length === 0) {
-                  return yield* new Conflict({ message: lastComputerMessage });
-                }
-              }
               return yield* tx
                 .update(credentials)
                 .set({ revokedAt: at })
@@ -1276,13 +1223,84 @@ export const InboxLive = Inbox.make(
           return { deleted: true as const };
         }, orDieOnStorage),
 
+        reservePatronCheckout: Effect.fn("Inbox.reservePatronCheckout")(
+          function* reservePatronCheckout(token) {
+            yield* requireDevice(token);
+            const requestId = yield* randomId();
+            const at = yield* now;
+            return yield* reserveCheckout(db, requestId, at);
+          },
+          orDieOnStorage
+        ),
+
+        finishPatronCheckout: Effect.fn("Inbox.finishPatronCheckout")(
+          function* finishPatronCheckout(requestId, providerId, url) {
+            yield* db
+              .update(patronCheckout)
+              .set({ url, providerId })
+              .where(eq(patronCheckout.requestId, requestId));
+          },
+          orDieOnStorage
+        ),
+
+        releaseExpiredCheckout: Effect.fn("Inbox.releaseExpiredCheckout")(
+          function* releaseExpiredCheckout(requestId) {
+            yield* db
+              .delete(patronCheckout)
+              .where(eq(patronCheckout.requestId, requestId));
+          },
+          orDieOnStorage
+        ),
+
+        recordPatronEvent: Effect.fn("Inbox.recordPatronEvent")(
+          function* recordPatronEvent(event) {
+            const applied = yield* storePatronEvent(db, event);
+            if (applied) {
+              yield* broadcastCredentials;
+            }
+            return { applied };
+          },
+          orDieOnStorage
+        ),
+
+        patronCustomer: Effect.fn("Inbox.patronCustomer")(
+          function* patronCustomer(token) {
+            yield* requireDevice(token);
+            const events = (yield* db.select().from(patronEvents))
+              .map((r) => r.event)
+              .toSorted((a, b) => b.at - a.at);
+            const customer = events[0]?.customerId;
+            if (!customer) {
+              return yield* new Conflict({
+                message: "No support membership to manage yet.",
+              });
+            }
+            return customer;
+          },
+          orDieOnStorage
+        ),
+
+        claimSupportPrompt: Effect.fn("Inbox.claimSupportPrompt")(
+          function* claimSupportPrompt(token) {
+            yield* requireDevice(token);
+            const at = yield* now;
+            return yield* claimPrompt(db, at);
+          },
+          orDieOnStorage
+        ),
+
         checkoutContext: Effect.fn("Inbox.checkoutContext")(
           function* checkoutContext(token) {
             yield* requireDevice(token);
             const row = yield* inboxRow;
-            if ((row?.paidAt ?? null) !== null) {
+            const patron = patronOf(
+              (yield* db.select().from(patronEvents)).map((r) => r.event),
+              yield* now
+            );
+            if (!patron.canSubscribe) {
               return yield* new Conflict({
-                message: "Shouldertap is already unlocked for this inbox.",
+                message:
+                  "Manage your existing support membership before starting another.",
               });
             }
             return {
@@ -1295,26 +1313,11 @@ export const InboxLive = Inbox.make(
 
         recordPurchase: Effect.fn("Inbox.recordPurchase")(
           function* recordPurchase(purchase) {
-            // Webhooks retry and can repeat: only an unpaid inbox, or the same
-            // order again, is updated. A second purchase keeps the first.
-            const updated = yield* db
-              .update(inbox)
-              .set({
-                paidAt: purchase.at,
-                orderId: purchase.orderId,
-                purchaseEmail: purchase.email,
-              })
-              .where(
-                and(
-                  eq(inbox.id, 1),
-                  sql`(${inbox.paidAt} IS NULL OR ${inbox.orderId} = ${purchase.orderId})`
-                )
-              )
-              .returning({ id: inbox.id });
-            if (updated.length > 0) {
+            const applied = yield* storeLegacyPurchase(db, purchase);
+            if (applied) {
               yield* broadcastCredentials;
             }
-            return { applied: updated.length > 0 };
+            return { applied };
           },
           orDieOnStorage
         ),
@@ -1322,15 +1325,11 @@ export const InboxLive = Inbox.make(
         recordRefund: Effect.fn("Inbox.recordRefund")(function* recordRefund(
           orderId
         ) {
-          const updated = yield* db
-            .update(inbox)
-            .set({ paidAt: null })
-            .where(and(eq(inbox.id, 1), eq(inbox.orderId, orderId)))
-            .returning({ id: inbox.id });
-          if (updated.length > 0) {
+          const applied = yield* storeLegacyRefund(db, orderId);
+          if (applied) {
             yield* broadcastCredentials;
           }
-          return { applied: updated.length > 0 };
+          return { applied };
         }, orDieOnStorage),
 
         createTicket: Effect.fn("Inbox.createTicket")(function* createTicket(

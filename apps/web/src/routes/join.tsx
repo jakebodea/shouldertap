@@ -65,7 +65,7 @@ const JoinComponent = () => {
     try {
       const grant = await api.redeemInvite({ code, name: name.trim(), color });
       if (grant.kind !== "sender") {
-        return "That code is for pairing another Mac. Enter it in the Shouldertap Mac app.";
+        return "That code links your own device. Open Inbox in the iPhone app, or enter it in the Mac app.";
       }
       const replaced = addPairing({
         token: grant.token,
@@ -124,8 +124,8 @@ const JoinComponent = () => {
           You&apos;re invited
         </h1>
         <p className="text-tone text-[1.0625rem] leading-snug">
-          Pair this phone to send taps. They cover the other person&apos;s Mac
-          screens until they answer.
+          Pair this phone to send taps. They reach the other person&apos;s
+          linked devices. Their answer appears here.
         </p>
       </div>
 
@@ -196,7 +196,7 @@ const JoinComponent = () => {
         <figure className="flex flex-col gap-2">
           <TapPreview color={color} name={name.trim() || "You"} />
           <figcaption className="text-tone text-[0.8125rem]">
-            How your taps look on their Mac
+            How your taps look
           </figcaption>
         </figure>
 
@@ -267,8 +267,8 @@ const PasteInvite = ({ onCode }: { onCode: (code: string) => void }) => {
         </h1>
         <p className="text-tone text-[1.0625rem] leading-snug">
           {adding
-            ? "Scan the invite QR code on their Mac, or paste the invite link they sent you."
-            : "Scan the invite QR code on their Mac, or paste the invite link you were sent. If this phone used to send taps and stopped, Safari may have forgotten the pairing: ask for a new invite."}
+            ? "Scan their invite QR code, or paste the invite link they sent you."
+            : "Scan their invite QR code, or paste the invite link you were sent. If this phone used to send taps and stopped, Safari may have forgotten the pairing: ask for a new invite."}
         </p>
       </div>
       {scanning ? (

@@ -96,7 +96,7 @@ struct RootView: View {
             onboarding = false
           }
         case .link(let code):
-          LinkCover(inbox: inbox, code: code, onClose: { self.cover = nil }) {
+          InboxSetup(inbox: inbox, code: code, onClose: { self.cover = nil }) {
             self.cover = nil
           }
         }
@@ -194,7 +194,7 @@ struct RootView: View {
         InboxScreen(inbox: inbox, senders: store)
       }
     } else {
-      LinkCover(inbox: inbox, onLinked: {})
+      InboxSetup(inbox: inbox, onLinked: {})
     }
   }
 

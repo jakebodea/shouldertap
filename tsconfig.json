@@ -10,6 +10,7 @@
     "alchemy.cleanup.ts",
     "domains.ts",
     "scripts/cloudflare/**/*.ts",
+    "scripts/check-patron-sandbox.ts",
     "stacks/**/*.ts",
     "apps/server/drizzle/**/*.d.ts"
   ]

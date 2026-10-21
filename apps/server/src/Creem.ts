@@ -1,9 +1,15 @@
 import { CreemCore } from "creem/core.js";
 import { checkoutsCreate } from "creem/funcs/checkoutsCreate.js";
 import { checkoutsRetrieve } from "creem/funcs/checkoutsRetrieve.js";
+import { customersGenerateBillingLinks } from "creem/funcs/customersGenerateBillingLinks.js";
+import { productsGet } from "creem/funcs/productsGet.js";
+import { subscriptionsGet } from "creem/funcs/subscriptionsGet.js";
+import { subscriptionEntityToJSON } from "creem/models/components/subscriptionentity.js";
 import { parseWebhookEvent, verifyWebhookSignature } from "creem/webhooks.js";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+
+import type { PatronEvent } from "./patron";
 
 /**
  * Creem, the merchant of record: checkouts out, webhooks in. The inbox id
@@ -24,18 +30,23 @@ export const creemClient = (apiKey: string) =>
     apiKey,
     server: apiKey.startsWith("creem_test_") ? "test" : "prod",
     timeoutMs: 10_000,
+    retryConfig: { strategy: "none" },
   });
 
 export const createCheckout = (
   client: CreemCore,
-  { productId, inboxId }: { productId: string; inboxId: string }
+  {
+    productId,
+    inboxId,
+    requestId,
+  }: { productId: string; inboxId: string; requestId?: string }
 ) =>
   Effect.tryPromise({
     try: () =>
       checkoutsCreate(client, {
         productId,
-        // One open checkout per inbox; Creem uses it to correlate retries.
-        requestId: `inbox-${inboxId}`,
+        // Correlation only; the Inbox reservation prevents duplicate creation.
+        requestId: requestId ?? `patron-${inboxId}`,
         metadata: { [INBOX_METADATA_KEY]: inboxId },
       }),
     catch: (cause) =>
@@ -43,7 +54,7 @@ export const createCheckout = (
   }).pipe(
     Effect.flatMap((result) =>
       result.ok && result.value.checkoutUrl
-        ? Effect.succeed(result.value.checkoutUrl)
+        ? Effect.succeed({ id: result.value.id, url: result.value.checkoutUrl })
         : Effect.fail(
             new CreemError({
               message: "Creem didn't return a checkout URL",
@@ -80,11 +91,19 @@ export type WebhookAction =
       readonly inboxId: string | null;
       readonly checkoutId: string | null;
     }
+  | {
+      readonly kind: "patron";
+      readonly inboxId: string | null;
+      readonly subscriptionId: string;
+      readonly event: PatronEvent;
+    }
   | { readonly kind: "ignore"; readonly reason: string };
 
 type Json = Record<string, unknown>;
 const isObject = (value: unknown): value is Json =>
   typeof value === "object" && value !== null;
+const finiteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
 const str = (value: unknown) => (typeof value === "string" ? value : null);
 const idOf = (value: unknown) => (isObject(value) ? str(value.id) : str(value));
 const inboxIdOf = (checkout: unknown) =>
@@ -92,18 +111,103 @@ const inboxIdOf = (checkout: unknown) =>
     ? str(checkout.metadata[INBOX_METADATA_KEY])
     : null;
 
+const subscriptionTypes = new Set([
+  "subscription.paid",
+  "subscription.active",
+  "subscription.canceled",
+  "subscription.scheduled_cancel",
+  "subscription.past_due",
+  "subscription.unpaid",
+  "subscription.expired",
+  "subscription.paused",
+]);
+
+const subscriptionOf = (type: string, data: Json): Json | null => {
+  if (type.startsWith("subscription.")) {
+    return data;
+  }
+  return isObject(data.subscription) ? data.subscription : null;
+};
+
+const patronAction = (
+  event: ReturnType<typeof parseWebhookEvent>,
+  data: Json,
+  productId?: string
+): WebhookAction | null => {
+  if (!subscriptionTypes.has(event.type) && event.type !== "refund.created") {
+    return null;
+  }
+  const subscription = subscriptionOf(event.type, data);
+  if (!subscription || !productId || idOf(subscription.product) !== productId) {
+    return null;
+  }
+  const subscriptionId = idOf(subscription);
+  const customerId = idOf(subscription.customer);
+  const periodEnd =
+    typeof subscription.current_period_end_date === "string"
+      ? Date.parse(subscription.current_period_end_date)
+      : 0;
+  const at = event.createdAt;
+  if (
+    !event.id ||
+    !finiteNumber(at) ||
+    !subscriptionId ||
+    !customerId ||
+    !Number.isFinite(periodEnd)
+  ) {
+    throw new Error("Malformed patron event");
+  }
+  const transactionId = idOf(subscription.last_transaction_id);
+  const refundTransactionId = idOf(data.transaction);
+  if (
+    event.type === "subscription.paid" &&
+    (!transactionId || periodEnd <= 0)
+  ) {
+    throw new Error("Paid event missing transaction or period end");
+  }
+  if (event.type === "refund.created") {
+    if (data.status !== "succeeded") {
+      return { kind: "ignore", reason: "refund not succeeded" };
+    }
+    if (!refundTransactionId) {
+      throw new Error("Refund missing transaction");
+    }
+  }
+  return {
+    kind: "patron",
+    inboxId: inboxIdOf(subscription) ?? inboxIdOf(data.checkout),
+    subscriptionId,
+    event: {
+      id: event.id,
+      at,
+      type: event.type,
+      subscriptionId,
+      customerId,
+      periodEnd,
+      transactionId,
+      refundTransactionId:
+        event.type === "refund.created" ? refundTransactionId : null,
+    },
+  };
+};
+
 /**
  * Reads the events Shouldertap acts on from a verified payload. Purchases of
  * any product but ours are ignored, so other products on the store are safe.
  */
 export const webhookAction = (
   body: string,
-  productId: string
+  productId: string,
+  patronProductId?: string
 ): WebhookAction => {
   const event = parseWebhookEvent(body);
   const data: unknown = event.data;
   if (!isObject(data)) {
     return { kind: "ignore", reason: "no event object" };
+  }
+  const patron = patronAction(event, data, patronProductId);
+  if (patron) {
+    return patron;
   }
   if (event.type === "checkout.completed") {
     const inboxId = inboxIdOf(data);
@@ -121,7 +225,12 @@ export const webhookAction = (
     return { kind: "purchase", inboxId, orderId, email };
   }
   if (event.type === "refund.created") {
-    const orderId = idOf(data.order);
+    if (typeof data.status === "string" && data.status !== "succeeded") {
+      return { kind: "ignore", reason: "refund not succeeded" };
+    }
+    const orderId =
+      idOf(data.order) ??
+      (isObject(data.transaction) ? idOf(data.transaction.order) : null);
     if (!orderId) {
       return { kind: "ignore", reason: "refund without order" };
     }
@@ -155,3 +264,121 @@ export const checkoutInboxId = (client: CreemCore, checkoutId: string) =>
           )
     )
   );
+
+/** Refuse a misconfigured/legacy product before offering a recurring checkout. */
+export const validatePatronProduct = (client: CreemCore, productId: string) =>
+  Effect.tryPromise({
+    try: async () => {
+      const result = await productsGet(client, productId);
+      if (!result.ok) {
+        throw result.error;
+      }
+      const p = result.value;
+      if (
+        p.status !== "active" ||
+        (p.trialPeriodDays ?? 0) > 0 ||
+        (p.usagePrices?.length ?? 0) > 0 ||
+        p.price !== 2400 ||
+        p.currency !== "USD" ||
+        p.billingType !== "recurring" ||
+        p.billingPeriod !== "every-year"
+      ) {
+        throw new Error("Patron product must be USD 24 annually");
+      }
+    },
+    catch: (cause) =>
+      new CreemError({
+        message: "Annual support is not configured correctly",
+        cause,
+      }),
+  });
+
+export const customerPortal = (client: CreemCore, customerId: string) =>
+  Effect.tryPromise({
+    try: async () => {
+      const result = await customersGenerateBillingLinks(client, {
+        customerId,
+      });
+      if (!result.ok) {
+        throw result.error;
+      }
+      return result.value.customerPortalLink;
+    },
+    catch: (cause) =>
+      new CreemError({ message: "Could not open billing management", cause }),
+  });
+
+/** Subscription metadata also routes renewals/refunds whose checkout is only an id. */
+export const subscriptionInboxId = (
+  client: CreemCore,
+  subscriptionId: string
+) =>
+  Effect.tryPromise({
+    try: async () => {
+      const result = await subscriptionsGet(client, subscriptionId);
+      if (!result.ok) {
+        throw result.error;
+      }
+      return str(result.value.metadata?.[INBOX_METADATA_KEY]);
+    },
+    catch: (cause) =>
+      new CreemError({ message: "Subscription lookup failed", cause }),
+  });
+
+/** Some refund payloads contain only a subscription id. Resolve that real
+ * provider boundary before applying the same product/metadata validation. */
+export const readWebhookAction = (
+  client: CreemCore,
+  body: string,
+  legacyProductId: string,
+  patronProductId: string
+) =>
+  Effect.gen(function* readAction() {
+    const event = yield* Effect.try(() => parseWebhookEvent(body));
+    if (event.type !== "refund.created" || !isObject(event.data)) {
+      return yield* Effect.try(() =>
+        webhookAction(body, legacyProductId, patronProductId)
+      );
+    }
+    const { data } = event;
+    const subscriptionId =
+      typeof data.subscription === "string" ? data.subscription : null;
+    if (!subscriptionId) {
+      return yield* Effect.try(() =>
+        webhookAction(body, legacyProductId, patronProductId)
+      );
+    }
+    const result = yield* Effect.tryPromise({
+      try: () => subscriptionsGet(client, subscriptionId),
+      catch: (cause) =>
+        new CreemError({ message: "Refund subscription lookup failed", cause }),
+    });
+    if (!result.ok) {
+      return yield* new CreemError({
+        message: "Refund subscription lookup failed",
+        cause: result.error,
+      });
+    }
+    const expanded = JSON.parse(subscriptionEntityToJSON(result.value));
+    const hydrated = JSON.stringify({
+      ...event.raw,
+      object: { ...data, subscription: expanded },
+      data: { ...data, subscription: expanded },
+    });
+    return yield* Effect.try(() =>
+      webhookAction(hydrated, legacyProductId, patronProductId)
+    );
+  });
+
+export const retrieveCheckout = (client: CreemCore, id: string) =>
+  Effect.tryPromise({
+    try: async () => {
+      const result = await checkoutsRetrieve(client, id);
+      if (!result.ok) {
+        throw result.error;
+      }
+      return { status: result.value.status, url: result.value.checkoutUrl };
+    },
+    catch: (cause) =>
+      new CreemError({ message: "Checkout lookup failed", cause }),
+  });

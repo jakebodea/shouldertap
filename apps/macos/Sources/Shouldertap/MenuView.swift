@@ -110,6 +110,7 @@ private struct SetupView: View {
 private struct ReadyView: View {
   let store: ReceiverStore
   let updates: Updates
+  @State private var showSupportAsk = false
 
   var body: some View {
     let senders = store.credentials.filter { $0.kind == .sender }
@@ -117,10 +118,6 @@ private struct ReadyView: View {
     VStack(alignment: .leading, spacing: 16) {
       Brand(subtitle: subtitle) {
         StatusLabel(status: store.status)
-      }
-
-      if let plan = store.plan, plan.currentStatus() != .paid {
-        PlanView(store: store, plan: plan)
       }
 
       InviteSender(store: store)
@@ -146,121 +143,71 @@ private struct ReadyView: View {
         }
       }
 
+      if showSupportAsk && store.activeTap == nil && store.patron?.active != true {
+        VStack(alignment: .leading, spacing: 6) {
+          Text("Help keep Shouldertap running").font(.headline)
+          Muted("Optional support: $2/month, billed $24 annually. Tapping stays free.")
+          MenuButton(title: "Not now", kind: .plain) { showSupportAsk = false }
+        }
+      }
+      PatronView(store: store)
       Footer(updates: updates)
+    }
+    .task {
+      guard store.activeTap == nil else { return }
+      showSupportAsk = (try? await store.claimSupportPrompt()) ?? false
     }
   }
 
-  /// "Taps for Jake", plus a quiet "Unlocked" once paid for.
+  /// Billing never changes the recipient name or messaging controls.
   private var subtitle: String {
     guard !store.recipientName.isEmpty else { return " " }
     let base = "Taps for \(store.recipientName)"
-    return store.plan?.status == .paid ? "\(base) · Unlocked" : base
+    return base
   }
 }
 
-// MARK: Plan
+// MARK: Optional support
 
-/// The trial and the way out of it. Quiet while the trial has time left,
-/// a card in its last 3 days, and the first thing in the menu once it ends.
-private struct PlanView: View {
+private struct PatronView: View {
   let store: ReceiverStore
-  let plan: Plan
   @State private var busy = false
-  @State private var opened = false
   @State private var error: String?
-  @State private var notice: String?
 
   var body: some View {
-    let status = plan.currentStatus()
-    let days = plan.daysLeft()
-    Group {
-      if status == .expired {
-        Card {
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Your trial ended — taps are paused")
-              .font(.system(size: 13, weight: .semibold))
-            Muted("Unlock Shouldertap for a one-time $5. People who can tap you get through again right away.")
+    DisclosureGroup("Support Shouldertap") {
+      VStack(alignment: .leading, spacing: 8) {
+        Muted("Shouldertap is free. Optional patron support helps cover running costs. No extra messaging features or promised rewards.")
+        if store.patron?.legacySupporter == true { Muted("Thank you for your original purchase. It is preserved; you have not been enrolled in a subscription.") }
+        if let patron = store.patron, patron.active {
+          Text(patron.status == "ending" ? "Thank you. Your support ends at the paid period's end." : "Thank you for supporting Shouldertap.")
+            .font(.system(size: 12))
+          if let until = patron.paidUntil {
+            Muted("Paid through \(Date(timeIntervalSince1970: until / 1000).formatted(date: .abbreviated, time: .omitted))")
           }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          unlockButton(kind: .primary)
-          messages
         }
-      } else if days <= 3 {
-        Card {
-          VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-              Circle().fill(.orange).frame(width: 7, height: 7)
-              Text(days == 1 ? "Last day of your trial" : "Trial · \(days) days left")
-                .font(.system(size: 13, weight: .semibold))
-            }
-            .accessibilityElement(children: .combine)
-            Muted("Taps pause when the trial ends. Unlock for good with a one-time $5.")
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          unlockButton(kind: .secondary)
-          messages
+        if store.patron?.canManage == true {
+          MenuButton(title: busy ? "Opening…" : "Manage or cancel support", kind: .secondary, fullWidth: true) { open(manage: true) }.disabled(busy)
+          Muted("Cancel renewal in the billing portal. Support continues through your paid period; core use stays free.")
         }
-      } else if hasAnsweredATap {
-        // Ask once it has worked: the first tap they answered.
-        Card {
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Liking Shouldertap?")
-              .font(.system(size: 13, weight: .semibold))
-            Muted("Keep it for good with a one-time $5. Trial · \(days) days left.")
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          unlockButton(kind: .secondary)
-          messages
+        if store.patron?.canSubscribe == true {
+          Muted("$2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. This is not a tax-deductible donation.")
+          MenuButton(title: busy ? "Opening…" : "Become a patron · $24/year", kind: .secondary, fullWidth: true) { open(manage: false) }.disabled(busy)
         }
-      } else {
-        VStack(alignment: .leading, spacing: 4) {
-          HStack {
-            Text("Trial · \(days) days left").font(.system(size: 12)).foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-            if busy { ProgressView().controlSize(.mini) }
-            MenuButton(title: "Unlock for $5", kind: .plain, action: unlock).disabled(busy)
-          }
-          messages
-        }
-      }
-    }
+        if let error { ErrorText(error) }
+      }.padding(.top, 8)
+    }.font(.system(size: 12))
   }
 
-  private var hasAnsweredATap: Bool {
-    store.taps.contains { $0.state == .acknowledged }
-  }
-
-  private func unlockButton(kind: MenuButton.Kind) -> some View {
-    MenuButton(title: busy ? "Opening checkout…" : "Unlock for $5", kind: kind, fullWidth: true, action: unlock)
-      .disabled(busy)
-  }
-
-  @ViewBuilder private var messages: some View {
-    if let error {
-      ErrorText(error).frame(maxWidth: .infinity, alignment: .leading)
-    } else if let notice {
-      Muted(notice).frame(maxWidth: .infinity, alignment: .leading)
-    } else if opened {
-      Muted("Finish checking out in your browser. This updates on its own once you've paid.")
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-
-  private func unlock() {
+  private func open(manage: Bool) {
     busy = true
     error = nil
-    notice = nil
     Task {
+      defer { busy = false }
       do {
-        NSWorkspace.shared.open(try await store.checkoutURL())
-        opened = true
-      } catch let failure as APIError where failure.code == .conflict {
-        // Already paid: the store refreshes the plan, so say so quietly.
-        notice = failure.message
-      } catch {
-        self.error = error.localizedDescription
-      }
-      busy = false
+        let url = try await (manage ? store.managePatronURL() : store.checkoutURL())
+        NSWorkspace.shared.open(url)
+      } catch { self.error = error.localizedDescription }
     }
   }
 }

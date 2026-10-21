@@ -113,7 +113,7 @@ struct PairFlow: View {
     switch current {
     case nil:
       if firstRun {
-        WelcomeStep(color: $color, knock: $knock) { go { path.append(.mac) } }
+        WelcomeStep(color: $color, knock: $knock) { go { path.append(.invite) } }
       } else {
         InviteStep(color: color, onInvite: { code in go { path.append(.profile(invite: code)) } }) {
           go { path.append(.mac) }
@@ -216,7 +216,7 @@ private struct WelcomeStep: View {
           .tracking(-1.5)
           .fixedSize(horizontal: false, vertical: true)
           .arrive()
-        Text("Tap someone on the shoulder from your iPhone. Your message covers their Mac screen until they answer.")
+        Text("Tap someone on the shoulder from your iPhone. They receive your message on iPhone or a linked computer and send an answer.")
           .font(Bricolage.medium(17))
           .foregroundStyle(Paper.tone)
           .arrive(after: 0.08)
@@ -227,7 +227,7 @@ private struct WelcomeStep: View {
         .arrive(after: 0.2)
 
       VStack(alignment: .leading, spacing: 18) {
-        Feature(icon: .mac, title: "Hard to miss", text: "It covers every screen on their Mac, even full-screen apps.")
+        Feature(icon: .mac, title: "Hard to miss", text: "Notifications on iPhone. Screen takeover on a linked Mac.")
           .arrive(after: 0.32)
         Feature(icon: .onIt, title: "Answered in a click", text: "They reply On it, In 10 min, or a few words.")
           .arrive(after: 0.4)
@@ -235,11 +235,11 @@ private struct WelcomeStep: View {
           .arrive(after: 0.48)
       }
     } actions: {
-      Button("Get started", action: onStart)
+      Button("Tap someone", action: onStart)
         .buttonStyle(PillStyle(color: color))
         .accessibilityIdentifier("welcome-start")
         .arrive(after: 0.56)
-      Button("I use Shouldertap on my Mac", action: actions.link)
+      Button("Receive taps on this iPhone", action: actions.link)
         .buttonStyle(QuietStyle())
         .accessibilityIdentifier("welcome-link")
         .arrive(after: 0.62)
@@ -365,22 +365,18 @@ private struct InviteStep: View {
   @State private var text = ""
   @State private var scanning = false
   @State private var scanned: String?
-  @State private var demo = MacDemo.rest
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var code: String? { inviteCode(from: text) }
 
   var body: some View {
     Page {
       StepHeader(
-        title: "Get an invite from their Mac",
-        text: "Each invite pairs this phone with one person, on all of their Macs.")
+        title: "Get an invite",
+        text: "Ask the person you want to tap to create an inbox on their iPhone or Mac, then invite you.")
 
-      MenuBarIllustration(color: color, phase: demo)
-
-      NumberedSteps(color: color, active: demo.step, steps: [
-        "Click the Shouldertap mark in their Mac's menu bar.",
-        "Click Invite someone. A QR code appears.",
+      NumberedSteps(color: color, steps: [
+        "They open Inbox on iPhone, or Shouldertap in their Mac's menu bar.",
+        "They choose Invite someone and share the link or QR code.",
         "Scan it with this phone.",
       ])
 
@@ -424,28 +420,8 @@ private struct InviteStep: View {
         .accessibilityIdentifier("scan-button")
       }
       if let onNeedsMac {
-        Button("They don't have the Mac app yet", action: onNeedsMac)
+        Button("Add a Mac for screen takeover", action: onNeedsMac)
           .buttonStyle(QuietStyle())
-      }
-    }
-    .task {
-      if reduceMotion {
-        demo = .toInvite
-        return
-      }
-      let script: [(MacDemo, Animation, Double)] = [
-        (.rest, .easeInOut(duration: 0.5), 0.9),
-        (.toMark, .easeInOut(duration: 0.75), 0.95),
-        (.open, .spring(duration: 0.35, bounce: 0.2), 0.8),
-        (.toInvite, .easeInOut(duration: 0.6), 0.75),
-        (.press, .easeOut(duration: 0.12), 0.3),
-        (.qr, .spring(duration: 0.4, bounce: 0.15), 2.6),
-      ]
-      while !Task.isCancelled {
-        for (phase, animation, hold) in script {
-          withAnimation(animation) { demo = phase }
-          guard (try? await Task.sleep(for: .seconds(hold))) != nil else { return }
-        }
       }
     }
     .fullScreenCover(
@@ -671,7 +647,7 @@ private struct ProfileStep: View {
 
   var body: some View {
     Page {
-      StepHeader(title: "You're invited", text: "Choose how your taps look on their Mac.")
+      StepHeader(title: "You're invited", text: "Choose how your taps look on their devices.")
 
       VStack(alignment: .leading, spacing: 8) {
         Text("Your name").font(Bricolage.bold(14, relativeTo: .subheadline))
@@ -780,7 +756,7 @@ private struct PairedStep: View {
           .multilineTextAlignment(.center)
           .fixedSize(horizontal: false, vertical: true)
           .accessibilityAddTraits(.isHeader)
-        Text("Your taps cover \(recipient)'s Mac screens in \(color.label.lowercased()), until they answer.")
+        Text("Your taps reach \(recipient)'s linked devices in \(color.label.lowercased()). Their answer appears here.")
           .font(Bricolage.medium(17))
           .multilineTextAlignment(.center)
           .opacity(0.78)

@@ -25,7 +25,7 @@
 	</array>
 	<!-- Scanning the invite QR code on the recipient's Mac. -->
 	<key>NSCameraUsageDescription</key>
-	<string>Shouldertap uses the camera to scan the invite QR code on the other person's Mac.</string>
+	<string>Shouldertap uses the camera to scan invitation and device-link QR codes.</string>
 	<!-- Incoming taps on the Lock Screen and in the Dynamic Island
 	     (TapActivity/, Widgets/). -->
 	<key>NSSupportsLiveActivities</key>
