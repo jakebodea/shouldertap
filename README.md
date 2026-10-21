@@ -208,4 +208,3 @@ The iPhone can create an inbox, invite senders by link or QR, receive taps, answ
 Core messaging is free and does not expire. Optional patron support costs $24/year ($2/month, billed $24 annually); cancellation and refunds never disable taps. Existing purchase history is preserved. See [patron billing and rollout](docs/patrons.md).
 
 Background delivery uses direct APNs from the server, not a Mac relay. Notifications and Live Activities depend on system permissions and APNs configuration; iOS cannot take over other apps. A foreground socket receipt is not proof of background push delivery. Verify real physical-device push-to-start, fallback notification, answer, cross-device dismissal and relaunch with a signed build before publishing claims.
-
