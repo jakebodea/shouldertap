@@ -175,12 +175,14 @@ public final class SenderSession: Identifiable {
     status = .offline
   }
 
-  /// Tell the server this phone is done, so the recipient's Mac drops the
-  /// sender. Best effort: the phone forgets the pairing either way.
+  /// Revoke this phone’s key. Account-restored keys leave the sender’s
+  /// other devices connected. Best effort: forget this phone either way.
   func revokeSelf() {
     let api = api
-    let id = id
-    Task { try? await api.revoke(credentialId: id) }
+    let components = pairing.token.split(separator: ".")
+    guard components.count == 3 else { return }
+    let keyID = String(components[1])
+    Task { try? await api.revoke(credentialId: keyID) }
   }
 
   // MARK: Sending
@@ -356,6 +358,20 @@ public final class SenderStore {
     sessions.append(session)
     session.start()
     return session
+  }
+
+  public func restoreAccountSender(_ grant: CredentialGrant) async throws {
+    guard grant.kind == .sender else { return }
+    guard !sessions.contains(where: { $0.pairing.inboxId == tokenInboxId(grant.token) }) else { return }
+    guard case let .sender(snapshot) = try await APIClient(baseURL: server, token: grant.token, session: session).me() else { return }
+    guard !sessions.contains(where: { $0.pairing.inboxId == tokenInboxId(grant.token) }) else { return }
+    let pairing = SenderPairing(token: grant.token, credentialId: grant.credentialId,
+      recipientName: snapshot.recipientName, senderName: snapshot.senderName, color: snapshot.senderColor,
+      pairedAt: Date.now.timeIntervalSince1970 * 1000)
+    try persistence.savePairing(pairing)
+    let session = makeSession(pairing)
+    sessions.append(session)
+    session.start()
   }
 
   /// Unpair this phone: revoke the credential so the recipient's Mac stops

@@ -163,9 +163,12 @@ public final class ReceiverStore {
     guard let tap = taps.first(where: { $0.id == tapId }), tap.displayedAt == nil,
       reportedDisplayed.insert(tapId).inserted
     else { return }
+    let api = api
     Task {
       do {
-        merge(try await api.markDisplayed(tapId: tapId))
+        let displayed = try await api.markDisplayed(tapId: tapId)
+        guard self.api.token == api.token else { return }
+        merge(displayed)
       } catch {
         reportedDisplayed.remove(tapId)
       }
@@ -201,6 +204,29 @@ public final class ReceiverStore {
     connect(grant.token)
   }
 
+  public var accountCredential: String? { persistence.loadCredential() }
+
+  func restoreAccountInbox(_ grant: CredentialGrant) throws {
+    guard grant.kind == .device else {
+      throw APIError(code: .conflict, message: "An inbox requires a receiver credential.", status: 409)
+    }
+    guard pendingAcks.isEmpty else {
+      throw APIError(code: .conflict, message: "Wait for your pending replies to send before switching inboxes.", status: 409)
+    }
+    try persistence.saveCredential(grant.token)
+    ackRetry?.cancel()
+    recipientName = ""
+    credentialId = nil
+    credentials = []
+    plan = nil
+    patron = nil
+    taps = []
+    reportedDisplayed = []
+    appearance = .standard
+    appearanceSupported = false
+    connect(grant.token)
+  }
+
   private func safeDeviceName() -> String {
     String(deviceName().prefix(maxNameLength)).trimmingCharacters(in: .whitespaces).nilIfEmpty
       ?? (platform == .mac ? "Mac" : "iPhone")
@@ -217,19 +243,20 @@ public final class ReceiverStore {
       api: api,
       handlers: .init(
         onResync: { [weak self] in self?.resync() },
-        onTap: { [weak self] tap in self?.merge(tap) },
-        onTapDeleted: { [weak self] tapId in self?.drop(tapId) },
-        onStatus: { [weak self] status in self?.status = status },
-        onRevoked: { [weak self] in self?.forget() }
+        onTap: { [weak self] tap in guard self?.api.token == token else { return }; self?.merge(tap) },
+        onTapDeleted: { [weak self] tapId in guard self?.api.token == token else { return }; self?.drop(tapId) },
+        onStatus: { [weak self] status in guard self?.api.token == token else { return }; self?.status = status },
+        onRevoked: { [weak self] in guard self?.api.token == token else { return }; self?.forget() }
       ), session: session)
     self.live = live
     live.start()
   }
 
   private func resync() {
+    let api = api
     Task {
       do {
-        guard case let .receiver(snapshot) = try await api.me() else { return }
+        guard case let .receiver(snapshot) = try await api.me(), self.api.token == api.token else { return }
         recipientName = snapshot.recipientName
         credentialId = snapshot.credentialId
         credentials = snapshot.credentials
@@ -239,6 +266,7 @@ public final class ReceiverStore {
         appearanceSupported = snapshot.appearance != nil
         taps = mergeSnapshot(local: taps, snapshot: snapshot.taps)
       } catch let error as APIError where error.code == .unauthorized {
+        guard self.api.token == api.token else { return }
         forget()
         return
       } catch {}
@@ -321,6 +349,7 @@ public final class ReceiverStore {
           }
         }
         for await (tapId, result) in group {
+          guard self.api.token == api.token else { continue }
           switch result {
           case let .success(tap):
             dropPendingAck(tapId)
