@@ -20,8 +20,11 @@ const SupportComponent = () => (
       <p>
         Core messaging is free. Optional patron support helps cover running
         costs: $2/month, billed $24 annually in USD, plus applicable tax. It
-        renews annually until canceled. There are no extra features or promised
-        rewards. It is not a tax-deductible donation.
+        renews annually until canceled. While your support is active you can
+        choose a tap theme (Broadsheet, Billboard, Terminal or Note) for how
+        taps look on your own computers; messaging, the Default look and motion
+        settings never need it, and themes aren’t a permanent purchase. It is
+        not a tax-deductible donation.
       </p>
       <p>
         On your computer, open “Support Shouldertap” in the app menu. Use

@@ -138,7 +138,7 @@ struct InboxScreen: View {
           }
         }
         if usStorefront {
-          Text("Optional support helps cover running costs: $2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. No extra features or promised rewards. Not a tax-deductible donation.")
+          Text("Optional support helps cover running costs: $2/month, billed $24 annually in USD, plus applicable tax. Renews annually until canceled. While it's active you can choose a tap theme for your Mac or PC; nothing in this app changes. Not a tax-deductible donation.")
             .font(.footnote).foregroundStyle(Paper.tone)
           if inbox.patron?.canManage == true {
             Button("Manage or cancel support") { billing(manage: true) }.buttonStyle(PillStyle()).disabled(billingBusy)

@@ -161,6 +161,32 @@ test(
       "Shouldertap is now free. Update the app to manage optional annual support."
     );
 
+    // Appearance belongs to the recipient's devices. Motion is free; a theme
+    // needs active patron support, so it's refused here and Default stays,
+    // on every computer.
+    const recipient = yield* client(url, macA.token);
+    const motion = yield* recipient.inbox.updateAppearance({
+      payload: { motion: "reduced" },
+    });
+    expect(motion).toStrictEqual({
+      theme: "default",
+      shownTheme: "default",
+      motion: "reduced",
+      canChooseTheme: false,
+    });
+    const theme = yield* recipient.inbox
+      .updateAppearance({ payload: { theme: "broadsheet" } })
+      .pipe(Effect.flip);
+    expect(theme._tag).toBe("Conflict");
+    const senderAppearance = yield* (yield* client(url, sender.token)).inbox
+      .updateAppearance({ payload: { theme: "default" } })
+      .pipe(Effect.flip);
+    expect(senderAppearance._tag).toBe("Unauthorized");
+    const otherMac = yield* (yield* client(url, macB.token)).inbox.me();
+    expect(
+      otherMac.kind === "device" ? otherMac.appearance?.motion : null
+    ).toBe("reduced");
+
     // An iPhone links with the same device invite and manages the inbox, but
     // can't leave it without a Mac. (Shares this inbox: tests stay under the
     // per-network inbox creation limit.)

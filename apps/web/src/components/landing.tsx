@@ -314,7 +314,7 @@ const Pricing = () => {
   const points = [
     "Core messaging is free. Safety limits and recipient controls apply to everyone.",
     "The people who tap you never pay. They use any iPhone with Safari.",
-    "Optional patron support helps cover running costs. No extra features or promised rewards.",
+    "Optional patron support helps cover running costs. While it's active, you can choose a tap theme for your own computers.",
   ];
   return (
     <section

@@ -28,12 +28,15 @@ const TermsComponent = () => (
         <li>
           Optional patron support costs US$24/year: $2/month, billed $24
           annually, plus applicable tax. It renews annually until canceled. It
-          helps cover running costs and does not buy extra messaging features or
-          promised rewards. It is not a tax-deductible donation. Cancel renewal
-          in the Creem billing portal through “Manage or cancel support” in the
-          app. Support continues through the paid period; core messaging stays
-          free after cancellation. Historical $5 purchases remain recorded and
-          do not become subscriptions.
+          helps cover running costs. While it is active, the recipient can
+          choose a tap theme for their own computers; themes end with support,
+          screens return to the free Default, and saved choices return if
+          support resumes. It does not buy messaging features, control over
+          anyone else’s screen, or future themes. It is not a tax-deductible
+          donation. Cancel renewal in the Creem billing portal through “Manage
+          or cancel support” in the app. Support continues through the paid
+          period; core messaging stays free after cancellation. Historical $5
+          purchases remain recorded and do not become subscriptions.
         </li>
         <li>
           Payments are handled by our reseller and merchant of record, Creem,
