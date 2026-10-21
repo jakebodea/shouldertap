@@ -135,7 +135,7 @@ test(
     expect(colors).toContainEqual(["sender", "moss"]);
     expect(colors).toContainEqual(["device", null]);
 
-    // A new inbox starts a 7-day trial.
+    // Every new inbox is unlocked for old clients.
     const plan = snapshot.kind === "device" ? snapshot.plan : null;
     // Old clients' unlocked wire value.
     expect(plan?.status).toBe("paid");
@@ -148,15 +148,12 @@ test(
     });
     expect(trialTap.state).toBe("pending");
 
-    // Only a Mac can start a checkout; test stacks have no Creem keys.
+    // Senders cannot start checkout. Payment creation is reserved for the
+    // explicit sandbox workflow: local test stages can load real test keys.
     const senderCheckout = yield* (yield* client(url, sender.token)).inbox
       .createPatronCheckout()
       .pipe(Effect.flip);
     expect(senderCheckout._tag).toBe("Unauthorized");
-    const checkout = yield* (yield* client(url, macA.token)).inbox
-      .createPatronCheckout()
-      .pipe(Effect.flip);
-    expect(checkout._tag).toBe("Unavailable");
     const legacyCheckout = yield* (yield* client(url, macA.token)).inbox
       .createCheckout()
       .pipe(Effect.flip);
@@ -541,11 +538,11 @@ test(
 );
 
 test(
-  "a Mac keeps its first trial when it sets up again",
-  Effect.gen(function* trialReuse() {
+  "Mac and Windows setup stay free with new or reused machine fingerprints",
+  Effect.gen(function* freeSetup() {
     const url = (yield* stack).server;
     const anon = yield* client(url);
-    const trialEndsAt = Effect.fn(function* trialEndsAt(
+    const unlockedSetup = Effect.fn(function* unlockedSetup(
       fromMachine: string,
       platform?: "windows"
     ) {
@@ -559,25 +556,22 @@ test(
       });
       const snapshot = yield* (yield* client(url, grant.token)).inbox.me();
       if (snapshot.kind !== "device") {
-        return 0;
+        throw new Error("Expected device snapshot after setup");
       }
       // The computer that set up the inbox is listed as what it is.
       const self = snapshot.credentials.find(
         (c) => c.id === snapshot.credentialId
       );
       expect(self?.platform).toBe(platform ?? "mac");
-      return snapshot.plan.trialEndsAt;
+      expect(snapshot.plan.status).toBe("paid");
+      expect(snapshot.patron?.status).toBe("none");
+      expect(snapshot.patron?.canSubscribe).toBeTruthy();
     });
 
     const machine = fingerprint();
-    const first = yield* trialEndsAt(machine);
-    expect((first - Date.now()) / 86_400_000).toBeGreaterThan(6.9);
-    // Unpairing and setting up again inherits the same trial end.
-    expect(yield* trialEndsAt(machine)).toBe(first);
-    // Another computer (a Windows PC, set up as one) gets its own trial.
-    const other = yield* trialEndsAt(fingerprint(), "windows");
-    expect(other).toBeGreaterThanOrEqual(first);
-    expect((other - Date.now()) / 86_400_000).toBeGreaterThan(6.9);
+    yield* unlockedSetup(machine);
+    yield* unlockedSetup(machine);
+    yield* unlockedSetup(fingerprint(), "windows");
 
     // A malformed fingerprint is rejected before anything is created.
     for (const bad of ["A".repeat(64), "ab".repeat(16), "not hex"]) {
