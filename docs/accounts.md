@@ -15,7 +15,7 @@ The installed Alchemy Cloudflare Email APIs are the infrastructure source of tru
 
 Better Auth stores hashed, single-use sign-in tokens, ten-minute expiry, database rate limits, and sessions in D1. Email links put the token in the fragment; the account page clears it and requires explicit confirmation before exchanging it. The public GET verification route is disabled.
 
-Native apps use device authorization: the user approves the matching code in the browser, and the app stores its resulting session in Keychain. Browser sessions use cookies with exact-origin credentialed CORS. Signing out leaves local messaging credentials intact.
+Native apps use device authorization: the user approves the matching code in the browser, and the app stores its resulting session in Keychain. The app shows the code before the person opens the browser, and `AccountStore` owns the polling task, so closing the Mac popover or iPhone sheet doesn't cancel sign-in. A device request opens a portal page with only the code check. Browser sessions use cookies with exact-origin credentialed CORS. Signing out leaves local messaging credentials intact.
 
 Existing Inbox and SenderPatron credentials remain valid. Signing in does not prove ownership of an existing inbox or purchase. Saving this device requires both a verified email session and its valid credentials; another account's resources cannot be adopted.
 
@@ -25,7 +25,7 @@ Multiple inboxes remain separate. Owners can select a default and switch without
 
 Browser and Mac patron entrypoints lead through account sign-in, adoption of existing membership, and membership resolution before checkout. iPhone purchase links use the actual US App Store storefront, never device locale. Native device-authorization pages hide purchase controls.
 
-The legacy bearer-only signup endpoint redirects users through the account flow. Existing membership management remains available. `PATRON_CHECKOUT_ENABLED` stays off until merchant and product readiness are confirmed.
+The legacy bearer-only signup endpoint redirects users through the account flow. Existing membership management remains available. `PATRON_CHECKOUT_ENABLED` stays off until merchant and product readiness are confirmed. Pages read the public `GET /v1/patrons/availability` (the flag plus a configured product) and say "Patron memberships open soon" instead of offering checkout while it is off. The web account page remembers a patron intent for an hour across the email round trip; it never replaces a different membership already in the browser, and a returning patron adds the account's membership with one explicit "Use membership on this browser" action.
 
 Checkout checks every account membership, pins one billing identity, and serializes checkout, adoption, and deletion. Active subscriptions and unresolved checkout attempts block account deletion so billing access is retained. Deleting an account removes account sessions and recovery references; it does not remove existing messaging credentials.
 

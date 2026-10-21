@@ -9,11 +9,12 @@ import SwiftUI
 // come in.
 
 /// What screens elsewhere can ask the root for: open your inbox, link this
-/// iPhone, or note that an unlink is this phone's own doing.
+/// iPhone, note that an unlink is this phone's own doing, or open Account.
 struct InboxActions {
   var open: () -> Void = {}
   var link: () -> Void = {}
   var unlinking: () -> Void = {}
+  var account: () -> Void = {}
 }
 
 extension EnvironmentValues {
@@ -60,7 +61,10 @@ struct InboxScreen: View {
       FrameBar {
         Wordmark()
       } trailing: {
-        HelpButton(store: senders)
+        HStack(spacing: 6) {
+          AccountButton()
+          HelpButton(store: senders)
+        }
       }
       Page {
         header
@@ -77,6 +81,7 @@ struct InboxScreen: View {
         recent
         people
         devices
+        accountRow
         patronSupport
       }
       .onPaper()
@@ -131,18 +136,36 @@ struct InboxScreen: View {
 
   private var planText: String? { "Free" }
 
-  private var patronSupport: some View {
-    InboxSection(title: "Support Shouldertap") {
-      VStack(alignment: .leading, spacing: 12) {
-        Text("Shouldertap is free for everyone.").foregroundStyle(Paper.tone)
-        if let patron = inbox.patron, patron.active {
+  /// Support bought for this inbox before patron support moved to senders.
+  @ViewBuilder private var patronSupport: some View {
+    if let patron = inbox.patron, patron.active {
+      InboxSection(title: "Support Shouldertap") {
+        VStack(alignment: .leading, spacing: 12) {
           Text(patron.status == "ending" ? "Thank you. Your support ends after the paid period." : "Thank you for your support.")
           if let until = patron.paidUntil {
             Text("Paid through \(Date(timeIntervalSince1970: until / 1000).formatted(date: .abbreviated, time: .omitted))")
+              .foregroundStyle(Paper.tone)
           }
         }
-
       }
+    }
+  }
+
+  private var accountRow: some View {
+    InboxSection(title: "Account") {
+      VStack(alignment: .leading, spacing: 8) {
+        if Stores.account.signedIn {
+          Muted(Stores.account.email.map { "Signed in as \($0)." } ?? "Signed in.")
+          Button("Manage account", action: actions.account)
+            .buttonStyle(PillStyle(small: true))
+        } else {
+          Muted("Keep this inbox if you change phones.")
+          Button("Sign in with email", action: actions.account)
+            .buttonStyle(PillStyle(small: true))
+            .accessibilityIdentifier("inbox-account")
+        }
+      }
+      .padding(.top, 4)
     }
   }
 
@@ -524,15 +547,11 @@ struct InboxSetup: View {
             }
           }
           Page {
-            StepHeader(title: "Get taps on your iPhone", text: "Create your inbox, then invite someone you trust. No Mac needed.")
+            StepHeader(title: "Get taps on your iPhone", text: "Create your inbox, then invite someone you trust.")
             TextField("Your name", text: $name)
               .textContentType(.givenName)
               .field()
               .accessibilityIdentifier("inbox-name")
-            Text("Sending, receiving and replies are free. Optional patron support helps cover running costs; it never controls who can tap you or whether you can answer.")
-              .font(Bricolage.medium(15)).foregroundStyle(Paper.tone)
-            Text("There is no account or email recovery. Keep another device linked before replacing or resetting this iPhone. A sender invitation cannot restore your inbox.")
-              .font(Bricolage.medium(15)).foregroundStyle(Paper.tone)
             Text("Allow notifications to receive taps when the app is closed. On iPhone, taps use notifications and Live Activities; they cannot cover other apps. Add a Mac later for screen takeover.")
               .font(Bricolage.medium(15)).foregroundStyle(Paper.tone)
             if let error { Text(error).foregroundStyle(.red) }

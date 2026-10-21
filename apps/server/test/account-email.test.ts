@@ -22,7 +22,7 @@ describe("account sign-in email", () => {
         to: "reader@example.com",
         replyTo: "support@shouldertap.app",
         subject: "Sign in to Shouldertap",
-        text: "Sign in to your Shouldertap account:\n\nhttps://shouldertap.app/account/verify?token=example\n\nThis link can be used once. If it has expired, request a new one.\n\nIf you didn't request this email, you can ignore it.",
+        text: "Sign in to your Shouldertap account:\n\nhttps://shouldertap.app/account/verify?token=example\n\nThis link expires in 10 minutes and works once. If it has expired, request a new one.\n\nIf you didn't request this email, you can ignore it.",
       },
     ]);
   });

@@ -73,6 +73,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     machine: HardwareID.trialFingerprint)
   private lazy var overlays = OverlayController(store: store)
   private lazy var appearance = AppearanceController(store: store)
+  /// Owned by the app, not the popover: sign-in keeps waiting for the
+  /// browser after the popover closes and frees its views.
+  private let account = AccountStore(server: Config.endpoints.server, clientID: "shouldertap-mac",
+    vault: KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".account"))
+  private lazy var accountWindow = AccountController(account: account, inbox: store)
   private let welcome = WelcomeController()
   private let updates = Updates()
   private let popover = NSPopover()
@@ -97,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     observeStore()
     observeWake()
     observeNetwork()
+    Task { await account.refresh() }
 
     if !store.start() {
       // Not set up yet: welcome them the first time, then open the menu so
@@ -136,10 +142,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard let button = statusItem.button else { return }
     if popover.contentViewController == nil {
       let controller = NSHostingController(
-        rootView: MenuView(store: store, updates: updates) { [weak self] in
-          self?.popover.performClose(nil)
-          self?.appearance.show()
-        })
+        rootView: MenuView(
+          store: store, updates: updates, account: account,
+          openAppearance: { [weak self] in
+            self?.popover.performClose(nil)
+            self?.appearance.show()
+          },
+          openAccount: { [weak self] in
+            self?.popover.performClose(nil)
+            self?.accountWindow.show()
+          }))
       controller.sizingOptions = .preferredContentSize
       popover.contentViewController = controller
     }

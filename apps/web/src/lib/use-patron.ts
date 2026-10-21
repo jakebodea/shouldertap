@@ -6,6 +6,33 @@ import { api } from "./api";
 import { forgetPatronKey, loadPatronKey, savePatronKey } from "./sender-style";
 
 /**
+ * Whether new memberships can start, from the server's public read. Unknown
+ * (null) until it answers, and treated as closed meanwhile, so no page
+ * offers a checkout that dead-ends.
+ */
+export const useCheckoutEnabled = () => {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = async () => {
+      try {
+        const availability = await api.patronAvailability();
+        if (live) {
+          setEnabled(availability.checkoutEnabled);
+        }
+      } catch {
+        // Offline or an older server: stay closed.
+      }
+    };
+    load();
+    return () => {
+      live = false;
+    };
+  }, []);
+  return enabled;
+};
+
+/**
  * The sender's own patron membership, read with the patron key this phone
  * holds. It belongs to the sender, not to anyone they tap: one membership
  * styles taps to all of them. Checkout opens in a new tab where it can, so
@@ -22,6 +49,7 @@ export const usePatron = () => {
   const loaded = key === null || status !== null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const checkoutEnabled = useCheckoutEnabled();
 
   const refresh = useCallback(async () => {
     if (!key) {
@@ -147,6 +175,7 @@ export const usePatron = () => {
     hasKey: key !== null,
     status,
     active: status?.patron.active ?? false,
+    checkoutEnabled,
     loaded,
     busy,
     error,

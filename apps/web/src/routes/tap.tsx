@@ -165,15 +165,7 @@ const Composer = ({
     <Frame color={color}>
       <header className="flex items-start justify-between gap-4">
         <RecipientPicker onSelect={onSelect} pairing={pairing} />
-        <div className="flex flex-col items-end gap-1">
-          <StatusLabel status={status} />
-          <a
-            className="text-tone inline-flex min-h-11 items-center text-sm underline underline-offset-4"
-            href="/account"
-          >
-            Account
-          </a>
-        </div>
+        <StatusLabel status={status} />
       </header>
 
       {paused ? (
@@ -263,6 +255,13 @@ const Composer = ({
         >
           Unpair
         </button>{" "}
+        ·{" "}
+        <a
+          className="text-ink underline underline-offset-[3px]"
+          href="/account"
+        >
+          Account
+        </a>{" "}
         ·{" "}
         <a
           className="text-ink underline underline-offset-[3px]"

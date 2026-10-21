@@ -243,6 +243,10 @@ private struct WelcomeStep: View {
         .buttonStyle(QuietStyle())
         .accessibilityIdentifier("welcome-link")
         .arrive(after: 0.62)
+      Button("Restore with email", action: actions.account)
+        .buttonStyle(QuietStyle())
+        .accessibilityIdentifier("welcome-restore")
+        .arrive(after: 0.68)
     }
     .onAppear { color = current.color }
     .task {

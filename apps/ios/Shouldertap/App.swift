@@ -62,8 +62,8 @@ struct RootView: View {
   @State private var flowColor = PersonColor.cobalt
   @State private var firstInvite = ""
   @State private var cover: RootCover?
-  /// This phone is unlinking itself, so the inbox going away isn't news.
   @State private var showAccount = false
+  /// This phone is unlinking itself, so the inbox going away isn't news.
   @State private var unlinking = false
   @State private var receiver = Receiver.shared
   @Environment(\.scenePhase) private var scenePhase
@@ -90,14 +90,13 @@ struct RootView: View {
         home.transition(.opacity)
       }
     }
-    .overlay(alignment: .topTrailing) {
-      Button("Account", systemImage: "person.crop.circle") { showAccount = true }
-        .padding().background(.regularMaterial, in: Capsule()).padding()
-    }
     .sheet(isPresented: $showAccount) {
-      NavigationStack { AccountView(account: Stores.account, inbox: inbox, senders: store)
-        .navigationTitle("Account").toolbar { Button("Done") { showAccount = false } }
-      }.sheetOnPaper()
+      NavigationStack {
+        AccountView(account: Stores.account, inbox: inbox, senders: store)
+          .navigationTitle("Account")
+          .toolbar { Button("Done") { showAccount = false } }
+      }
+      .sheetOnPaper()
     }
     .environment(\.inboxActions, actions)
     .environment(inbox)
@@ -243,7 +242,8 @@ struct RootView: View {
     InboxActions(
       open: { tab = .inbox },
       link: { openLink(code: "") },
-      unlinking: { unlinking = true })
+      unlinking: { unlinking = true },
+      account: { showAccount = true })
   }
 
   private func openLink(code: String) {

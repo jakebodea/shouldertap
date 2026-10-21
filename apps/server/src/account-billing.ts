@@ -29,6 +29,12 @@ interface Dependencies {
   origin: string;
 }
 
+/** New checkout needs the flag and a configured patron product; every page reads this. */
+export const checkoutAvailable = (
+  enabled: boolean,
+  billing?: { patronProductId: string }
+) => enabled && Boolean(billing?.patronProductId);
+
 const checkoutMembership = Effect.fn(function* checkoutMembership(
   deps: Dependencies,
   billing: NonNullable<Dependencies["billing"]>,
@@ -100,8 +106,7 @@ const billingAction = Effect.fn(function* accountBilling(
       status: yield* deps.patrons.getByName(resource.id).accountStatus(),
     });
   }
-  const checkoutEnabled =
-    deps.enabled && Boolean(deps.billing?.patronProductId);
+  const checkoutEnabled = checkoutAvailable(deps.enabled, deps.billing);
   if (action === "status") {
     return { memberships, checkoutEnabled };
   }
@@ -123,8 +128,7 @@ const billingAction = Effect.fn(function* accountBilling(
   }
   if (!checkoutEnabled || !deps.billing) {
     return yield* new Unavailable({
-      message:
-        "New patron signup is not available yet. Messaging remains free.",
+      message: "Patron memberships open soon.",
     });
   }
   // Do not sell a second subscription just because another identity was selected.

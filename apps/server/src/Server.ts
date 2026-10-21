@@ -29,7 +29,7 @@ import * as Redacted from "effect/Redacted";
 
 import { accountEmail, domains, isProduction } from "../../../domains.ts";
 import { createAccountAuth } from "./account-auth";
-import { accountBilling } from "./account-billing";
+import { accountBilling, checkoutAvailable } from "./account-billing";
 import { deleteAccount } from "./account-delete";
 import type { AccountEmailBinding } from "./account-email";
 import { handleAccountHttp } from "./account-http";
@@ -144,6 +144,10 @@ export default class Server extends Cloudflare.Worker<Server>()(
     const patronCheckoutEnabled = yield* Config.Boolean(
       "PATRON_CHECKOUT_ENABLED"
     ).pipe(Config.withDefault(false));
+    const patronCheckoutAvailable = checkoutAvailable(
+      patronCheckoutEnabled,
+      Option.getOrUndefined(creem)
+    );
 
     // APNs is optional too: without the key, linked iPhones simply get no
     // pushes (previews, dev). The .p8 file's contents go in APNS_KEY.
@@ -408,6 +412,9 @@ export default class Server extends Cloudflare.Worker<Server>()(
       "patronSetup",
       (handlers) =>
         handlers
+          .handle("patronAvailability", () =>
+            Effect.succeed({ checkoutEnabled: patronCheckoutAvailable })
+          )
           .handle("createPatron", () =>
             Effect.gen(function* createPatron() {
               const request = yield* HttpServerRequest;
@@ -629,7 +636,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
               auth,
               origin,
               webOrigin,
-              page: () => accountPage(webOrigin),
+              page: (url) => accountPage(url, webOrigin),
               deleteAccount: (userId, incoming) =>
                 run(
                   deleteAccount(accountEnv.ACCOUNT_DB, patrons, userId, () =>
@@ -785,7 +792,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
               revision: version.tag,
               deployedAt: version.timestamp,
               coreMessaging: "free",
-              patronCheckoutEnabled,
+              patronCheckoutEnabled: patronCheckoutAvailable,
             },
             { headers: { "cache-control": "no-store" } }
           );

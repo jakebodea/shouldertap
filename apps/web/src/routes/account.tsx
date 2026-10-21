@@ -1,11 +1,21 @@
 import { parsePatronKey } from "@shouldertap/domain";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 
 import { DocPage, DocSection } from "@/components/document";
+import {
+  forgetIntent,
+  hasUnsavedSenders,
+  membershipChoices,
+  patronPlan,
+  resolveIntent,
+} from "@/lib/account-flow";
+import type { PatronPlan } from "@/lib/account-flow";
 import { api } from "@/lib/api";
 import { addPairing, inboxOf, loadPairings } from "@/lib/pairing";
 import { loadPatronKey, savePatronKey } from "@/lib/sender-style";
+import { useCheckoutEnabled } from "@/lib/use-patron";
 
 const accountOrigin = import.meta.env.VITE_SERVER_URL;
 
@@ -14,15 +24,300 @@ interface Resource {
   name: string;
   kind: "sender" | "patron";
   inboxId?: string;
+  credentialId?: string;
+  billing?: { status: string; paidUntil: number | null };
 }
+
+type Section = "browser" | "connections" | "patron";
+
+/** A result line next to the action that caused it. */
+const Notice = ({ children }: { children?: string }) =>
+  children ? (
+    <output className="text-ink block font-semibold">{children}</output>
+  ) : null;
+
+const Actions = ({ children }: { children: ReactNode }) => (
+  <div className="flex flex-wrap gap-3">{children}</div>
+);
+
+const leaveForStyle = () => {
+  forgetIntent(localStorage);
+};
+
+const PatronPanel = ({
+  plan,
+  memberships,
+  busy,
+  canStyle,
+  notice,
+  onUse,
+  onSave,
+  onCheckout,
+}: {
+  plan: PatronPlan;
+  memberships: readonly Resource[];
+  busy: boolean;
+  canStyle: boolean;
+  notice?: string;
+  onUse: (patronId: string) => void;
+  onSave: () => void;
+  onCheckout: () => void;
+}) => {
+  const style = canStyle ? (
+    <a className="pill pill-ink" href="/style" onClick={leaveForStyle}>
+      Continue to Style
+    </a>
+  ) : null;
+  const manage = (
+    <a
+      className="pill"
+      href={`${accountOrigin}/account?section=patron`}
+      onClick={leaveForStyle}
+    >
+      Manage billing
+    </a>
+  );
+  const body: Record<PatronPlan["kind"], ReactNode> = {
+    here: (
+      <>
+        <p>Your membership is on this browser.</p>
+        <Actions>
+          {style}
+          {manage}
+        </Actions>
+      </>
+    ),
+    use: (
+      <>
+        <p>Your account has a patron membership.</p>
+        <Actions>
+          <button
+            className="pill pill-ink"
+            disabled={busy}
+            onClick={() => {
+              if (plan.kind === "use") {
+                onUse(plan.patronId);
+              }
+            }}
+            type="button"
+          >
+            Use membership on this browser
+          </button>
+          {manage}
+        </Actions>
+      </>
+    ),
+    choose: (
+      <>
+        <p>Choose the membership to use on this browser.</p>
+        {membershipChoices(memberships).map((membership) => (
+          <div
+            className="border-line flex flex-wrap items-center justify-between gap-3 border-t py-4"
+            key={membership.id}
+          >
+            <div>
+              <strong>{membership.name}</strong>
+              <p className="text-tone text-sm">{membership.detail}</p>
+            </div>
+            <button
+              className="pill"
+              disabled={busy || !membership.canChoose}
+              type="button"
+              onClick={() => onUse(membership.id)}
+            >
+              Use this membership
+            </button>
+          </div>
+        ))}
+        {membershipChoices(memberships).some(
+          (membership) => !membership.canChoose
+        ) ? (
+          <p>
+            Some memberships cannot be distinguished here. Open billing to
+            review them, or contact support before choosing.
+          </p>
+        ) : null}
+        <Actions>{manage}</Actions>
+      </>
+    ),
+    kept: (
+      <>
+        <p>
+          This browser has a different membership from your account. It stays on
+          this browser.
+        </p>
+        <Actions>
+          <button
+            className="pill"
+            disabled={busy}
+            onClick={onSave}
+            type="button"
+          >
+            Save to my account
+          </button>
+          {style}
+        </Actions>
+      </>
+    ),
+    save: (
+      <>
+        <p>This browser has a membership that isn’t saved to your account.</p>
+        <Actions>
+          <button
+            className="pill"
+            disabled={busy}
+            onClick={onSave}
+            type="button"
+          >
+            Save to my account
+          </button>
+          {style}
+        </Actions>
+      </>
+    ),
+    checkout: (
+      <>
+        <p>
+          Patrons can send their taps in a theme, to everyone they tap.
+          $2/month, billed $24 annually.
+        </p>
+        <Actions>
+          <button
+            className="pill pill-ink"
+            disabled={busy}
+            onClick={onCheckout}
+            type="button"
+          >
+            Continue to checkout
+          </button>
+        </Actions>
+      </>
+    ),
+    soon: <p>Patron memberships open soon.</p>,
+  };
+  return (
+    <DocSection title="Patron">
+      {body[plan.kind]}
+      <Notice>{notice}</Notice>
+    </DocSection>
+  );
+};
+
+const BrowserPanel = ({
+  unsaved,
+  busy,
+  notice,
+  onSave,
+}: {
+  unsaved: boolean;
+  busy: boolean;
+  notice?: string;
+  onSave: () => void;
+}) => (
+  <DocSection title="On this browser">
+    {unsaved ? (
+      <>
+        <p>Save this browser’s connections so you can restore them.</p>
+        <Actions>
+          <button
+            className="pill"
+            disabled={busy}
+            onClick={onSave}
+            type="button"
+          >
+            Save to my account
+          </button>
+        </Actions>
+      </>
+    ) : null}
+    <Notice>{notice}</Notice>
+  </DocSection>
+);
+
+const ConnectionsPanel = ({
+  senders,
+  isLocal,
+  busy,
+  loadError,
+  hasPairings,
+  notice,
+  onRefresh,
+  onRestore,
+}: {
+  senders: Resource[];
+  isLocal: (resource: Resource) => boolean;
+  busy: boolean;
+  loadError: boolean;
+  hasPairings: boolean;
+  notice?: string;
+  onRefresh: () => void;
+  onRestore: (resource: Resource) => void;
+}) => (
+  <DocSection title="People you can tap">
+    {loadError ? (
+      <>
+        <p>Connections couldn’t load.</p>
+        <Actions>
+          <button className="pill" onClick={onRefresh} type="button">
+            Try again
+          </button>
+        </Actions>
+      </>
+    ) : (
+      <div>
+        {senders.map((resource) => (
+          <div
+            className="border-line flex items-center justify-between gap-4 border-b py-3"
+            key={resource.id}
+          >
+            <strong className="min-w-0 break-words">Tap {resource.name}</strong>
+            {isLocal(resource) ? (
+              <span className="text-tone shrink-0 text-sm font-semibold">
+                On this browser
+              </span>
+            ) : (
+              <button
+                className="pill pill-sm shrink-0"
+                disabled={busy}
+                onClick={() => {
+                  onRestore(resource);
+                }}
+                type="button"
+              >
+                Use here
+              </button>
+            )}
+          </div>
+        ))}
+        {senders.length ? null : <p>No saved connections yet.</p>}
+      </div>
+    )}
+    <Notice>{notice}</Notice>
+    {hasPairings ? (
+      <Actions>
+        <a className="pill" href="/tap">
+          Continue to my taps
+        </a>
+      </Actions>
+    ) : null}
+  </DocSection>
+);
+
 const Account = () => {
-  const [message, setMessage] = useState("");
+  const { intent } = Route.useLoaderData();
+  const [notices, setNotices] = useState<Partial<Record<Section, string>>>({});
+  const notify = (section: Section, text: string) => {
+    setNotices((current) => ({ ...current, [section]: text }));
+  };
   const [busy, setBusy] = useState(false);
   const [resources, setResources] = useState<Resource[]>([]);
   const [session, setSession] = useState<
     { email: string } | "loading" | "signed-out" | "error"
   >("loading");
   const [loadError, setLoadError] = useState(false);
+  const checkoutEnabled = useCheckoutEnabled() ?? false;
+  // Local credentials change under React's feet (restore writes storage).
+  const [, setLocalVersion] = useState(0);
   const refresh = useCallback(async () => {
     try {
       const response = await fetch(`${accountOrigin}/api/auth/get-session`, {
@@ -52,9 +347,34 @@ const Account = () => {
         senders: Omit<Resource, "kind">[];
         patrons: Omit<Resource, "kind">[];
       };
+      let billing: {
+        memberships: {
+          id: string;
+          status: { patron: { status: string; paidUntil: number | null } };
+        }[];
+      } | null = null;
+      if (data.patrons.length > 1) {
+        try {
+          const billingResponse = await fetch(
+            `${accountOrigin}/account/patron/status`,
+            { credentials: "include" }
+          );
+          if (billingResponse.ok) {
+            billing = await billingResponse.json();
+          }
+        } catch {
+          /* Keep ambiguous choices disabled when billing is unavailable. */
+        }
+      }
       setResources([
         ...data.senders.map((item) => ({ ...item, kind: "sender" as const })),
-        ...data.patrons.map((item) => ({ ...item, kind: "patron" as const })),
+        ...data.patrons.map((item) => ({
+          ...item,
+          kind: "patron" as const,
+          billing: billing?.memberships.find(
+            (membership) => membership.id === item.id
+          )?.status.patron,
+        })),
       ]);
       setLoadError(false);
     } catch {
@@ -73,28 +393,50 @@ const Account = () => {
     document.addEventListener("visibilitychange", wake);
     return () => document.removeEventListener("visibilitychange", wake);
   }, [refresh]);
+
+  const pairings = loadPairings();
+  const patronKey = loadPatronKey(localStorage);
+  const localPatronId = parsePatronKey(patronKey ?? "")?.patronId ?? null;
+  const senders = resources.filter((r) => r.kind === "sender");
+  const patrons = resources.filter((r) => r.kind === "patron");
+  const plan = patronPlan({
+    localPatronId,
+    accountPatronIds: patrons.map((p) => p.id),
+    checkoutEnabled,
+  });
+  const isLocal = (resource: Resource) =>
+    pairings.some((pairing) => inboxOf(pairing.token) === resource.inboxId);
+  const unsaved =
+    hasUnsavedSenders(
+      pairings.map((pairing) => ({
+        inboxId: inboxOf(pairing.token),
+        credentialId: pairing.credentialId,
+      })),
+      senders.map((sender) => ({
+        inboxId: sender.inboxId ?? null,
+        credentialId: sender.credentialId ?? "",
+      }))
+    ) ||
+    (localPatronId !== null && !patrons.some((p) => p.id === localPatronId));
+
   const restore = async (resource: Resource) => {
-    if (
-      resource.kind === "sender" &&
-      loadPairings().some(
-        (pairing) => inboxOf(pairing.token) === resource.inboxId
-      )
-    ) {
-      setMessage("This browser already has a connection to that inbox.");
-      return;
-    }
-    if (resource.kind === "patron" && loadPatronKey(localStorage)) {
-      const sameMembership =
-        parsePatronKey(loadPatronKey(localStorage) || "")?.patronId ===
-        resource.id;
-      setMessage(
-        sameMembership
-          ? "This membership is already on this browser. Continue to Style to use your themes."
-          : "This browser already has another patron membership. Your existing membership has been kept."
+    const section = resource.kind === "patron" ? "patron" : "connections";
+    // Never replace a membership this browser already has.
+    if (resource.kind === "patron" && patronKey) {
+      notify(
+        section,
+        localPatronId === resource.id
+          ? "Your membership is already on this browser."
+          : "This browser already has another membership. It stays."
       );
       return;
     }
+    if (resource.kind === "sender" && isLocal(resource)) {
+      notify(section, "Already on this browser.");
+      return;
+    }
     setBusy(true);
+    notify(section, "");
     try {
       const response = await fetch(`${accountOrigin}/account/restore`, {
         method: "POST",
@@ -107,8 +449,11 @@ const Account = () => {
         }),
       });
       if (!response.ok) {
-        setMessage(
-          "This connection could not be restored. Sign in again and retry."
+        notify(
+          section,
+          response.status === 401
+            ? "Your sign-in expired. Sign in again."
+            : "That couldn’t be added to this browser. Try again."
         );
         setBusy(false);
         return;
@@ -133,189 +478,144 @@ const Account = () => {
           });
         }
       }
-      setMessage(
+      setLocalVersion((n) => n + 1);
+      notify(
+        section,
         resource.kind === "patron"
-          ? "Membership added to this browser. Continue to Style to use your themes."
-          : "Connection added to this browser. Continue to your taps to send a message."
+          ? "Your membership is on this browser."
+          : `You can tap ${resource.name} from this browser.`
       );
     } catch {
-      setMessage("Could not restore this connection. Please try again.");
+      notify(section, "Couldn’t reach Shouldertap. Try again.");
     }
     setBusy(false);
   };
-  const save = async (continueToBilling = false) => {
+
+  const save = async (section: Section, continueToBilling = false) => {
     setBusy(true);
-    setMessage("");
+    notify(section, "");
     try {
       const response = await fetch(`${accountOrigin}/account/adopt`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tokens: loadPairings().map((pairing) => pairing.token),
-          patronKey: loadPatronKey(localStorage) ?? undefined,
+          tokens: pairings.map((pairing) => pairing.token),
+          patronKey: patronKey ?? undefined,
         }),
       });
-      if (response.status === 401) {
-        setMessage(
-          "Sign in to your account first, then return here and try again."
+      if (!response.ok) {
+        notify(
+          section,
+          response.status === 401
+            ? "Your sign-in expired. Sign in again."
+            : "This browser couldn’t be saved. Try again."
         );
         setBusy(false);
         return;
       }
-      if (!response.ok) {
-        setMessage("Your connections could not be saved. Please try again.");
-        setBusy(false);
-        return;
-      }
-      setMessage("Your connections are saved to your account.");
       await refresh();
+      notify(section, "Saved to your account.");
       if (continueToBilling) {
         window.location.assign(`${accountOrigin}/account?section=patron`);
+        return;
       }
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not reach Shouldertap. Please try again."
-      );
+    } catch {
+      notify(section, "Couldn’t reach Shouldertap. Try again.");
     }
     setBusy(false);
   };
+
+  const patronSection = (
+    <PatronPanel
+      busy={busy}
+      canStyle={pairings.length > 0}
+      key="patron"
+      notice={notices.patron}
+      onCheckout={() => save("patron", true)}
+      onSave={() => save("patron")}
+      onUse={(patronId) => {
+        const resource = patrons.find((p) => p.id === patronId);
+        if (resource) {
+          restore(resource);
+        }
+      }}
+      plan={plan}
+      memberships={patrons}
+    />
+  );
+
+  const browserSection =
+    unsaved || notices.browser ? (
+      <BrowserPanel
+        busy={busy}
+        key="browser"
+        notice={notices.browser}
+        onSave={() => save("browser")}
+        unsaved={unsaved}
+      />
+    ) : null;
+
+  const connectionsSection = (
+    <ConnectionsPanel
+      busy={busy}
+      hasPairings={pairings.length > 0}
+      isLocal={isLocal}
+      key="connections"
+      loadError={loadError}
+      notice={notices.connections}
+      onRefresh={refresh}
+      onRestore={restore}
+      senders={senders}
+    />
+  );
+
   const signedIn = typeof session === "object";
-  const pairings = loadPairings();
-  const patronKey = loadPatronKey(localStorage);
-  const isLocal = (resource: Resource) =>
-    resource.kind === "patron"
-      ? parsePatronKey(patronKey || "")?.patronId === resource.id
-      : pairings.some((pairing) => inboxOf(pairing.token) === resource.inboxId);
   return (
     <DocPage
-      title="Your account."
       intro={
         signedIn
           ? `Signed in as ${session.email}`
-          : "Keep your connections and patron support with you."
+          : "Keep your connections and patron membership with you."
       }
+      title={intent === "patron" ? "Patron." : "Your account."}
     >
-      <output className="block" aria-live="polite">
-        {session === "loading" ? "Checking your sign-in…" : message}
-      </output>
+      {session === "loading" ? (
+        <output className="text-tone block py-8">Checking your sign-in…</output>
+      ) : null}
       {session === "error" ? (
-        <DocSection title="Could not reach your account">
+        <DocSection title="Couldn’t reach your account">
           <p>Check your connection and try again.</p>
-          <div>
-            <button className="pill" type="button" onClick={refresh}>
+          <Actions>
+            <button className="pill" onClick={refresh} type="button">
               Try again
             </button>
-          </div>
+          </Actions>
         </DocSection>
       ) : null}
       {session === "signed-out" ? (
         <DocSection title="Sign in by email">
           <p>
-            Your saved connections and patron membership will be available here
-            after you sign in.
+            {intent === "patron"
+              ? "Sign in to restore your membership on this browser, or to become a patron."
+              : "Sign in to save this browser’s connections and restore them on another device."}
           </p>
-          <div>
-            <a className="pill pill-ink" href={`${accountOrigin}/account`}>
+          <Actions>
+            <a
+              className="pill pill-ink"
+              href={`${accountOrigin}/account${intent === "patron" ? "?section=patron" : ""}`}
+            >
               Sign in
             </a>
-          </div>
+          </Actions>
         </DocSection>
       ) : null}
       {signedIn ? (
         <>
-          {pairings.length > 0 || patronKey ? (
-            <DocSection title="On this browser">
-              <p>
-                Save your existing connections and membership to this account.
-              </p>
-              <div>
-                <button
-                  className="pill"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => save()}
-                >
-                  Save this browser
-                </button>
-              </div>
-            </DocSection>
-          ) : null}
-          <DocSection title="Your connections">
-            {loadError ? (
-              <>
-                <p>Connections could not load.</p>
-                <div>
-                  <button className="pill" type="button" onClick={refresh}>
-                    Try again
-                  </button>
-                </div>
-              </>
-            ) : null}
-            {loadError
-              ? null
-              : resources.map((resource) => (
-                  <div
-                    className="border-line flex flex-wrap items-center justify-between gap-4 border-t py-4"
-                    key={resource.kind + resource.id}
-                  >
-                    <div>
-                      <strong>{resource.name}</strong>
-                      <p className="text-tone text-sm">
-                        {resource.kind === "patron"
-                          ? "Patron membership"
-                          : "Sender connection"}
-                      </p>
-                    </div>
-                    {isLocal(resource) ? (
-                      <span className="text-tone text-sm">On this browser</span>
-                    ) : (
-                      <button
-                        className="pill"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => restore(resource)}
-                      >
-                        Use on this browser
-                      </button>
-                    )}
-                  </div>
-                ))}
-            {!loadError && !resources.length ? (
-              <p>No saved connections yet.</p>
-            ) : null}
-            {pairings.length > 0 ? (
-              <div className="flex flex-wrap gap-3">
-                <a className="pill" href="/tap">
-                  Continue to my taps
-                </a>
-                {patronKey ? (
-                  <a className="pill pill-ink" href="/style">
-                    Continue to Style
-                  </a>
-                ) : null}
-              </div>
-            ) : null}
-          </DocSection>
-          <DocSection title="Patron support">
-            <p>
-              Core messaging is free. Continue to view your membership and
-              available billing options.
-            </p>
-            <div>
-              <button
-                className="pill"
-                type="button"
-                disabled={busy}
-                onClick={() => save(true)}
-              >
-                Continue to patron support
-              </button>
-            </div>
-          </DocSection>
-          <div>
+          {intent === "patron"
+            ? [patronSection, browserSection, connectionsSection]
+            : [browserSection, connectionsSection, patronSection]}
+          <div className="pt-6">
             <a
               className="text-tone inline-flex min-h-11 items-center underline underline-offset-4"
               href={`${accountOrigin}/account`}
@@ -329,4 +629,10 @@ const Account = () => {
   );
 };
 
-export const Route = createFileRoute("/account")({ component: Account });
+export const Route = createFileRoute("/account")({
+  component: Account,
+  // Read once per visit: the query, or an intent remembered before sign-in.
+  loader: () => ({
+    intent: resolveIntent(localStorage, window.location.search, Date.now()),
+  }),
+});
