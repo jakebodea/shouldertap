@@ -1,6 +1,6 @@
 # Free core and optional patrons
 
-Implementation as of October 21, 2026. This document describes code and local verification, not an enabled or live payment product.
+Implementation as of October 21, 2026. The application code has local verification but is not deployed. Matching sandbox/live products and the live webhook are configured; see the verified provider setup below for the exact boundary.
 
 Core sending, receiving, replies, pairing and recipient controls are free. The existing safety limits remain: 30 taps per sender per rolling hour, 20 active senders and 10 active devices per inbox. No limit depends on payment.
 
@@ -42,12 +42,22 @@ Only the Mac recipient menu claims the optional experience-based ask. Eligibilit
 
 ## External setup still required
 
-Nothing here created a provider product, changed secrets or charged a card.
+### Provider setup verified October 21, 2026
 
-1. Obtain/confirm Creem merchant approval for this optional annual support model. Create separate sandbox/live products: active, fixed USD 2400, recurring `every-year`, no trial, no metered prices, no add-ons or feature licenses. Use exclusive tax if charging applicable tax in addition. Set a neutral success destination such as `https://shouldertap.app/support`; redirects confer no membership. Keep the old one-time product ID for historical webhook handling; retire its public purchase links without deleting purchase history.
-2. In the appropriate Infisical `shouldertap-dev`/`shouldertap-prod` project set `CREEM_PATRON_PRODUCT_ID`, retaining `CREEM_PRODUCT_ID` for the old product, `CREEM_API_KEY` and `CREEM_WEBHOOK_SECRET`. Keys, product and webhook must all use the same mode. Test keys select Creem sandbox. Use Alchemy/Infisical only; PR previews remain credential-free. No production values belong in dev.
-3. Register the HTTPS API `/v1/webhooks/creem` endpoint and enable `checkout.completed`, `subscription.paid`, `subscription.active`, `subscription.scheduled_cancel`, `subscription.canceled`, `subscription.past_due`, `subscription.unpaid`, `subscription.expired`, `subscription.paused` and `refund.created`. Verify metadata reaches the subscription and that hosted portal cancellation/payment recovery works.
-4. Before live enablement, run sandbox checkout, duplicate delivery, delayed renewal/cancellation/refund, portal cancellation and refund scenarios against a deployed test stack. No sandbox credentials were supplied to this run or used here; local SDK tests fake only HTTP and SQLite tests fake only Cloudflare storage.
+- Created **Shouldertap Patron** in both Creem modes: USD $24, yearly subscription, active, no trial, metered charges, delivery/license benefits, cart-recovery emails or affiliate enrollment. Applicable tax is added on top. The description states optional support, annual renewal and free core use; no appearance rewards are promised.
+- Sandbox product: `prod_4fniZfXS6ZbXHuZTQRb4M0`. Saved and read back as `CREEM_PATRON_PRODUCT_ID` in Infisical `shouldertap-dev` / `dev`.
+- Live product: `prod_5UUHvLxlV78jkf0VB9waDy`. Saved and read back as `CREEM_PATRON_PRODUCT_ID` in Infisical `shouldertap-prod` / `prod`.
+- Existing API keys were verified by mode without exposing values: dev uses a test key, prod uses a live key. The existing production webhook secret remains unchanged.
+- Updated existing live webhook `wh_15vMN3FyfbGIi1WKJzOP4E` (**Shouldertap prod API**, `https://api.shouldertap.app/v1/webhooks/creem`) to the ten events listed below, retaining the original checkout/refund events. Verified the saved endpoint and event list.
+- Creem showed a stale test-mode banner even in live mode. Mode was verified using the actual mode switch (`aria-checked=true` means test), distinct product catalogs and their distinct product IDs; do not infer mode from that banner alone.
+- No purchases, test payments, charges, deployments or changes to the old product were made. The live product exists but the app does not yet expose the new checkout. Do not advertise its direct payment link before the server rollout and validation.
+
+Still outstanding: sandbox has no webhook endpoint or signing secret. Create these against the actual deployed development/test stack (not the production URL), save the signing secret in `shouldertap-dev`, and run the scenarios below. The new server code is not deployed; merchant acceptance of this optional-support model, real checkout/portal behavior and deployed integration remain unverified. Existing legacy product IDs and webhook secrets were retained.
+
+1. Obtain/confirm Creem merchant approval for this optional annual support model. Matching sandbox/live products already exist as recorded above: active, fixed USD 2400, recurring `every-year`, no trial, no metered prices, no add-ons or feature licenses, exclusive tax. The dashboard return URL was left unset; checkout creation supplies its return URL. Verify that destination after deployment; redirects confer no membership. Keep the old one-time product ID for historical webhook handling; retire its public purchase links during the free-core rollout without deleting purchase history.
+2. `CREEM_PATRON_PRODUCT_ID` is set in each matching Infisical project. Retain `CREEM_PRODUCT_ID` for the old product, `CREEM_API_KEY` and the existing production `CREEM_WEBHOOK_SECRET`; sandbox still needs its own signing secret. Keys, product and webhook must all use the same mode. Test keys select Creem sandbox. Use Alchemy/Infisical only; PR previews remain credential-free. No production values belong in dev.
+3. The live HTTPS API `/v1/webhooks/creem` endpoint now subscribes to `checkout.completed`, `subscription.paid`, `subscription.active`, `subscription.scheduled_cancel`, `subscription.canceled`, `subscription.past_due`, `subscription.unpaid`, `subscription.expired`, `subscription.paused` and `refund.created`. Register the sandbox counterpart against the actual deployed development/test URL. Verify metadata reaches the subscription and that hosted portal cancellation/payment recovery works.
+4. Before live checkout enablement, run sandbox checkout, duplicate delivery, delayed renewal/cancellation/refund, portal cancellation and refund scenarios against a deployed test stack. Local SDK tests fake only HTTP and SQLite tests fake only Cloudflare storage; provider sandbox tests have not yet run.
 5. Ship the free-core server before clients/marketing that advertise free use. Do not roll back to a server that enforces the old trial gate. Keep historical data and the free-core compatibility patch during any billing rollback.
 
 ## iPhone purchase boundary and review
