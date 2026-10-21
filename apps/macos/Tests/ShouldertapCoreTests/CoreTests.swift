@@ -109,9 +109,9 @@ private func fixture(_ name: String) throws -> Data {
     }
     let windows = try JSONDecoder().decode(Credential.self, from: Data(device("windows").utf8))
     #expect(windows.devicePlatform == .windows)
-    #expect(windows.devicePlatform.showsTaps)
+    #expect(windows.devicePlatform.showsDesktopOverlay)
     #expect(try JSONDecoder().decode(Credential.self, from: Data(device("vision").utf8)).devicePlatform == .mac)
-    #expect(!DevicePlatform.iphone.showsTaps)
+    #expect(!DevicePlatform.iphone.showsDesktopOverlay)
   }
 
   @Test func responseOmitsMissingText() throws {

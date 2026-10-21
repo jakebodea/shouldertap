@@ -226,6 +226,21 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(sent.body == expected)
   }
 
+  @Test func anIPhoneCreatesItsOwnInboxAndPersistsIt() async throws {
+    let sent = Sent()
+    let persistence = MemoryPersistence()
+    let store = makeStore(persistence: persistence, platform: .iphone) { request in
+      guard request.url!.path == "/v1/inboxes" else { return (503, "") }
+      sent.body = jsonBody(request)
+      return (201, #"{"kind":"device","credentialId":"p1","token":"inbox.p1.secret","recipientName":"Ari"}"#)
+    }
+    store.start()
+    try await store.createInbox(recipientName: "Ari")
+    #expect(sent.body == ["recipientName": "Ari", "deviceName": "iPhone", "platform": "iphone"])
+    #expect(persistence.loadCredential() == "inbox.p1.secret")
+    #expect(store.phase == .ready)
+  }
+
   @Test func anIPhoneLinksAsAnIPhone() async throws {
     let sent = Sent()
     let persistence = MemoryPersistence()

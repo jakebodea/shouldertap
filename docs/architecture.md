@@ -36,7 +36,7 @@ The API authorizes WebSocket upgrades and routes them to the recipient Inbox. Co
 ## Message facts
 
 1. **Accepted:** stored on the server.
-2. **Displayed:** a connected Mac (or Windows) reports presenting the overlay.
+2. **Displayed:** a connected device reports presenting the tap. iPhone reports its foreground takeover; background APNs acceptance alone is not a display receipt.
 3. **Acknowledged:** the recipient explicitly responded.
 
 One valid response dismisses every connected display. Idempotency keys protect sends; event IDs support resync after disconnect.
@@ -83,3 +83,5 @@ Generator choices, Effect 4 / Alchemy beta notes, and early scaffolding rational
 ## Optional patron support
 
 Core messaging has no billing gate. `plan.status = paid` is the compatibility value for older clients; it is independent of actual purchase records. Patron support belongs to the **sender**: the SenderPatron DO folds signed Creem facts (metadata `patron_id`) and answers whether a presented patron key is active. The Worker turns a send's requested theme into a `VerifiedTheme` from that answer alone, and the Inbox stores it on the tap (`taps.theme`); anything else stores Default and still delivers. Recipients keep free per-inbox settings (`appearance.senderThemes` show/plain, `appearance.motion`). Historical receiver subscriptions (metadata `inbox_id`) still fold in their Inbox for management and refunds and grant nothing. See [patrons.md](patrons.md).
+
+An iPhone can create an inbox independently; computers are optional. The sender owns theme entitlement in SenderPatron, while every recipient may choose plain/reduced motion for free. New sender checkout defaults off until approved; native iPhone billing links are not enabled.

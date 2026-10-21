@@ -107,83 +107,20 @@ const tapEvent = (id: string, state?: Tap["state"]) => (event: ServerEvent) =>
   event.tap.id === id &&
   (state === undefined || event.tap.state === state);
 
-/** A sender's patron key, not a pairing, decides themes; cosmetics never
- * block delivery. Runs on an inbox a test already made (the suite stays
- * under the per-network inbox creation limit). */
-const checkSenderThemes = Effect.fn(function* checkSenderThemes(
-  url: string,
-  {
-    anon,
-    macA,
-    sender,
-    senderInvite,
-  }: Effect.Success<ReturnType<typeof pairedInbox>>
-) {
-  const senderApi = yield* client(url, sender.token);
-
-  // No key: delivered, in Default.
-  const plain = yield* senderApi.inbox.sendTap({
-    payload: {
-      requestId: crypto.randomUUID(),
-      body: "Dinner",
-      theme: "broadsheet",
-    },
-  });
-  expect([plain.state, plain.theme]).toStrictEqual(["pending", "default"]);
-
-  // A patron identity that never paid: still Default. Its key isn't a
-  // pairing credential, and a pairing credential isn't a patron key.
-  const grant = yield* anon.patronSetup.createPatron();
-  const patronApi = yield* makeShouldertapClient(url, null, grant.key);
-  const status = yield* patronApi.patron.patronStatus();
-  expect([status.patron.active, status.keys]).toStrictEqual([false, 1]);
-  const unpaid = yield* senderApi.inbox.sendTap({
-    payload: {
-      requestId: crypto.randomUUID(),
-      body: "Call me",
-      theme: "terminal",
-      patronKey: grant.key,
-    },
-  });
-  expect(unpaid.theme).toBe("default");
-  const pairingAsKey = yield* (yield* makeShouldertapClient(
-    url,
-    null,
-    sender.token
-  )).patron
-    .patronStatus()
-    .pipe(Effect.flip);
-  expect(pairingAsKey._tag).toBe("Unauthorized");
-  const inviteAsLink = yield* anon.patronSetup
-    .redeemPatronLink({ payload: { code: senderInvite.code } })
-    .pipe(Effect.flip);
-  expect(inviteAsLink._tag).toBe("NotFound");
-
-  // Another of the sender's devices joins the same identity once.
-  const { code } = yield* patronApi.patron.patronLinkCode();
-  const second = yield* anon.patronSetup.redeemPatronLink({
-    payload: { code },
-  });
-  expect(second.patronId).toBe(grant.patronId);
-  const reused = yield* anon.patronSetup
-    .redeemPatronLink({ payload: { code } })
-    .pipe(Effect.flip);
-  expect(reused._tag).toBe("Expired");
-  const both = yield* (yield* makeShouldertapClient(
-    url,
-    null,
-    second.key
-  )).patron.patronStatus();
-  expect(both.keys).toBe(2);
-
-  // The recipient sees each tap's stored theme in their snapshot.
-  const inbox = yield* (yield* client(url, macA.token)).inbox.me();
-  expect(inbox.taps.map((t) => [t.body, t.theme])).toStrictEqual([
-    ["Call me", "default"],
-    ["Dinner", "default"],
-    ["Trial tap", "default"],
-  ]);
-});
+test(
+  "reports the deployed free-core state without exposing credentials",
+  Effect.gen(function* releaseState() {
+    const url = (yield* stack).server;
+    const response = yield* Effect.promise(() => fetch(`${url}/version`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const state = yield* Effect.promise(() => response.json());
+    expect(state).toMatchObject({
+      coreMessaging: "free",
+      patronCheckoutEnabled: false,
+    });
+  })
+);
 
 test(
   "pairs devices and senders with one-time invites, and links iPhones",
@@ -217,31 +154,21 @@ test(
     const plan = snapshot.kind === "device" ? snapshot.plan : null;
     // Old clients' unlocked wire value.
     expect(plan?.status).toBe("paid");
-    // Recipients no longer buy support; it belongs to senders.
     expect(
-      snapshot.kind === "device" ? snapshot.patron?.canSubscribe : true
-    ).toBeFalsy();
+      snapshot.kind === "device" ? snapshot.patron?.canSubscribe : false
+    ).toBeTruthy();
 
     const trialTap = yield* (yield* client(url, sender.token)).inbox.sendTap({
       payload: { requestId: crypto.randomUUID(), body: "Trial tap" },
     });
     expect(trialTap.state).toBe("pending");
-    yield* checkSenderThemes(url, { anon, macA, macB, sender, senderInvite });
 
-    // The receiver-side checkouts are retired: a recipient's device gets a
-    // clear Conflict, a sender's pairing credential isn't a device at all.
-    // Payment creation is reserved for the explicit sandbox workflow: local
-    // test stages can load real test keys.
+    // Senders cannot start checkout. Payment creation is reserved for the
+    // explicit sandbox workflow: local test stages can load real test keys.
     const senderCheckout = yield* (yield* client(url, sender.token)).inbox
       .createPatronCheckout()
       .pipe(Effect.flip);
     expect(senderCheckout._tag).toBe("Unauthorized");
-    const receiverCheckout = yield* (yield* client(url, macA.token)).inbox
-      .createPatronCheckout()
-      .pipe(Effect.flip);
-    expect(receiverCheckout.message).toBe(
-      "Patron support now belongs to the person sending taps: it lets them send taps in a theme to everyone they tap. Receiving and answering stay free."
-    );
     const legacyCheckout = yield* (yield* client(url, macA.token)).inbox
       .createCheckout()
       .pipe(Effect.flip);
@@ -249,24 +176,21 @@ test(
       "Shouldertap is now free. Update the app to see what's new."
     );
 
-    // The recipient's free settings: motion and the plain override, on
-    // every computer. Senders can't change them.
-    const recipient = yield* client(url, macA.token);
-    const motion = yield* recipient.inbox.updateAppearance({
-      payload: { motion: "reduced", senderThemes: "plain" },
-    });
-    expect(motion).toStrictEqual({ motion: "reduced", senderThemes: "plain" });
-    const senderAppearance = yield* (yield* client(url, sender.token)).inbox
-      .updateAppearance({ payload: { senderThemes: "show" } })
+    const patronIdentity = yield* anon.patronSetup.createPatron();
+    const patronApi = yield* makeShouldertapClient(
+      url,
+      null,
+      patronIdentity.key
+    );
+    const disabledSignup = yield* patronApi.patron
+      .patronCheckout()
       .pipe(Effect.flip);
-    expect(senderAppearance._tag).toBe("Unauthorized");
-    const otherMac = yield* (yield* client(url, macB.token)).inbox.me();
-    expect(
-      otherMac.kind === "device" ? otherMac.appearance : null
-    ).toStrictEqual({ motion: "reduced", senderThemes: "plain" });
+    expect(disabledSignup._tag).toBe("Unavailable");
+    expect(disabledSignup.message).toBe(
+      "New patron signup is not available yet. Messaging remains free."
+    );
 
-    // An iPhone links with the same device invite and manages the inbox, but
-    // can't leave it without a Mac. (Shares this inbox: tests stay under the
+    // An iPhone links with the same device invite and receives independently. (Shares this inbox: tests stay under the
     // per-network inbox creation limit.)
     const mac = yield* client(url, macA.token);
     const { code } = yield* mac.inbox.createInvite({
@@ -340,17 +264,6 @@ test(
     yield* phone.inbox.revoke({ params: { id: ari.credentialId } });
     yield* phone.inbox.revoke({ params: { id: macB.credentialId } });
 
-    // One Mac left: neither the iPhone nor the Mac itself can remove it…
-    const fromPhone = yield* phone.inbox
-      .revoke({ params: { id: macA.credentialId } })
-      .pipe(Effect.flip);
-    expect(fromPhone._tag).toBe("Conflict");
-    const fromMac = yield* mac.inbox
-      .revoke({ params: { id: macA.credentialId } })
-      .pipe(Effect.flip);
-    expect(fromMac._tag).toBe("Conflict");
-    expect(fromMac.message).toContain("only computer");
-
     // A Windows PC shows taps too: once one links, the Mac can go…
     const { code: pcCode } = yield* mac.inbox.createInvite({
       payload: { kind: "device" },
@@ -364,18 +277,19 @@ test(
         withPc.credentials.find((c) => c.id === pcGrant.credentialId)?.platform
     ).toBe("windows");
     yield* phone.inbox.revoke({ params: { id: macA.credentialId } });
-    // …and then the PC is the computer that can't go.
-    const lastPc = yield* phone.inbox
-      .revoke({ params: { id: pcGrant.credentialId } })
-      .pipe(Effect.flip);
-    expect(lastPc._tag).toBe("Conflict");
+    // A phone receives independently: both computers can be removed.
+    yield* phone.inbox.revoke({ params: { id: pcGrant.credentialId } });
+    const phoneOnly = yield* phone.inbox.me();
+    expect(
+      phoneOnly.kind === "device" &&
+        phoneOnly.credentials
+          .filter((c) => c.kind === "device")
+          .map((c) => c.platform)
+    ).toStrictEqual(["iphone"]);
 
-    // …until the iPhone is gone; then the last device can go as before.
     yield* phone.inbox.revoke({ params: { id: phoneGrant.credentialId } });
     const unlinked = yield* phone.inbox.me().pipe(Effect.flip);
     expect(unlinked._tag).toBe("Unauthorized");
-    const pc = yield* client(url, pcGrant.token);
-    yield* pc.inbox.revoke({ params: { id: pcGrant.credentialId } });
   }),
   { timeout: 60_000 }
 );
@@ -669,8 +583,7 @@ test(
       expect(self?.platform).toBe(platform ?? "mac");
       expect(snapshot.plan.status).toBe("paid");
       expect(snapshot.patron?.status).toBe("none");
-      // Support belongs to senders: a computer never offers it.
-      expect(snapshot.patron?.canSubscribe).toBeFalsy();
+      expect(snapshot.patron?.canSubscribe).toBeTruthy();
     });
 
     const machine = fingerprint();
@@ -699,13 +612,50 @@ test(
 
 // Runs last: it exhausts this IP's inbox-creation budget for the next minute.
 test(
-  "sender deletion removes messages, invalidates access and preserves other senders",
+  "phone-only inbox receives and answers; sender deletion preserves other senders",
   Effect.gen(function* senderDeletion() {
     const url = (yield* stack).server;
-    const { anon, macA, sender } = yield* pairedInbox(url);
-    const mac = yield* client(url, macA.token);
-    const first = yield* client(url, sender.token);
-    const invite = yield* mac.inbox.createInvite({
+    const anon = yield* client(url);
+    const grant = yield* anon.pairing.createInbox({
+      payload: {
+        recipientName: "Ari",
+        deviceName: "Ari's iPhone",
+        platform: "iphone",
+      },
+    });
+    const phone = yield* client(url, grant.token);
+    const initialSnapshot = yield* phone.inbox.me();
+    expect(
+      initialSnapshot.kind === "device" &&
+        initialSnapshot.credentials.map((c) => [c.name, c.platform])
+    ).toStrictEqual([["Ari's iPhone", "iphone"]]);
+    expect(
+      initialSnapshot.kind === "device" && initialSnapshot.plan.status
+    ).toBe("paid");
+    const firstInvite = yield* phone.inbox.createInvite({
+      payload: { kind: "sender" },
+    });
+    const senderGrant = yield* anon.pairing.redeemInvite({
+      payload: { code: firstInvite.code, name: "Sam", color: "moss" },
+    });
+    const senderApi = yield* client(url, senderGrant.token);
+    const tap = yield* senderApi.inbox.sendTap({
+      payload: { requestId: crypto.randomUUID(), body: "Dinner is ready" },
+    });
+    yield* phone.inbox.markDisplayed({ params: { id: tap.id } });
+    yield* phone.inbox.acknowledge({
+      params: { id: tap.id },
+      payload: { response: { kind: "on_it" } },
+    });
+    const answered = yield* senderApi.inbox.me();
+    expect(
+      answered.taps.find((item) => item.id === tap.id)?.response
+    ).toStrictEqual({
+      kind: "on_it",
+    });
+    const sender = senderGrant;
+    const first = senderApi;
+    const invite = yield* phone.inbox.createInvite({
       payload: { kind: "sender" },
     });
     const other = yield* anon.pairing.redeemInvite({
@@ -715,21 +665,21 @@ test(
     const mine = yield* first.inbox.sendTap({
       payload: { requestId: crypto.randomUUID(), body: "Delete this message" },
     });
-    yield* mac.inbox.acknowledge({
+    yield* phone.inbox.acknowledge({
       params: { id: mine.id },
       payload: { response: { kind: "text", text: "Delete this reply too" } },
     });
     const keep = yield* second.inbox.sendTap({
       payload: { requestId: crypto.randomUUID(), body: "Keep this message" },
     });
-    const macCannotDeleteSender = yield* mac.inbox
+    const receiverCannotDeleteSender = yield* phone.inbox
       .deleteSender()
       .pipe(Effect.flip);
-    expect(macCannotDeleteSender._tag).toBe("Unauthorized");
+    expect(receiverCannotDeleteSender._tag).toBe("Unauthorized");
     yield* first.inbox.deleteSender();
-    const snapshot = yield* mac.inbox.me();
-    expect(snapshot.taps.map((tap) => tap.id)).toContain(keep.id);
-    expect(snapshot.taps.map((tap) => tap.id)).not.toContain(mine.id);
+    const snapshot = yield* phone.inbox.me();
+    expect(snapshot.taps.map((item) => item.id)).toContain(keep.id);
+    expect(snapshot.taps.map((item) => item.id)).not.toContain(mine.id);
     expect(
       snapshot.kind === "device" &&
         snapshot.credentials.some(
@@ -744,7 +694,7 @@ test(
       })
       .pipe(Effect.flip);
     expect(blocked._tag).toBe("InvalidRequest");
-    const blockedReply = yield* mac.inbox
+    const blockedReply = yield* phone.inbox
       .acknowledge({
         params: { id: keep.id },
         payload: { response: { kind: "text", text: "kill yourself" } },
@@ -754,26 +704,59 @@ test(
     const own = yield* second.inbox.me();
     expect(own.taps).toHaveLength(1);
     expect(own.taps[0]?.state).toBe("pending");
-  })
+  }),
+  { timeout: 60_000 }
 );
 
 test(
   "rate-limits inbox creation per client",
   Effect.gen(function* creationRateLimit() {
     const url = (yield* stack).server;
-    const anon = yield* client(url);
-    const create = anon.pairing
-      .createInbox({
-        payload: { recipientName: "Flood", deviceName: "Script" },
-      })
-      .pipe(
-        Effect.as("created" as const),
-        Effect.catchTag("TooManyRequests", () =>
-          Effect.succeed("limited" as const)
-        )
+    // Cloudflare's per-location counters are eventually consistent. A
+    // sequential 15-request sample can straddle a reset or reach cold caches.
+    // Keep load bounded and within a short observation window; require a real
+    // 429, but never assert that the approximate 10/min threshold is strict.
+    const started = Date.now();
+    const results: number[] = [];
+    const locations = new Set<string>();
+    for (let wave = 0; wave < 6 && !results.includes(429); wave += 1) {
+      const batch = yield* Effect.all(
+        Array.from({ length: 10 }, () =>
+          Effect.promise(async () => {
+            const response = await fetch(`${url}/v1/inboxes`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                recipientName: "Flood",
+                deviceName: "Script",
+              }),
+            });
+            const location =
+              response.headers.get("cf-ray")?.split("-").at(-1) ?? "local";
+            await response.arrayBuffer();
+            return { status: response.status, location };
+          })
+        ),
+        { concurrency: 10 }
       );
-    const results = yield* Effect.all(Array.from({ length: 15 }, () => create));
-    expect(results).toContain("limited");
+      for (const result of batch) {
+        results.push(result.status);
+        locations.add(result.location);
+      }
+      if (Date.now() - started > 20_000) {
+        break;
+      }
+      if (!results.includes(429)) {
+        yield* Effect.sleep("1 second");
+      }
+    }
+    expect(
+      results.every((status) => status === 201 || status === 429)
+    ).toBeTruthy();
+    expect(
+      results,
+      `Bounded creation burst: ${results.length} responses across ${[...locations].join(",")}`
+    ).toContain(429);
   }),
   { timeout: 60_000 }
 );

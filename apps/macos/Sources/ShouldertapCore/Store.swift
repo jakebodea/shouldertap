@@ -179,7 +179,7 @@ public final class ReceiverStore {
   /// already applies.
   public func createInbox(recipientName: String) async throws {
     let grant = try await api.createInbox(
-      recipientName: recipientName, deviceName: safeDeviceName(), machine: machine())
+      recipientName: recipientName, deviceName: safeDeviceName(), machine: machine(), platform: platform)
     try persistence.saveCredential(grant.token)
     connect(grant.token)
   }

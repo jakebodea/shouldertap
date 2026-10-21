@@ -155,3 +155,9 @@ App Review remains an external gate: explain the optional recurring support, fre
 - [Creem customer portal](https://docs.creem.io/features/customer-portal)
 - [Creem TypeScript SDK](https://docs.creem.io/code/sdks/typescript)
 - [Apple App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)
+
+## Integrated phone-first rollout boundary
+
+This integration keeps the sender-owned model above. An iPhone may create its recipient inbox and receive/answer without a computer; native iPhone sending remains Default-only. iPhone UI is status-only and exposes no external checkout/management or purchase-page links. The earlier USA-storefront links described in historical verification are not enabled in this integration.
+
+New **sender** checkout is fail-closed: `PATRON_CHECKOUT_ENABLED` defaults false and is checked after key authentication, before product retrieval, checkout reservation or provider creation. Existing subscription management and signed webhooks remain available. Live merchant approval and sender-model product copy must be resolved before enabling signup. No existing production product ID is treated as approval. Core messages never depend on this gate.

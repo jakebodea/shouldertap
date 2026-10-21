@@ -122,14 +122,6 @@ const platformFor = (
   platform: DevicePlatform | undefined
 ): DevicePlatform | null => (kind === "device" ? (platform ?? "mac") : null);
 
-/** Macs and Windows PCs put taps on screen; an iPhone only manages the inbox. */
-const showsTaps = (platform: DevicePlatform | null | undefined) =>
-  platformFor("device", platform ?? undefined) !== "iphone";
-
-/** Why the last computer can't go while an iPhone is still linked. */
-const lastComputerMessage =
-  "This is the only computer on this inbox, and taps show up on computers. Add another Mac or Windows PC, or remove the linked iPhones first.";
-
 type Rpc<A, E = never> = Effect.Effect<A, E, RuntimeContext>;
 
 /** The Inbox's typed RPC surface, called by the Server Worker. */
@@ -752,8 +744,8 @@ export const InboxLive = Inbox.make(
               });
               yield* tx.insert(credentials).values({
                 ...credential.row,
-                // Only a computer can set up an inbox; older Macs don't say.
-                platform: request.platform === "windows" ? "windows" : "mac",
+                // Older clients omit the platform and are Macs.
+                platform: request.platform ?? "mac",
               });
             })
           );
@@ -1099,27 +1091,6 @@ export const InboxLive = Inbox.make(
           const at = yield* now;
           const revoked = yield* db.transaction((tx) =>
             Effect.gen(function* revokeInTransaction() {
-              const devices = yield* tx
-                .select({ id: credentials.id, platform: credentials.platform })
-                .from(credentials)
-                .where(isActive("device"));
-              const target = devices.find(
-                (device) => device.id === credentialId
-              );
-              // Computers are where taps show up: an inbox left with only
-              // iPhones would take taps that nothing displays. Removing the
-              // very last device (resetting the inbox) is still allowed.
-              if (target && showsTaps(target.platform)) {
-                const rest = devices.filter(
-                  (device) => device.id !== credentialId
-                );
-                const computersLeft = rest.filter((device) =>
-                  showsTaps(device.platform)
-                );
-                if (rest.length > 0 && computersLeft.length === 0) {
-                  return yield* new Conflict({ message: lastComputerMessage });
-                }
-              }
               return yield* tx
                 .update(credentials)
                 .set({ revokedAt: at })

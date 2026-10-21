@@ -55,8 +55,8 @@ public enum CredentialKind: String, Sendable, Codable {
 public enum DevicePlatform: String, Sendable, Codable {
   case mac, windows, iphone
 
-  /// Macs and Windows PCs put taps on screen; an iPhone only manages.
-  public var showsTaps: Bool { self != .iphone }
+  /// Computers cover other apps; iPhone shows a takeover only while open.
+  public var showsDesktopOverlay: Bool { self != .iphone }
 
   /// Unknown platforms (a newer server) read as a Mac instead of failing the decode.
   public init(from decoder: any Decoder) throws {

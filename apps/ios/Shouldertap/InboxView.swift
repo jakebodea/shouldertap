@@ -1,7 +1,6 @@
 import CoreImage.CIFilterBuiltins
 import ShouldertapCore
 import SwiftUI
-import StoreKit
 
 // Your own Shouldertap, on this iPhone: the Inbox tab. Linked to the inbox
 // with a device code from the Mac (`ReceiverStore`, `platform: .iphone`), the
@@ -65,6 +64,15 @@ struct InboxScreen: View {
       }
       Page {
         header
+        if Receiver.shared.notificationsAllowed == false {
+          VStack(alignment: .leading, spacing: 8) {
+            Muted("Notifications are off. Open Shouldertap to receive taps, or enable notifications in Settings for background delivery.")
+            Button("Notification settings") {
+              if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
+            }
+            .buttonStyle(QuietStyle())
+          }
+        }
         InviteCard(inbox: inbox)
         recent
         people
@@ -123,10 +131,6 @@ struct InboxScreen: View {
 
   private var planText: String? { "Free" }
 
-  @State private var usStorefront = false
-  @State private var billingBusy = false
-  @Environment(\.openURL) private var openURL
-
   private var patronSupport: some View {
     InboxSection(title: "Support Shouldertap") {
       VStack(alignment: .leading, spacing: 12) {
@@ -137,30 +141,8 @@ struct InboxScreen: View {
             Text("Paid through \(Date(timeIntervalSince1970: until / 1000).formatted(date: .abbreviated, time: .omitted))")
           }
         }
-        // Support bought for this inbox before it moved to senders can still
-        // be managed or canceled; nothing is sold here. US storefront only.
-        if usStorefront, inbox.patron?.canManage == true {
-          Button("Manage or cancel earlier support") { manageBilling() }.buttonStyle(PillStyle()).disabled(billingBusy)
-        }
-      }
-    }
-    .task {
-      usStorefront = await Storefront.current?.countryCode == "USA"
-      for await storefront in Storefront.updates {
-        usStorefront = storefront.countryCode == "USA"
-      }
-    }
-  }
 
-  private func manageBilling() {
-    billingBusy = true
-    Task {
-      defer { billingBusy = false }
-      // Storefront, never locale or IP, is the purchase-policy boundary.
-      guard await Storefront.current?.countryCode == "USA" else { usStorefront = false; return }
-      do {
-        openURL(try await inbox.managePatronURL())
-      } catch { self.error = error.localizedDescription }
+      }
     }
   }
 
@@ -223,14 +205,12 @@ struct InboxScreen: View {
 
   private func removeMessage(_ credential: Credential) -> String {
     if isSelf(credential) {
-      return "It stops managing \(inbox.recipientName.isEmpty ? "your" : "\(inbox.recipientName)'s") Shouldertap. Your Macs keep getting taps, and you can link it again from your Mac."
+      return "It stops receiving taps for \(inbox.recipientName.isEmpty ? "your" : "\(inbox.recipientName)'s") Shouldertap. Other linked devices keep getting taps. You need a code from another linked device to return. If this is your last device, you will lose access to this inbox."
     }
     if credential.kind == .sender {
       return "Their taps stop reaching you. To tap you again, they'll need a new invite."
     }
-    return credential.devicePlatform.showsTaps
-      ? "Taps stop showing up on it. To add it back, you'll need a new code."
-      : "It stops managing your Shouldertap. To add it back, you'll need a new code."
+    return "Taps stop reaching it. To add it back, you'll need a new device code."
   }
 
   private func remove(_ credential: Credential) {
@@ -341,7 +321,7 @@ private struct AddMac: View {
   var body: some View {
     if let code {
       VStack(alignment: .leading, spacing: 12) {
-        Text("On the other Mac, open Shouldertap and paste this code under Already set up on another Mac. It expires in 15 minutes.")
+        Text("On another iPhone, choose I already have an inbox and paste this code. On Mac, choose Already set up on another Mac. It expires in 15 minutes.")
           .font(Bricolage.medium(15))
           .foregroundStyle(Paper.tone)
         Text(code)
@@ -385,7 +365,7 @@ private struct AddMac: View {
           IconView(icon: .addMac, size: 20)
             .frame(width: 40, height: 40)
             .background(Paper.faint, in: .circle)
-          Text("Add a Mac").font(Bricolage.bold(17))
+          Text("Add a device").font(Bricolage.bold(17))
           Spacer(minLength: 0)
         }
         .padding(.vertical, 10)
@@ -518,6 +498,73 @@ private func qrImage(_ text: String) -> UIImage? {
   return UIImage(cgImage: image)
 }
 
+/// Creation and joining are separate choices so an existing owner never
+/// accidentally creates a second inbox instead of restoring their devices.
+struct InboxSetup: View {
+  let inbox: ReceiverStore
+  var code = ""
+  var onClose: (() -> Void)?
+  let onLinked: () -> Void
+  @State private var joining = false
+  @State private var name = ""
+  @State private var pending = false
+  @State private var error: String?
+
+  var body: some View {
+    if joining || !code.isEmpty {
+      LinkCover(inbox: inbox, code: code, onClose: onClose ?? { joining = false }, onLinked: onLinked)
+    } else {
+      Frame(color: inboxColor) {
+        VStack(spacing: 0) {
+          FrameBar { Wordmark() } trailing: {
+            if let onClose {
+              Button(action: onClose) { IconView(icon: .close, size: 18) }
+                .buttonStyle(FrameButtonStyle(iconOnly: true))
+                .accessibilityLabel("Close")
+            }
+          }
+          Page {
+            StepHeader(title: "Get taps on your iPhone", text: "Create your inbox, then invite someone you trust. No Mac needed.")
+            TextField("Your name", text: $name)
+              .textContentType(.givenName)
+              .field()
+              .accessibilityIdentifier("inbox-name")
+            Text("Sending, receiving and replies are free. Optional patron support helps cover running costs; it never controls who can tap you or whether you can answer.")
+              .font(Bricolage.medium(15)).foregroundStyle(Paper.tone)
+            Text("There is no account or email recovery. Keep another device linked before replacing or resetting this iPhone. A sender invitation cannot restore your inbox.")
+              .font(Bricolage.medium(15)).foregroundStyle(Paper.tone)
+            Text("Allow notifications to receive taps when the app is closed. On iPhone, taps use notifications and Live Activities; they cannot cover other apps. Add a Mac later for screen takeover.")
+              .font(Bricolage.medium(15)).foregroundStyle(Paper.tone)
+            if let error { Text(error).foregroundStyle(.red) }
+          } actions: {
+            Button {
+              pending = true
+              error = nil
+              Task {
+                defer { pending = false }
+                do {
+                  try await inbox.createInbox(recipientName: name.trimmingCharacters(in: .whitespacesAndNewlines))
+                  onLinked()
+                } catch {
+                  self.error = (error as? APIError)?.message ?? error.localizedDescription
+                }
+              }
+            } label: {
+              if pending { ProgressView() } else { Text("Create my inbox") }
+            }
+            .buttonStyle(PillStyle(color: inboxColor))
+            .disabled(pending || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityIdentifier("inbox-create")
+            Button("I already have an inbox") { joining = true }
+              .buttonStyle(QuietStyle()).disabled(pending)
+          }
+          .onPaper()
+        }
+      }
+    }
+  }
+}
+
 // MARK: Linking
 
 /// Link this iPhone to your Mac: open Shouldertap on the Mac, Add a Mac or
@@ -561,18 +608,18 @@ struct LinkCover: View {
         Page {
           StepHeader(
             title: "Get your taps here too",
-            text: "Link this iPhone to Shouldertap on your Mac. Taps then reach both, and you can answer on either. From here you can also invite people and remove them.")
+            text: "Link this iPhone to your existing inbox. Taps reach your linked devices, and you can answer on any of them.")
 
           NumberedSteps(color: inboxColor, steps: [
-            "Click the Shouldertap mark in your Mac's menu bar.",
-            "Under Your Macs or Your devices, click Add another Mac (or Add a Mac or iPhone). A code appears.",
+            "Open Inbox on your linked iPhone, or Shouldertap in your Mac's menu bar.",
+            "Under Your devices, choose Add a device. On older Macs, choose Add another Mac.",
             "Scan its QR code with this iPhone, or copy the code and paste it below.",
           ])
 
           VStack(alignment: .leading, spacing: 8) {
             Text("Or paste the code").font(Bricolage.bold(14, relativeTo: .subheadline))
             HStack(spacing: 8) {
-              TextField("Code from your Mac", text: $text)
+              TextField("Device code", text: $text)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.go)
@@ -632,8 +679,8 @@ struct LinkCover: View {
     if let error { return error }
     guard !text.isEmpty, parsed == nil else { return nil }
     return isSenderInvite(text)
-      ? "That's an invite to tap someone. To link your Mac, use the code under Your devices."
-      : "That doesn't look like a code from your Mac."
+      ? "That's an invite to tap someone. To link your inbox, use the code under Your devices."
+      : "That doesn't look like a device code."
   }
 
   private func link(_ value: String) {
@@ -664,7 +711,7 @@ private struct LinkScanScreen: View {
     Frame(color: inboxColor) {
       VStack(spacing: 0) {
         FrameBar {
-          Text("Scan your Mac's code").font(Bricolage.extraBold(19)).tracking(-0.6)
+          Text("Scan your device code").font(Bricolage.extraBold(19)).tracking(-0.6)
         } trailing: {
           Button { dismiss() } label: { IconView(icon: .close, size: 18) }
             .buttonStyle(FrameButtonStyle(iconOnly: true))

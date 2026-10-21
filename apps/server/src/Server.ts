@@ -79,12 +79,14 @@ export default class Server extends Cloudflare.Worker<Server>()(
       main: import.meta.url,
       compatibility: { date: "2026-08-31" },
       observability: { enabled: true },
+      version: { tag: process.env.COMMIT_SHA ?? "local" },
       domain: production ? domains.api : undefined,
       dev: { port: 3000 },
     };
   }),
   Effect.gen(function* serverMain() {
     const inboxes = yield* Inbox;
+    const versionMetadata = yield* Cloudflare.Workers.VersionMetadata();
     const patrons = yield* SenderPatron;
     // Payments are optional so previews and dev run without Creem: checkout
     // answers 503 and the webhook 404 until all three are configured.
@@ -107,6 +109,12 @@ export default class Server extends Cloudflare.Worker<Server>()(
         client: creemClient(Redacted.value(config.apiKey)),
       }))
     );
+
+    // New sender signups remain off until merchant approval and product copy are ready.
+    // Existing subscription management, webhooks and free messages are unaffected.
+    const patronCheckoutEnabled = yield* Config.Boolean(
+      "PATRON_CHECKOUT_ENABLED"
+    ).pipe(Config.withDefault(false));
 
     // APNs is optional too: without the key, linked iPhones simply get no
     // pushes (previews, dev). The .p8 file's contents go in APNS_KEY.
@@ -422,9 +430,14 @@ export default class Server extends Cloudflare.Worker<Server>()(
               const request = yield* HttpServerRequest;
               // Authenticates the key before touching the provider.
               yield* stub.status(key);
-              if (Option.isNone(creem) || !creem.value.patronProductId) {
+              if (
+                !patronCheckoutEnabled ||
+                Option.isNone(creem) ||
+                !creem.value.patronProductId
+              ) {
                 return yield* new Unavailable({
-                  message: "Payments aren't set up here yet.",
+                  message:
+                    "New patron signup is not available yet. Messaging remains free.",
                 });
               }
               const billing = creem.value;
@@ -664,6 +677,19 @@ export default class Server extends Cloudflare.Worker<Server>()(
         if (request.url === "/v1/webhooks/creem" && request.method === "POST") {
           return yield* creemWebhook;
         }
+        if (request.url === "/version" && request.method === "GET") {
+          const version = yield* versionMetadata;
+          return yield* HttpServerResponse.json(
+            {
+              versionId: version.id,
+              revision: version.tag,
+              deployedAt: version.timestamp,
+              coreMessaging: "free",
+              patronCheckoutEnabled,
+            },
+            { headers: { "cache-control": "no-store" } }
+          );
+        }
         if (request.url === "/" || request.url === "") {
           return HttpServerResponse.text("Shouldertap API");
         }
@@ -676,6 +702,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
       SenderPatronLive,
       TrialLedgerLive,
       Cloudflare.Workers.RateLimitBinding,
+      Cloudflare.Workers.VersionMetadataBinding,
     ])
   )
 ) {}

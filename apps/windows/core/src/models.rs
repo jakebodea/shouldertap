@@ -113,7 +113,7 @@ pub enum DevicePlatform {
 
 impl DevicePlatform {
     /// Macs and Windows PCs put taps on screen; an iPhone only manages.
-    pub fn shows_taps(self) -> bool {
+    pub fn shows_desktop_overlay(self) -> bool {
         self != Self::Iphone
     }
 

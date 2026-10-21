@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vitest";
 
 import { webhookAction } from "../src/Creem";
+import type { PatronEvent } from "../src/patron";
 import { patronOf } from "../src/patron";
 import {
   reserveCheckout,
@@ -10,12 +11,106 @@ import {
   storeLegacyRefund,
 } from "../src/patron-storage";
 import { planOf } from "../src/plan";
+import { DEFAULT_THEME } from "../src/presentation";
 import { patronEvents, inbox } from "../src/schema";
+import { storeTap } from "../src/tap-storage";
 import { migrate, open, withFile } from "./do-sqlite";
 
 const NOW = Date.UTC(2026, 9, 21);
 
 describe("durable support boundaries", () => {
+  it("a phone-only inbox accepts taps after its old deadline, cancellation and refund", () =>
+    withFile(async (path) => {
+      const connection = open(path);
+      migrate(connection.sqlite);
+      connection.sqlite.exec(
+        "INSERT INTO inbox (id,inbox_id,recipient_name,trial_ends_at) VALUES (1,'phone-only','Ari',1)"
+      );
+      connection.sqlite.exec(
+        "INSERT INTO credentials (id,kind,name,platform,secret_hash,created_at) VALUES ('phone','device','Ari','iphone','unused',1),('sender','sender','Sam',NULL,'unused',1)"
+      );
+      const paid: PatronEvent = {
+        id: "paid",
+        at: NOW,
+        type: "subscription.paid",
+        subscriptionId: "sub_phone",
+        customerId: "customer",
+        periodEnd: NOW + 86_400_000,
+        transactionId: "transaction",
+        refundTransactionId: null,
+      };
+      try {
+        const result = await Effect.runPromise(
+          Effect.scoped(
+            Effect.gen(function* sendWithoutBillingGate() {
+              const db = yield* connection.db;
+              yield* storeTap(db, {
+                senderId: "sender",
+                message: {
+                  requestId: "before",
+                  body: "After the old deadline",
+                },
+                theme: DEFAULT_THEME,
+                id: "tap-before",
+                at: NOW,
+              });
+              yield* storePatronEvent(db, paid);
+              yield* storePatronEvent(db, {
+                ...paid,
+                id: "canceled",
+                at: NOW + 1,
+                type: "subscription.canceled",
+              });
+              yield* storeTap(db, {
+                senderId: "sender",
+                message: { requestId: "cancel", body: "After cancellation" },
+                theme: DEFAULT_THEME,
+                id: "tap-cancel",
+                at: NOW + 2,
+              });
+              yield* storePatronEvent(db, {
+                ...paid,
+                id: "refund",
+                at: NOW + 3,
+                type: "refund.created",
+                refundTransactionId: "transaction",
+              });
+              yield* storeTap(db, {
+                senderId: "sender",
+                message: { requestId: "refund", body: "After refund" },
+                theme: DEFAULT_THEME,
+                id: "tap-refund",
+                at: NOW + 4,
+              });
+              const events = (yield* db.select().from(patronEvents)).map(
+                (row) => row.event
+              );
+              return patronOf(events, NOW + 5);
+            })
+          )
+        );
+        expect(result.active).toBeFalsy();
+        expect(
+          connection.sqlite
+            .prepare("SELECT body,state FROM taps ORDER BY created_at")
+            .all()
+            .map((row) => ({ ...row }))
+        ).toStrictEqual([
+          { body: "After the old deadline", state: "pending" },
+          { body: "After cancellation", state: "pending" },
+          { body: "After refund", state: "pending" },
+        ]);
+        expect(
+          connection.sqlite
+            .prepare("SELECT platform FROM credentials WHERE kind='device'")
+            .all()
+            .map((row) => ({ ...row }))
+        ).toStrictEqual([{ platform: "iphone" }]);
+      } finally {
+        connection.sqlite.close();
+      }
+    }));
+
   it("reserves one checkout and reuses its URL after restart instead of creating another", () =>
     withFile(async (path) => {
       const first = open(path);

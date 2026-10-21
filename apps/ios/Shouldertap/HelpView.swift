@@ -1,5 +1,4 @@
 import ShouldertapCore
-import StoreKit
 import SwiftUI
 
 struct HelpButton: View {
@@ -20,7 +19,6 @@ struct HelpButton: View {
 struct HelpView: View {
   let store: SenderStore
   @Environment(\.dismiss) private var dismiss
-  @State private var usStorefront = false
   @State private var deleting: SenderSession?
   @State private var busy = false
   @State private var error: String?
@@ -29,20 +27,15 @@ struct HelpView: View {
     NavigationStack {
       List {
         Section("How Shouldertap works") {
-          Text("Tap: send a tap from your iPhone to someone who has invited you from their Mac. Their answer appears here when you open Shouldertap.")
-          Text("Inbox: if people tap you on your Mac, link this iPhone to get those taps here too, on the Lock Screen and in the Dynamic Island, and answer from either.")
+          Text("Tap: send a tap from your iPhone to someone who has invited you from their iPhone or Mac. Their answer appears here when you open Shouldertap.")
+          Text("Inbox: create an inbox on this iPhone or link an existing one to receive taps, on the Lock Screen and in the Dynamic Island, and answer from either.")
           NavigationLink("Try a sample tap") { SampleTapView() }
             .accessibilityIdentifier("sample-tap")
-          Text("Shouldertap is free for senders and recipients. The recipient needs Shouldertap on their computer. Replies do not send push notifications.")
+          Text("Sending, receiving and replies are free. Receive on iPhone, or add a computer for screen takeover. Replies do not send push notifications.")
             .font(.footnote).foregroundStyle(.secondary)
         }
         Section("Support and privacy") {
-          // This page promotes a web purchase. Unknown storefront fails closed.
-          if usStorefront {
-            Link("Support", destination: URL(string: "https://shouldertap.app/support")!)
-          } else {
-            Link("Email support", destination: URL(string: "mailto:support@shouldertap.app")!)
-          }
+          Link("Email support", destination: URL(string: "mailto:support@shouldertap.app")!)
           Link("Privacy Policy", destination: URL(string: "https://shouldertap.app/privacy")!)
           Link("Terms of Use", destination: URL(string: "https://shouldertap.app/terms")!)
           NavigationLink("Report a problem or abuse") { ReportView() }
@@ -64,12 +57,6 @@ struct HelpView: View {
         Section {
           Text("Shouldertap for iPhone")
             .foregroundStyle(.secondary)
-        }
-      }
-      .task {
-        usStorefront = await Storefront.current?.countryCode == "USA"
-        for await storefront in Storefront.updates {
-          usStorefront = storefront.countryCode == "USA"
         }
       }
       .navigationTitle("Help and privacy")

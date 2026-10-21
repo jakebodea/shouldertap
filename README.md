@@ -1,15 +1,15 @@
 # Shouldertap
 
-A trusted person can send a message that appears across your connected computer displays until you acknowledge it, then receive your response.
+A trusted person can send a message to your iPhone or connected computer displays, then receive your response. Core messaging is free; a Mac is optional for screen takeover.
 
 [Shouldertap: app idea](https://www.notion.so/3eb7155b453881c7bc4cdc8ef57d87e2) is the source of truth for the concept. [Architecture plan](docs/architecture.md), [design system](docs/design.md), [Apple client research](docs/research/apple-clients.md), [backend research](docs/research/backend-stack.md).
 
 ## What v0 does
 
-1. **Pair**: the Mac app creates your inbox on first launch. "Create invite link" shows a QR code and link for a sender's phone; "Add a Mac or iPhone" gives a one-time code for your other Macs, and a QR code that links your iPhone to manage the inbox (invite and remove people, see devices and recent taps).
+1. **Pair**: create your inbox on iPhone or Mac, then invite someone. "Create invite link" shows a QR code and link for a sender's phone; "Add a Mac or iPhone" gives a one-time code for your other Macs, and a QR code that links your iPhone to manage the inbox (invite and remove people, see devices and recent taps).
 2. **Send**: the sender opens the link in Safari, enters their name, picks a color, and sends a tap. Unpaired visitors to the site see the landing page.
-3. **Pause**: every paired Mac covers every display with the message, above full-screen apps and on every Space.
-4. **Respond**: On it, In 10 min, or a typed reply. The overlay is framed in the sender's color. Answering on one Mac dismisses it on all of them.
+3. **Receive**: iPhone shows a takeover while the app is open, or notifications/Live Activities in the background subject to iOS permissions. A paired Mac covers every display, above full-screen apps and on every Space.
+4. **Respond**: On it, In 10 min, or a typed reply. The overlay is framed in the sender's color. Answering on any device dismisses it on the others.
 5. **Close the loop**: the sender sees delivered → on screen → the reply, live.
 
 ## Layout
@@ -206,3 +206,9 @@ Releases are unsigned until Azure Artifact Signing is set up, so SmartScreen war
 - Sender themes: a patron's taps carry a theme (Broadsheet, Billboard, Terminal, Note) chosen on the web sender's Style page; Mac and Windows draw each tap in its sender's theme, and recipients can always choose plain and reduced motion for free. The iPhone sender sends Default (no in-app purchase). Patron identities have no self-service recovery if every linked device is lost. The Windows renderers and Appearance window have been run only on a Mac (GPUI). See [patrons.md](docs/patrons.md#sender-themes).
 - Limits, enforced by the Inbox: 30 taps per sender per rolling hour (`TooManyRequests`, 429; retries of an existing request id still succeed), and 20 active senders and 10 active devices per inbox (`Conflict`, 409, from `createInvite` and `redeemInvite`).
 - Retention: a daily Durable Object alarm (Alchemy's `scheduleEvent`, armed at inbox creation and on any activation) deletes taps older than 90 days, invites a day after they expire, expired connect tickets, and removed pairings 90 days after removal once none of their taps remain. See `apps/server/src/retention.ts`. On the Workers Free plan each alarm run counts toward the 100,000 Durable Object requests per day, so that's one request per inbox per day.
+
+## Phone-first access and rollout
+
+An iPhone can create an inbox, invite by link/QR, receive and answer without a Mac. Creator credentials retain platform `iphone`; removing a computer never disables an inbox that still has phones. Native iPhone sending remains Default-only, with no external checkout controls. Sender-owned patron themes are implemented on the web and desktop receivers; recipient plain/reduced-motion controls remain free. New sender checkout defaults off (`PATRON_CHECKOUT_ENABLED=false`) pending live merchant approval and sender-model product copy. Existing management/webhooks remain available.
+
+There is no total-loss owner recovery. Keep another receiver linked before resetting the last one; sender invitations cannot restore ownership. Real physical APNs, Windows hardware and final release/review remain separate verification gates.

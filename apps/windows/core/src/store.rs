@@ -270,7 +270,7 @@ impl ReceiverStore {
             .api()
             .redeem_invite(&code, &self.inner.safe_device_name(), None, Some(platform))?;
         if grant.kind != CredentialKind::Device {
-            return Err(ApiError::invalid(if platform.shows_taps() {
+            return Err(ApiError::invalid(if platform.shows_desktop_overlay() {
                 "That's a sender invite. Open it on the phone that will send taps."
             } else {
                 "That's an invite to tap someone. To link your computer, use the code under Your devices."
