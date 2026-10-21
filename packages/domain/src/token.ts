@@ -33,3 +33,41 @@ export const parseBearer = (
   const token = header?.match(BEARER)?.groups?.token;
   return token ? parseToken(token) : null;
 };
+
+/**
+ * A sender's patron key: `stp1.<patronId>.<keyId>.<secret>`. Four segments,
+ * so it never parses as a pairing credential (and a pairing credential never
+ * parses as a patron key). The patron id routes to the sender's Patron
+ * Durable Object, which verifies the secret's hash.
+ */
+export interface ParsedPatronKey {
+  readonly patronId: string;
+  readonly keyId: string;
+  readonly secret: string;
+}
+
+const PATRON_PREFIX = "stp1";
+
+export const formatPatronKey = (key: ParsedPatronKey): string =>
+  `${PATRON_PREFIX}.${key.patronId}.${key.keyId}.${key.secret}`;
+
+export const parsePatronKey = (value: string): ParsedPatronKey | null => {
+  const parts = value.trim().split(".");
+  if (parts.length !== 4 || parts[0] !== PATRON_PREFIX) {
+    return null;
+  }
+  const [, patronId, keyId, secret] = parts as [string, string, string, string];
+  if (
+    !(SEGMENT.test(patronId) && SEGMENT.test(keyId) && SEGMENT.test(secret))
+  ) {
+    return null;
+  }
+  return { patronId, keyId, secret };
+};
+
+export const parsePatronBearer = (
+  header: string | null | undefined
+): ParsedPatronKey | null => {
+  const token = header?.match(BEARER)?.groups?.token;
+  return token ? parsePatronKey(token) : null;
+};

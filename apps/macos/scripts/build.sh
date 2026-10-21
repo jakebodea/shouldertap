@@ -31,7 +31,7 @@ rm -rf "$sparkle/Headers" "$sparkle/PrivateHeaders" "$sparkle/Modules" \
   "$sparkle/XPCServices" "$sparkle/Versions/B/XPCServices"
 codesign --force --sign - "$sparkle" >&2
 cp Resources/Info.plist "$app/Contents/Info.plist"
-cp Resources/Fonts/*.ttf Resources/Fonts/OFL.txt "$app/Contents/Resources/Fonts/"
+cp Resources/Fonts/*.ttf Resources/Fonts/OFL*.txt "$app/Contents/Resources/Fonts/"
 if [[ "$config" == "release" ]]; then
   iconutil -c icns Resources/AppIcon.iconset -o "$app/Contents/Resources/AppIcon.icns"
 else

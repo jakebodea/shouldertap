@@ -6,7 +6,8 @@
     "db:generate": "drizzle-kit generate",
     "test": "vitest run --exclude test/integ.test.ts",
     "test:local": "ALCHEMY_DEV=1 vitest run",
-    "test:integ": "vitest run test/integ.test.ts"
+    "test:integ": "vitest run test/integ.test.ts",
+    "db:generate:patron": "drizzle-kit generate --config drizzle.patron.config.ts"
   },
   "dependencies": {
     "@effect/sql-sqlite-do": "4.0.4",

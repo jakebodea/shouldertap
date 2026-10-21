@@ -245,9 +245,9 @@ const HowItWorks = ({ scene, earlier }: { scene: Scene; earlier: Scene }) => (
     >
       Harder to miss than a text. Kinder than yelling up the stairs.
     </h2>
-    <Step art={<MiniMenuBar />} title="Invite them from your iPhone or Mac">
-      Create an inbox in the iPhone app or your Mac menu bar. Share an invite
-      link or QR code. Only people you invite can tap you.
+    <Step art={<MiniMenuBar />} title="Invite them from your Mac">
+      Shouldertap lives in your menu bar. Create an invite link and they scan it
+      with their iPhone camera. Only people you invite can tap you.
     </Step>
     <Step
       art={<MiniPhone scene={scene} />}
@@ -259,11 +259,11 @@ const HowItWorks = ({ scene, earlier }: { scene: Scene; earlier: Scene }) => (
     </Step>
     <Step
       art={<MiniOverlay scene={scene} />}
-      title="Receive a tap, send an answer"
+      title="It covers your screens until you answer"
     >
-      On iPhone, receive notifications and Live Activities, or a full-screen tap
-      while the app is open. Add a Mac to cover every display, above full-screen
-      apps. Answer on any device and it clears from the others.
+      Every display on every paired Mac, above full-screen apps. Answer with On
+      it, In 10 min, or a quick reply. Answer on one Mac and it clears from all
+      of them.
     </Step>
     <Step
       art={<MiniAnswer earlier={earlier} scene={scene} />}
@@ -314,8 +314,8 @@ const Consent = () => {
 const Pricing = () => {
   const points = [
     "Core messaging is free. Safety limits and recipient controls apply to everyone.",
-    "The people who tap you never pay. They use any iPhone with Safari.",
-    "Optional patron support helps cover running costs. No extra features or promised rewards.",
+    "Nobody has to pay to tap or be tapped. Senders use any iPhone with Safari.",
+    "Patrons help cover running costs and can send their taps in a theme, to everyone they tap. The people they tap never pay to see it, and can always choose plain.",
   ];
   return (
     <section
@@ -343,8 +343,8 @@ const Pricing = () => {
         <ul className="flex max-w-xl flex-col gap-4">
           <li className="text-[1.0625rem] leading-relaxed md:text-lg">
             Send and receive taps for free. If Shouldertap helps your household,
-            you can become a patron from the app’s Support Shouldertap menu.
-            Cancel renewal in the billing portal; tapping stays free.
+            you can become a patron from Style in the web sender. Cancel renewal
+            in the billing portal; tapping stays free.
           </li>
           {points.map((point) => (
             <li
@@ -371,7 +371,7 @@ const Close = () => (
         Download for Mac
       </MacDownloadLink>
       <span className="text-tone text-[0.9375rem]">
-        Free on iPhone. Add a Mac for screen takeover. Send from Safari, too.
+        Free. Mac app plus any iPhone with Safari.
       </span>
     </div>
     <footer className="border-line text-tone mt-16 flex flex-wrap items-center justify-between gap-4 border-t-[1.5px] pt-6 text-sm">
@@ -630,8 +630,8 @@ export const Landing = () => {
 
           <div className="border-line mt-10 grid gap-6 border-t-[1.5px] pt-8 md:mt-12 md:grid-cols-[1fr_auto] md:items-end md:gap-12 md:pt-9">
             <h1 className="max-w-[30em] text-[1.625rem] leading-[1.12] font-bold tracking-[-0.025em] text-balance md:text-[2.125rem]">
-              When someone at home needs you, receive their tap on iPhone or
-              across your Mac screens.{" "}
+              When someone at home needs you, their message covers your Mac
+              until you answer.{" "}
               <span className="text-tone">
                 They see your reply the moment you send it.
               </span>

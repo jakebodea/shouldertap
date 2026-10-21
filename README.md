@@ -1,14 +1,14 @@
 # Shouldertap
 
-A trusted person can send a message to your iPhone or connected computer displays, then receive your response. iPhone receiving works independently, for free; adding a Mac enables screen takeover.
+A trusted person can send a message to your iPhone or connected computer displays, then receive your response. Core messaging is free; a Mac is optional for screen takeover.
 
 [Shouldertap: app idea](https://www.notion.so/3eb7155b453881c7bc4cdc8ef57d87e2) is the source of truth for the concept. [Architecture plan](docs/architecture.md), [design system](docs/design.md), [Apple client research](docs/research/apple-clients.md), [backend research](docs/research/backend-stack.md).
 
 ## What v0 does
 
-1. **Pair**: create an inbox on iPhone or Mac. The iPhone Inbox tab supports creating a new inbox or linking an existing one with a device code. "Create invite link" shows a QR code and link for a sender's phone; "Add a Mac or iPhone" gives a one-time code for your other Macs, and a QR code that links your iPhone to manage the inbox (invite and remove people, see devices and recent taps).
+1. **Pair**: create your inbox on iPhone or Mac, then invite someone. "Create invite link" shows a QR code and link for a sender's phone; "Add a Mac or iPhone" gives a one-time code for your other Macs, and a QR code that links your iPhone to manage the inbox (invite and remove people, see devices and recent taps).
 2. **Send**: the sender opens the link in Safari, enters their name, picks a color, and sends a tap. Unpaired visitors to the site see the landing page.
-3. **Receive**: iPhone shows a takeover while Shouldertap is open, or notifications/Live Activities in the background (subject to iOS permissions and delivery). Every paired Mac covers every display, above full-screen apps and on every Space.
+3. **Receive**: iPhone shows a takeover while the app is open, or notifications/Live Activities in the background subject to iOS permissions. A paired Mac covers every display, above full-screen apps and on every Space.
 4. **Respond**: On it, In 10 min, or a typed reply. The overlay is framed in the sender's color. Answering on any device dismisses it on the others.
 5. **Close the loop**: the sender sees delivered → on screen → the reply, live.
 
@@ -20,12 +20,13 @@ Alchemy is the source of truth for infrastructure and backend structure: one Sta
 alchemy.run.ts          Composition root: Server Worker + Safari sender site
 apps/server/src/Server.ts   Cloudflare.Worker: Effect HttpApi + WebSocket forwarding
 apps/server/src/Inbox.ts    Cloudflare.DurableObject: one per recipient, Drizzle over its SQLite
+apps/server/src/SenderPatron.ts Cloudflare.DurableObject: one per sender patron identity (keys, billing facts), its own SQLite in apps/server/drizzle-patron
 apps/server/src/TrialLedger.ts  Cloudflare.DurableObject: historical trial records, retained but no longer consulted
 apps/server/src/schema.ts   Drizzle schema; migrations in apps/server/drizzle (drizzle-kit, durable-sqlite)
 apps/server/test/           Alchemy Test harness: deploys the Stack, drives the protocol
 apps/web                    Safari sender (React, TanStack Router, Vite) via Cloudflare.Website.Vite
 apps/macos                  Native Swift menu-bar app (AppKit + SwiftUI), a Swift package
-apps/ios                    Native iOS sender and receiver (SwiftUI), an Xcode project linking ShouldertapCore from apps/macos
+apps/ios                    Native iOS sender (SwiftUI), an Xcode project linking ShouldertapCore from apps/macos
 apps/windows                Native Windows tray app (Rust + GPUI), a Cargo workspace: core/ (protocol, no UI) and app/
 packages/domain             Effect Schema contracts, typed errors, the HttpApi spec
 packages/client             HttpApiClient-based client + live WebSocket (tickets, reconnect, resync)
@@ -55,10 +56,14 @@ cd apps/server && bun run test:local         # integration suite against a local
 cd apps/server && bun run test:integ         # same suite, deployed to the test_$USER stage and destroyed after
 ```
 
-Schema changes: edit `apps/server/src/schema.ts`, then generate and commit a migration. Each Inbox applies pending migrations when it activates.
+Schema changes: edit `apps/server/src/schema.ts` (Inbox) or `apps/server/src/patron-schema.ts` (SenderPatron), then generate and commit a migration. Each Durable Object applies pending migrations when it activates.
 
 ```bash
 cd apps/server && bun run db:generate
+```
+
+```bash
+cd apps/server && bun run db:generate:patron
 ```
 
 Mac app (needs Xcode; `DEVELOPER_DIR` avoids `sudo xcode-select`). Tests, then a debug build that talks to the local stack:
@@ -138,7 +143,7 @@ bun alchemy plan --stage prod --profile admin
 ```
 
 ```bash
-COMMIT_SHA=$(git rev-parse HEAD) bun alchemy deploy --stage prod --profile admin --yes
+bun alchemy deploy --stage prod --profile admin --yes
 ```
 
 `dev` is a scratch stage: web `https://shouldertap-web-dev-np4ztb2ul2oajd6h.jakebodea.workers.dev`, API `https://shouldertap-server-dev-rtv4iyushaacenl3.jakebodea.workers.dev`.
@@ -197,14 +202,13 @@ Releases are unsigned until Azure Artifact Signing is set up, so SmartScreen war
 - The Windows app has been built and run only on a Mac (the shared UI and protocol, against the local stack). Its Windows-only parts (tray, overlays above full-screen apps, keyboard focus, Credential Manager, install and update) compile but haven't run on Windows yet. GPUI has no screen reader support yet, unlike the Mac app's SwiftUI.
 - Handled in code but not yet tested by hand: Durable Object hibernation, sleep/wake, display hot-plug, full-screen apps/Spaces, and replying while offline. Tested: overlays on two displays, replying from the overlay, cross-Mac dismissal, and the protocol via the Alchemy integration suite.
 - Sender history is capped at 50 recent taps.
-- Core messaging is free. Legacy plan snapshots emit `paid` solely to keep old desktops usable; historical trials and purchases remain stored. Optional patron support is $2/month, billed $24 annually. See [patron billing and rollout](docs/patrons.md) for the implementation, prompt cadence, provider configuration and verification limits.
+- Core messaging is free. Legacy plan snapshots emit `paid` solely to keep old desktops usable; historical trials and purchases remain stored. Optional patron support is $2/month, billed $24 annually, and belongs to the sender. See [patron billing and rollout](docs/patrons.md) for the implementation, identity, provider configuration and verification limits.
+- Sender themes: a patron's taps carry a theme (Broadsheet, Billboard, Terminal, Note) chosen on the web sender's Style page; Mac and Windows draw each tap in its sender's theme, and recipients can always choose plain and reduced motion for free. The iPhone sender sends Default (no in-app purchase). Patron identities have no self-service recovery if every linked device is lost. The Windows renderers and Appearance window have been run only on a Mac (GPUI). See [patrons.md](docs/patrons.md#sender-themes).
 - Limits, enforced by the Inbox: 30 taps per sender per rolling hour (`TooManyRequests`, 429; retries of an existing request id still succeed), and 20 active senders and 10 active devices per inbox (`Conflict`, 409, from `createInvite` and `redeemInvite`).
 - Retention: a daily Durable Object alarm (Alchemy's `scheduleEvent`, armed at inbox creation and on any activation) deletes taps older than 90 days, invites a day after they expire, expired connect tickets, and removed pairings 90 days after removal once none of their taps remain. See `apps/server/src/retention.ts`. On the Workers Free plan each alarm run counts toward the 100,000 Durable Object requests per day, so that's one request per inbox per day.
 
-## iPhone receiving limits
+## Phone-first access and rollout
 
-The iPhone can create an inbox, invite senders by link or QR, receive taps, answer, and add or remove devices without a Mac. Device credentials are stored in Keychain and pending answers persist locally. There are no accounts or recovery service: before removing the last linked device, understand that access to that inbox is lost. An invite to send taps does not restore an owner inbox.
+An iPhone can create an inbox, invite by link/QR, receive and answer without a Mac. Creator credentials retain platform `iphone`; removing a computer never disables an inbox that still has phones. Native iPhone sending remains Default-only, with no external checkout controls. Sender-owned patron themes are implemented on the web and desktop receivers; recipient plain/reduced-motion controls remain free. New sender checkout defaults off (`PATRON_CHECKOUT_ENABLED=false`) pending live merchant approval and sender-model product copy. Existing management/webhooks remain available.
 
-Core messaging is free and does not expire. Optional patron support costs $24/year ($2/month, billed $24 annually); cancellation and refunds never disable taps. Existing purchase history is preserved. See [patron billing and rollout](docs/patrons.md).
-
-Background delivery uses direct APNs from the server, not a Mac relay. Notifications and Live Activities depend on system permissions and APNs configuration; iOS cannot take over other apps. A foreground socket receipt is not proof of background push delivery. Verify real physical-device push-to-start, fallback notification, answer, cross-device dismissal and relaunch with a signed build before publishing claims.
+There is no total-loss owner recovery. Keep another receiver linked before resetting the last one; sender invitations cannot restore ownership. Real physical APNs, Windows hardware and final release/review remain separate verification gates.

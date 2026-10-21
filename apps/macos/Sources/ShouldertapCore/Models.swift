@@ -50,7 +50,8 @@ public enum CredentialKind: String, Sendable, Codable {
   case device, sender
 }
 
-/// What kind of device a `device` credential is: all platforms can receive and answer taps.
+/// What kind of device a `device` credential is: computers (Macs and
+/// Windows PCs) show taps; a linked iPhone manages the inbox alongside them.
 public enum DevicePlatform: String, Sendable, Codable {
   case mac, windows, iphone
 
@@ -110,6 +111,33 @@ public struct Tap: Sendable, Codable, Identifiable, Hashable {
   public var acknowledgedBy: String?
   public var response: TapResponse?
   public var sequence: Int
+  /// The theme its sender sent it with, fixed by the server when it accepted
+  /// the tap. Missing from older servers and older taps; unknown values from a
+  /// newer server decode as Default.
+  public var theme: TapTheme?
+
+  /// What the sender chose, Default when they chose nothing.
+  public var senderTheme: TapTheme { theme ?? .default }
+
+  public init(
+    id: String, senderId: String, senderName: String, senderColor: PersonColor, body: String, createdAt: Timestamp,
+    state: State = .pending, displayedAt: Timestamp? = nil, acknowledgedAt: Timestamp? = nil,
+    acknowledgedBy: String? = nil, response: TapResponse? = nil, sequence: Int = 0, theme: TapTheme? = nil
+  ) {
+    self.id = id
+    self.senderId = senderId
+    self.senderName = senderName
+    self.senderColor = senderColor
+    self.body = body
+    self.createdAt = createdAt
+    self.state = state
+    self.displayedAt = displayedAt
+    self.acknowledgedAt = acknowledgedAt
+    self.acknowledgedBy = acknowledgedBy
+    self.response = response
+    self.sequence = sequence
+    self.theme = theme
+  }
 }
 
 public struct Credential: Sendable, Codable, Identifiable, Hashable {
@@ -229,9 +257,11 @@ public struct ReceiverSnapshot: Sendable, Decodable {
   /// Missing from servers older than payments; the menu then shows no plan.
   public var plan: Plan?
   public var patron: Patron?
+  /// Missing from servers older than themes.
+  public var appearance: Appearance?
 
   private enum CodingKeys: String, CodingKey {
-    case credentialId, recipientName, sequence, taps, credentials, plan, patron
+    case credentialId, recipientName, sequence, taps, credentials, plan, patron, appearance
   }
 
   public init(from decoder: any Decoder) throws {
@@ -244,10 +274,11 @@ public struct ReceiverSnapshot: Sendable, Decodable {
     // A plan shaped differently by a newer server mustn't fail the snapshot.
     plan = try? container.decodeIfPresent(Plan.self, forKey: .plan)
     patron = try? container.decodeIfPresent(Patron.self, forKey: .patron)
+    appearance = try? container.decodeIfPresent(Appearance.self, forKey: .appearance)
   }
 }
 
-public struct Patron: Sendable, Decodable {
+public struct Patron: Sendable, Decodable, Hashable {
   public var active: Bool
   public var status: String
   public var paidUntil: Timestamp?
@@ -256,9 +287,89 @@ public struct Patron: Sendable, Decodable {
   public var legacySupporter: Bool
 }
 
-public struct SupportPrompt: Sendable, Decodable {
-  public var show: Bool
+/// `TapTheme` from packages/domain/src/contracts.ts: how a tap looks on the
+/// recipient's computers, chosen by its sender (an active patron) and carried
+/// on the tap. Each case is a whole composition the overlay renders natively;
+/// there is no free-form styling and nothing from the sender but text.
+public enum TapTheme: String, CaseIterable, Sendable, Codable, Hashable {
+  case `default`, broadsheet, billboard, terminal, note
+
+  /// Unknown themes (a newer server) show Default instead of failing the decode.
+  public init(from decoder: any Decoder) throws {
+    let raw = try decoder.singleValueContainer().decode(String.self)
+    self = TapTheme(rawValue: raw) ?? .default
+  }
+
+  public var label: String {
+    switch self {
+    case .default: "Default"
+    case .broadsheet: "Broadsheet"
+    case .billboard: "Billboard"
+    case .terminal: "Terminal"
+    case .note: "Note"
+    }
+  }
 }
+
+/// `system` follows the computer's Reduce Motion; `reduced` always shows the
+/// calm entrance.
+public enum MotionPreference: String, CaseIterable, Sendable, Codable, Hashable {
+  case system, reduced
+
+  public init(from decoder: any Decoder) throws {
+    let raw = try decoder.singleValueContainer().decode(String.self)
+    self = MotionPreference(rawValue: raw) ?? .system
+  }
+}
+
+/// The recipient's free override of senders' themes.
+public enum SenderThemePreference: String, CaseIterable, Sendable, Codable, Hashable {
+  /// Each tap in the theme its sender sent it with.
+  case show
+  /// Every tap in Default.
+  case plain
+
+  public init(from decoder: any Decoder) throws {
+    let raw = try decoder.singleValueContainer().decode(String.self)
+    self = SenderThemePreference(rawValue: raw) ?? .show
+  }
+}
+
+/// The recipient's free settings, owned by the server and shared by every
+/// computer on the inbox. Nothing here is billed: themes come from senders.
+public struct Appearance: Sendable, Decodable, Hashable {
+  public var motion: MotionPreference
+  public var senderThemes: SenderThemePreference
+
+  public init(motion: MotionPreference, senderThemes: SenderThemePreference) {
+    self.motion = motion
+    self.senderThemes = senderThemes
+  }
+
+  /// Older servers: senders' themes shown, following the system.
+  public static let standard = Appearance(motion: .system, senderThemes: .show)
+
+  private enum CodingKeys: String, CodingKey { case motion, senderThemes }
+
+  /// Each field falls back on its own, so one odd value never costs the rest.
+  /// The receiver-owned theme experiment's `theme`/`shownTheme` are ignored.
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    motion = (try? container.decode(MotionPreference.self, forKey: .motion)) ?? .system
+    senderThemes = (try? container.decode(SenderThemePreference.self, forKey: .senderThemes)) ?? .show
+  }
+
+  /// The theme to draw `tap` in: its sender's, unless the recipient chose plain.
+  public func theme(for tap: Tap) -> TapTheme {
+    senderThemes == .plain ? .default : tap.senderTheme
+  }
+
+  /// Calm entrances when the system asks for them or the recipient does.
+  public func reducesMotion(systemSetting: Bool) -> Bool {
+    systemSetting || motion == .reduced
+  }
+}
+
 
 /// What a sender sees: only their own recent taps.
 public struct SenderSnapshot: Sendable, Decodable {

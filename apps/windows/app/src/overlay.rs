@@ -6,19 +6,17 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    Animation, AnimationExt, App, Bounds, Context, DisplayId, Entity, FocusHandle, Focusable, FontWeight, KeyDownEvent,
-    MouseButton, Pixels, Render, SharedString, Subscription, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, div, prelude::*, px, svg,
+    Animation, AnimationExt, App, Bounds, Context, DisplayId, Entity, FocusHandle, Focusable, KeyDownEvent, Pixels,
+    Render, SharedString, Subscription, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
+    WindowOptions, div, prelude::*,
 };
-use shouldertap_core::{ActiveTap, MAX_REPLY_LENGTH, TapResponse, now_ms};
+use shouldertap_core::{ActiveTap, MAX_REPLY_LENGTH, StoreState, TapResponse, TapTheme};
 
-use crate::assets::Icon;
 use crate::platform;
 use crate::text_field::{TextField, TextFieldEvent};
-use crate::theme::{self, BRICOLAGE, paper};
+use crate::theme;
+use crate::themes::{self, Act, Actions, Scene};
 
-/// Arrival fade (docs/design.md, "Motion").
-const ARRIVE: Duration = Duration::from_millis(520);
 /// Exit fade; windows close once it has run.
 pub const LEAVE: Duration = Duration::from_millis(420);
 
@@ -30,6 +28,8 @@ pub struct OverlayView {
     reply: Entity<TextField>,
     focus: FocusHandle,
     respond: Respond,
+    /// The recipient's theme and motion, as of when this tap appeared.
+    theme: TapTheme,
     reduce_motion: bool,
     /// When the current tap arrived here; its message rises in from then.
     swapped_at: Instant,
@@ -38,9 +38,10 @@ pub struct OverlayView {
 }
 
 impl OverlayView {
-    pub fn new(active: ActiveTap, respond: Respond, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(active: ActiveTap, look: Look, respond: Respond, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let (placeholder, caret) = themes::reply_colors(look.theme, active.tap.sender_color);
         let reply = cx.new(|cx| {
-            TextField::new(cx, reply_placeholder(&active), MAX_REPLY_LENGTH).colors(paper::tone(), paper::ink())
+            TextField::new(cx, reply_placeholder(look.theme, &active), MAX_REPLY_LENGTH).colors(placeholder, caret)
         });
         let subscription = cx.subscribe_in(&reply, window, |this, _, event, window, cx| match event {
             TextFieldEvent::Submit => this.send_reply(cx),
@@ -65,7 +66,8 @@ impl OverlayView {
             reply,
             focus,
             respond,
-            reduce_motion: platform::reduce_motion(),
+            theme: look.theme,
+            reduce_motion: look.reduce_motion,
             swapped_at: Instant::now(),
             leaving_at: None,
             _subscriptions: vec![subscription],
@@ -73,15 +75,20 @@ impl OverlayView {
     }
 
     /// A newer state of the same tap (or the next tap in line).
-    pub fn update_active(&mut self, active: ActiveTap, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn update_active(&mut self, active: ActiveTap, look: Look, window: &mut Window, cx: &mut Context<Self>) {
         if self.active == active {
             return;
         }
         if self.active.tap.id != active.tap.id {
             self.swapped_at = Instant::now();
+            // A new tap picks up a theme or motion change made meanwhile.
+            self.theme = look.theme;
+            self.reduce_motion = look.reduce_motion;
+            let (placeholder, caret) = themes::reply_colors(look.theme, active.tap.sender_color);
             self.reply.update(cx, |field, cx| {
                 field.clear(cx);
-                field.set_placeholder(reply_placeholder(&active));
+                field.set_placeholder(reply_placeholder(look.theme, &active));
+                field.set_colors(placeholder, caret);
             });
             if self.replying {
                 self.replying = false;
@@ -139,8 +146,33 @@ impl OverlayView {
     }
 }
 
-fn reply_placeholder(active: &ActiveTap) -> SharedString {
-    format!("Reply to {}", active.tap.sender_name).into()
+/// How the recipient's computers show the active tap: in its own sender's
+/// theme (or plain, if the recipient chose that), with their motion setting.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    pub theme: TapTheme,
+    pub reduce_motion: bool,
+}
+
+impl Look {
+    pub fn of(state: &StoreState, active: Option<&ActiveTap>) -> Self {
+        Self {
+            theme: active.map(|a| state.theme_for(&a.tap)).unwrap_or_default(),
+            reduce_motion: state.appearance.reduces_motion(platform::reduce_motion()),
+        }
+    }
+}
+
+pub fn reply_placeholder(theme: TapTheme, active: &ActiveTap) -> SharedString {
+    let name = &active.tap.sender_name;
+    match theme {
+        TapTheme::Default => format!("Reply to {name}"),
+        TapTheme::Broadsheet => format!("Write back to {name}…"),
+        TapTheme::Billboard => "SAY SOMETHING".into(),
+        TapTheme::Terminal => "type, then Enter".into(),
+        TapTheme::Note => "Write back…".into(),
+    }
+    .into()
 }
 
 impl Focusable for OverlayView {
@@ -151,230 +183,55 @@ impl Focusable for OverlayView {
 
 impl Render for OverlayView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let tap = self.active.tap.clone();
-        let color = tap.sender_color;
         let viewport = window.viewport_size();
-        let message_size = fit_message(&tap.body, f32::from(viewport.width), f32::from(viewport.height));
-
-        let band = div()
-            .flex()
-            .flex_row()
-            .items_baseline()
-            .gap(px(18.))
-            .h(px(96.))
-            .pt(px(30.))
-            .px(px(72.))
-            .text_color(theme::ink(color))
-            .font_family(BRICOLAGE)
-            .child(
-                div()
-                    .text_size(px(36.))
-                    .font_weight(FontWeight::BOLD)
-                    .line_height(px(40.))
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(tap.sender_name.clone()),
-            )
-            .child(
-                div()
-                    .text_size(px(20.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .opacity(0.72)
-                    .child(theme::ago(tap.created_at, now_ms())),
-            )
-            .when(self.active.queued > 0, |band| {
-                band.child(
-                    div()
-                        .text_size(px(20.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .opacity(0.85)
-                        .child(format!("{} more waiting", self.active.queued)),
-                )
-            });
-
-        let message = div()
-            .id(SharedString::from(format!("message-{}", tap.id)))
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            // A column, so the message's width limit (not its text) sets its
-            // width and it wraps, centered vertically like the Mac's.
-            .flex()
-            .flex_col()
-            .justify_center()
-            .child(
-                div()
-                    .max_w(px(message_size * 12.))
-                    .font_family(BRICOLAGE)
-                    .font_weight(FontWeight::EXTRA_BOLD)
-                    .text_size(px(message_size))
-                    .line_height(px((message_size * 0.98).round()))
-                    .text_color(paper::ink())
-                    .child(tap.body.clone()),
-            );
-        let rise = if self.reduce_motion { 0. } else { 18. };
-        let swap = Animation::new(Duration::from_millis(600)).with_easing(theme::ease_out_expo);
-        let message = message.with_animation(
-            SharedString::from(format!("swap-{}", tap.id)),
-            swap,
-            move |message, delta| message.opacity(delta).mt(px(rise * (1. - delta))),
-        );
-
-        let controls = if self.replying {
-            self.reply_row(cx).into_any_element()
-        } else {
-            self.answer_row(cx).into_any_element()
+        let elapsed = self.swapped_at.elapsed().as_secs_f32();
+        let this = cx.entity().downgrade();
+        let actions: Actions = std::rc::Rc::new(move |act, window, cx| {
+            let _ = this.update(cx, |this, cx| this.act(act, window, cx));
+        });
+        let scene = Scene {
+            theme: self.theme,
+            active: self.active.clone(),
+            replying: self.replying,
+            reply: self.reply.clone(),
+            reply_empty: self.reply.read(cx).text().trim().is_empty(),
+            width: f32::from(viewport.width),
+            height: f32::from(viewport.height),
+            elapsed,
+            reduce: self.reduce_motion,
+            actions,
+            frame_scale: None,
         };
-
-        let page = div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .gap(px(40.))
-            .py(px(64.))
-            .px(px(72.))
-            .mx(px(40.))
-            .mb(px(40.))
-            .rounded(px(28.))
-            .bg(paper::paper())
-            .child(message)
-            .child(controls);
-
+        // Frames only while the arrival plays; then the overlay sits still.
+        if themes::arriving(self.theme, &self.active.tap.body, elapsed, self.reduce_motion) {
+            window.request_animation_frame();
+        }
         let root = div()
             .id("overlay")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::key_down))
             .size_full()
-            .flex()
-            .flex_col()
-            .bg(theme::base(color))
-            .child(band)
-            .child(page);
-
-        let arrive = Animation::new(ARRIVE).with_easing(theme::ease_out_expo);
+            .child(themes::render(&scene, window, cx));
         match self.leaving_at {
             Some(_) => {
                 let leave = Animation::new(LEAVE).with_easing(theme::ease_leave);
                 root.with_animation("leave", leave, |root, delta| root.opacity(1. - delta))
                     .into_any_element()
             }
-            None => root
-                .with_animation("arrive", arrive, |root, delta| root.opacity(delta))
-                .into_any_element(),
+            None => root.into_any_element(),
         }
     }
 }
 
 impl OverlayView {
-    fn answer_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let color = self.active.tap.sender_color;
-        div()
-            .flex()
-            .flex_row()
-            .gap(px(14.))
-            .child(
-                pill("on-it", Icon::OnIt, Some("On it"), Some("1"), Some(color))
-                    .on_click(cx.listener(|this, _, _, cx| this.answer(TapResponse::on_it(), cx))),
-            )
-            .child(
-                pill("in-10", Icon::In10, Some("In 10 min"), Some("2"), None)
-                    .on_click(cx.listener(|this, _, _, cx| this.answer(TapResponse::in_10(), cx))),
-            )
-            .child(
-                pill("reply", Icon::Reply, Some("Reply"), Some("3"), None)
-                    .on_click(cx.listener(|this, _, window, cx| this.set_replying(true, window, cx))),
-            )
-    }
-
-    fn reply_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let color = self.active.tap.sender_color;
-        let empty = self.reply.read(cx).text().trim().is_empty();
-        let field = div()
-            .flex()
-            .items_center()
-            .flex_1()
-            .h(px(68.))
-            .px(px(30.))
-            .rounded_full()
-            .bg(paper::faint())
-            .border_2()
-            .border_color(paper::ink())
-            .font_family(BRICOLAGE)
-            .font_weight(FontWeight::MEDIUM)
-            .text_size(px(24.))
-            .line_height(px(30.))
-            .text_color(paper::ink())
-            .on_mouse_down(MouseButton::Left, {
-                let focus = self.reply.focus_handle(cx);
-                move |_, window, _| window.focus(&focus)
-            })
-            .child(self.reply.clone());
-        let send = pill("send", Icon::Send, Some("Send"), None, Some(color))
-            .when(empty, |pill| pill.opacity(0.4))
-            .when(!empty, |pill| {
-                pill.on_click(cx.listener(|this, _, _, cx| this.send_reply(cx)))
-            });
-        let back = pill("back", Icon::Back, None, None, None)
-            .on_click(cx.listener(|this, _, window, cx| this.set_replying(false, window, cx)));
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(14.))
-            .child(field)
-            .child(send)
-            .child(back)
-    }
-}
-
-/// The overlay's rounded answer buttons: 68px tall with a 2px line, or filled
-/// in the sender's color for the primary answer.
-fn pill(
-    id: &'static str,
-    icon: Icon,
-    label: Option<&'static str>,
-    hint: Option<&'static str>,
-    fill: Option<shouldertap_core::PersonColor>,
-) -> gpui::Stateful<gpui::Div> {
-    let foreground = fill.map(theme::ink).unwrap_or(paper::ink());
-    let pill = div()
-        .id(id)
-        .flex()
-        .flex_row()
-        .items_center()
-        .justify_center()
-        .gap(px(12.))
-        .h(px(68.))
-        .rounded_full()
-        .border_2()
-        .cursor_pointer()
-        .text_color(foreground)
-        .font_family(BRICOLAGE)
-        .child(svg().path(icon.path()).size(px(26.)).text_color(foreground));
-    let pill = match fill {
-        Some(color) => pill.bg(theme::base(color)).border_color(theme::base(color)),
-        None => pill
-            .border_color(paper::line())
-            .hover(|style| style.border_color(paper::ink())),
-    };
-    let pill = match label {
-        Some(label) => pill
-            .px(px(28.))
-            .child(div().text_size(px(24.)).font_weight(FontWeight::BOLD).child(label)),
-        None => pill.w(px(68.)),
-    };
-    let pill = pill.active(|style| style.opacity(0.85));
-    match hint {
-        Some(hint) => pill.child(
-            div()
-                .pl(px(4.))
-                .text_size(px(15.))
-                .font_weight(FontWeight::MEDIUM)
-                .opacity(0.5)
-                .child(hint),
-        ),
-        None => pill,
+    fn act(&mut self, act: Act, window: &mut Window, cx: &mut Context<Self>) {
+        match act {
+            Act::OnIt => self.answer(TapResponse::on_it(), cx),
+            Act::In10 => self.answer(TapResponse::in_10(), cx),
+            Act::Reply => self.set_replying(true, window, cx),
+            Act::Send => self.send_reply(cx),
+            Act::Back => self.set_replying(false, window, cx),
+        }
     }
 }
 
@@ -400,12 +257,14 @@ pub struct Overlays {
     windows: Vec<(WindowHandle<OverlayView>, DisplayId, Bounds<Pixels>)>,
     /// The tap to show, even when no display is awake to show it on yet.
     active: Option<ActiveTap>,
+    look: Option<Look>,
 }
 
 impl Overlays {
     /// Show, update or hide to match the store. Returns the tap now on screen.
-    pub fn update(&mut self, active: Option<ActiveTap>, respond: &Respond, cx: &mut App) {
+    pub fn update(&mut self, active: Option<ActiveTap>, look: Look, respond: &Respond, cx: &mut App) {
         self.active = active.clone();
+        self.look = Some(look);
         let Some(active) = active else {
             self.hide(cx);
             return;
@@ -416,7 +275,7 @@ impl Overlays {
         }
         for (handle, _, _) in &self.windows {
             let active = active.clone();
-            let _ = handle.update(cx, |view, window, cx| view.update_active(active, window, cx));
+            let _ = handle.update(cx, |view, window, cx| view.update_active(active, look, window, cx));
         }
     }
 
@@ -446,6 +305,10 @@ impl Overlays {
             let bounds = display.bounds();
             let respond = respond.clone();
             let active = active.clone();
+            let look = self.look.unwrap_or(Look {
+                theme: TapTheme::Default,
+                reduce_motion: platform::reduce_motion(),
+            });
             let opened = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -463,7 +326,7 @@ impl Overlays {
                     window_decorations: None,
                     tabbing_identifier: None,
                 },
-                move |window, cx| cx.new(|cx| OverlayView::new(active, respond, window, cx)),
+                move |window, cx| cx.new(|cx| OverlayView::new(active, look, respond, window, cx)),
             );
             if let Ok(handle) = opened {
                 self.windows.push((handle, display.id(), bounds));

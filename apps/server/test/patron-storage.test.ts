@@ -1,12 +1,3 @@
-import { readFileSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import nodePath from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import type { SQLInputValue } from "node:sqlite";
-import { URL } from "node:url";
-
-import * as SqliteDo from "@effect/sql-sqlite-do/SqliteClient";
-import * as Drizzle from "drizzle-orm/effect-sqlite-do";
 import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vitest";
 
@@ -14,78 +5,18 @@ import { webhookAction } from "../src/Creem";
 import type { PatronEvent } from "../src/patron";
 import { patronOf } from "../src/patron";
 import {
-  claimPrompt,
   reserveCheckout,
   storePatronEvent,
   storeLegacyPurchase,
   storeLegacyRefund,
 } from "../src/patron-storage";
 import { planOf } from "../src/plan";
+import { DEFAULT_THEME } from "../src/presentation";
 import { patronEvents, inbox } from "../src/schema";
-import { recordTap } from "../src/tap-storage";
+import { storeTap } from "../src/tap-storage";
+import { migrate, open, withFile } from "./do-sqlite";
 
 const NOW = Date.UTC(2026, 9, 21);
-
-/** Fake only Cloudflare's storage boundary; run the production Effect/Drizzle
- * queries and transactions against a real file-backed SQLite database. */
-const open = (path: string) => {
-  const sqlite = new DatabaseSync(path);
-  const storage = {
-    sql: {
-      exec(query: string, ...params: SQLInputValue[]) {
-        const statement = sqlite.prepare(query);
-        const columns = statement.columns().map((c) => c.name);
-        const rows = statement.all(...params);
-        return {
-          columnNames: columns,
-          raw: () => rows.map((row) => columns.map((c) => row[c])),
-        };
-      },
-    },
-    transactionSync<A>(f: () => A): A {
-      sqlite.exec("BEGIN IMMEDIATE");
-      try {
-        const value = f();
-        sqlite.exec("COMMIT");
-        return value;
-      } catch (error) {
-        sqlite.exec("ROLLBACK");
-        throw error;
-      }
-    },
-  } as unknown as DurableObjectStorage;
-  const db = Drizzle.makeWithDefaults({ storage }).pipe(
-    Effect.provide(SqliteDo.layer({ db: storage.sql }))
-  );
-  return { sqlite, db };
-};
-
-const migrate = (sqlite: DatabaseSync) => {
-  for (const name of [
-    "20260930165314_init",
-    "20260930180548_sender_color",
-    "20261001163359_payments",
-    "20261002221852_device_platform",
-    "20261002230031_push",
-    "20261021152554_free_core_patrons",
-  ]) {
-    sqlite.exec(
-      readFileSync(
-        new URL(`../drizzle/${name}/migration.sql`, import.meta.url),
-        "utf-8"
-      ).replaceAll("--> statement-breakpoint", "")
-    );
-  }
-};
-
-const withFile = async (f: (path: string) => Promise<void>) => {
-  const dir = mkdtempSync(nodePath.join(tmpdir(), "shouldertap-patron-"));
-  try {
-    await f(nodePath.join(dir, "inbox.sqlite"));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-};
 
 describe("durable support boundaries", () => {
   it("a phone-only inbox accepts taps after its old deadline, cancellation and refund", () =>
@@ -113,13 +44,16 @@ describe("durable support boundaries", () => {
           Effect.scoped(
             Effect.gen(function* sendWithoutBillingGate() {
               const db = yield* connection.db;
-              yield* recordTap(
-                db,
-                "sender",
-                { requestId: "before", body: "After the old deadline" },
-                "tap-before",
-                NOW
-              );
+              yield* storeTap(db, {
+                senderId: "sender",
+                message: {
+                  requestId: "before",
+                  body: "After the old deadline",
+                },
+                theme: DEFAULT_THEME,
+                id: "tap-before",
+                at: NOW,
+              });
               yield* storePatronEvent(db, paid);
               yield* storePatronEvent(db, {
                 ...paid,
@@ -127,13 +61,13 @@ describe("durable support boundaries", () => {
                 at: NOW + 1,
                 type: "subscription.canceled",
               });
-              yield* recordTap(
-                db,
-                "sender",
-                { requestId: "cancel", body: "After cancellation" },
-                "tap-cancel",
-                NOW + 2
-              );
+              yield* storeTap(db, {
+                senderId: "sender",
+                message: { requestId: "cancel", body: "After cancellation" },
+                theme: DEFAULT_THEME,
+                id: "tap-cancel",
+                at: NOW + 2,
+              });
               yield* storePatronEvent(db, {
                 ...paid,
                 id: "refund",
@@ -141,13 +75,13 @@ describe("durable support boundaries", () => {
                 type: "refund.created",
                 refundTransactionId: "transaction",
               });
-              yield* recordTap(
-                db,
-                "sender",
-                { requestId: "refund", body: "After refund" },
-                "tap-refund",
-                NOW + 4
-              );
+              yield* storeTap(db, {
+                senderId: "sender",
+                message: { requestId: "refund", body: "After refund" },
+                theme: DEFAULT_THEME,
+                id: "tap-refund",
+                at: NOW + 4,
+              });
               const events = (yield* db.select().from(patronEvents)).map(
                 (row) => row.event
               );
@@ -174,45 +108,6 @@ describe("durable support boundaries", () => {
         ).toStrictEqual([{ platform: "iphone" }]);
       } finally {
         connection.sqlite.close();
-      }
-    }));
-
-  it("migrates an expired inbox, claims once across devices and persists the cooldown across restart", () =>
-    withFile(async (path) => {
-      const first = open(path);
-      migrate(first.sqlite);
-      first.sqlite
-        .prepare(
-          "INSERT INTO inbox (id,inbox_id,recipient_name,trial_ends_at,first_answered_at,answered_count) VALUES (1,'inbox123','Jake',1,1791331200000,10)"
-        )
-        .run();
-      const result = await Effect.runPromise(
-        Effect.scoped(
-          Effect.gen(function* claims() {
-            const db = yield* first.db;
-            const one = yield* claimPrompt(db, NOW);
-            const two = yield* claimPrompt(db, NOW);
-            return [one, two];
-          })
-        )
-      );
-      expect(result).toStrictEqual([{ show: true }, { show: false }]);
-      first.sqlite.close();
-      const reopened = open(path);
-      try {
-        const resultAfterRestart = await Effect.runPromise(
-          Effect.scoped(
-            reopened.db.pipe(
-              Effect.flatMap((db) => claimPrompt(db, Date.UTC(2027, 0, 18)))
-            )
-          )
-        );
-        expect(resultAfterRestart).toStrictEqual({ show: false });
-        expect(
-          reopened.sqlite.prepare("SELECT support_ask_after FROM inbox").get()
-        ).toMatchObject({ support_ask_after: 1_800_316_800_000 });
-      } finally {
-        reopened.sqlite.close();
       }
     }));
 

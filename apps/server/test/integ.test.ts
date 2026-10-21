@@ -156,7 +156,7 @@ test(
     expect(plan?.status).toBe("paid");
     expect(
       snapshot.kind === "device" ? snapshot.patron?.canSubscribe : false
-    ).toBeTruthy();
+    ).toBeFalsy();
 
     const trialTap = yield* (yield* client(url, sender.token)).inbox.sendTap({
       payload: { requestId: crypto.randomUUID(), body: "Trial tap" },
@@ -173,15 +173,21 @@ test(
       .createCheckout()
       .pipe(Effect.flip);
     expect(legacyCheckout.message).toBe(
-      "Shouldertap is now free. Update the app to manage optional annual support."
+      "Shouldertap is now free. Update the app to see what's new."
     );
 
-    const disabledPatronCheckout = yield* (yield* client(url, macA.token)).inbox
-      .createPatronCheckout()
+    const patronIdentity = yield* anon.patronSetup.createPatron();
+    const patronApi = yield* makeShouldertapClient(
+      url,
+      null,
+      patronIdentity.key
+    );
+    const disabledSignup = yield* patronApi.patron
+      .patronCheckout()
       .pipe(Effect.flip);
-    expect(disabledPatronCheckout._tag).toBe("Unavailable");
-    expect(disabledPatronCheckout.message).toBe(
-      "Optional patron signup is not available yet. Messaging remains free."
+    expect(disabledSignup._tag).toBe("Unavailable");
+    expect(disabledSignup.message).toBe(
+      "New patron signup is not available yet. Messaging remains free."
     );
 
     // An iPhone links with the same device invite and receives independently. (Shares this inbox: tests stay under the
@@ -577,7 +583,7 @@ test(
       expect(self?.platform).toBe(platform ?? "mac");
       expect(snapshot.plan.status).toBe("paid");
       expect(snapshot.patron?.status).toBe("none");
-      expect(snapshot.patron?.canSubscribe).toBeTruthy();
+      expect(snapshot.patron?.canSubscribe).toBeFalsy();
     });
 
     const machine = fingerprint();
