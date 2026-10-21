@@ -1,13 +1,20 @@
-/** Explicit hosted signed-fixture check. This never creates a Creem payment. */
+/**
+ * Explicit hosted signed-fixture check. This never creates a Creem payment.
+ * The billing subject is a sender's patron identity (`patron_id` metadata):
+ * its lifecycle decides whether that sender's taps carry a theme, to every
+ * inbox they're paired with. A historical receiver subscription (`inbox_id`)
+ * is still routed to its inbox and grants no theme.
+ */
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
 import * as Schema from "effect/Schema";
 
 import {
-  Appearance,
   CredentialGrant,
   Invite,
+  PatronKeyGrant,
+  PatronStatus,
   Snapshot,
   Tap,
 } from "../packages/domain/src/contracts";
@@ -49,25 +56,48 @@ const call = async <S extends Schema.ConstraintDecoder<unknown>>(
     data: Schema.decodeUnknownSync(schema)(await response.json()),
   };
 };
-const { data: device, status } = await call(
-  "/inboxes",
-  CredentialGrant,
-  undefined,
-  {
-    recipientName: "Signed fixture QA",
-    deviceName: "Synthetic lifecycle verifier",
-  }
-);
-assert.equal(status, 201);
+/** A fresh inbox with one sender pairing. */
+const pairedInbox = async (recipientName: string) => {
+  const { data: device, status } = await call(
+    "/inboxes",
+    CredentialGrant,
+    undefined,
+    { recipientName, deviceName: "Synthetic lifecycle verifier" }
+  );
+  assert.equal(status, 201);
+  const invite = await call("/invites", Invite, device.token, {
+    kind: "sender",
+  });
+  const sender = await call("/invites/redeem", CredentialGrant, undefined, {
+    code: invite.data.code,
+    name: "Fixture sender",
+    color: "moss",
+  });
+  assert.equal(sender.status, 201);
+  return { device, sender: sender.data };
+};
+// The same person paired with two recipients: one membership covers both.
+const firstInbox = await pairedInbox("Signed fixture QA");
+const secondInbox = await pairedInbox("Second recipient");
+const { device } = firstInbox;
 const { data: initial } = await call("/me", Snapshot, device.token);
-assert.equal(initial.kind, "device");
 assert.ok(initial.kind === "device");
 assert.equal(initial.plan.status, "paid");
 assert.ok(initial.patron);
 assert.equal(initial.patron.status, "none");
+assert.equal(initial.patron.canSubscribe, false);
 const parsed = parseToken(device.token);
 assert.ok(parsed);
 const { inboxId } = parsed;
+const grant = await call(
+  "/patrons",
+  PatronKeyGrant,
+  undefined,
+  undefined,
+  "POST"
+);
+assert.equal(grant.status, 201);
+const { key, patronId } = grant.data;
 const run = crypto.randomUUID();
 const subscription = {
   id: `sub_fixture_${run}`,
@@ -75,7 +105,7 @@ const subscription = {
   customer: `cust_fixture_${run}`,
   current_period_end_date: "2027-10-21T00:00:00.000Z",
   last_transaction_id: `tran_fixture_first_${run}`,
-  metadata: { inbox_id: inboxId },
+  metadata: { patron_id: patronId },
 };
 const first = subscription.last_transaction_id;
 const payload = (type: string, sequence: number, object: unknown) => ({
@@ -99,11 +129,28 @@ const deliver = async (event: unknown, valid = true) => {
   assert.equal(response.status, valid ? 200 : 400);
 };
 const patron = async () => {
-  const snapshot = await call("/me", Snapshot, device.token);
-  assert.equal(snapshot.status, 200);
-  assert.ok(snapshot.data.kind === "device");
-  assert.ok(snapshot.data.patron);
-  return snapshot.data.patron;
+  const status = await call("/patrons/me", PatronStatus, key);
+  assert.equal(status.status, 200);
+  return status.data.patron;
+};
+let sent = 0;
+/** A themed send from the patron sender: delivered either way, styled only
+ * while their membership is active. */
+const expectTheme = async (
+  active: boolean,
+  to: { sender: { token: string } } = firstInbox
+) => {
+  sent += 1;
+  const tap = await call("/taps", Tap, to.sender.token, {
+    requestId: `fixture-${run}-${sent}`,
+    body: `Themed ${sent}`,
+    theme: "note",
+    patronKey: key,
+  });
+  assert.equal(tap.status, 201);
+  assert.equal(tap.data.state, "pending");
+  assert.equal(tap.data.theme, active ? "note" : "default");
+  return tap.data;
 };
 const expectPatron = async (field: keyof Patron, value: unknown) => {
   const current = await patron();
@@ -130,41 +177,15 @@ assert.deepEqual(await patron(), {
   canSubscribe: false,
   legacySupporter: false,
 });
-// Exercise the paid settings through the deployed API, then inspect the
-// device snapshot again after cancellation/refund/recovery below.
-for (const theme of ["broadsheet", "billboard", "terminal", "note"] as const) {
-  // oxlint-disable-next-line no-await-in-loop -- Writes share one inbox; the final saved Note must precede lifecycle checks.
-  const saved = await call(
-    "/appearance",
-    Appearance,
-    device.token,
-    { theme, motion: "reduced" },
-    "PUT"
-  );
-  assert.equal(saved.status, 200);
-  assert.deepEqual(saved.data, {
-    theme,
-    shownTheme: theme,
-    motion: "reduced",
-    canChooseTheme: true,
-  });
-}
-const expectAppearance = async (active: boolean) => {
-  const snapshot = await call("/me", Snapshot, device.token);
-  assert.ok(snapshot.data.kind === "device");
-  assert.deepEqual(snapshot.data.appearance, {
-    theme: "note",
-    shownTheme: active ? "note" : "default",
-    motion: "reduced",
-    canChooseTheme: active,
-  });
-};
+const styled = await expectTheme(true);
+// The same membership styles taps to a different recipient's inbox.
+await expectTheme(true, secondInbox);
 await deliver(paid);
 await expectPatron("paidUntil", 1_824_076_800_000);
 await deliver(payload("subscription.canceled", 4, subscription));
 await expectPatron("status", "ending");
 await expectPatron("active", true);
-await expectAppearance(true);
+await expectTheme(true);
 await deliver(
   payload("refund.created", 5, {
     status: "succeeded",
@@ -173,7 +194,7 @@ await deliver(
   })
 );
 await expectPatron("active", false);
-await expectAppearance(false);
+await expectTheme(false);
 await deliver(paid);
 await expectPatron("active", false);
 await deliver(payload("subscription.paid", 5.5, subscription));
@@ -190,7 +211,7 @@ const renewal = {
 await deliver(payload("subscription.paid", 6, renewal));
 await expectPatron("status", "active");
 await expectPatron("paidUntil", 1_855_699_200_000);
-await expectAppearance(true);
+await expectTheme(true);
 await deliver(
   payload("refund.created", 7, {
     status: "succeeded",
@@ -213,10 +234,10 @@ await checkFailure(9, "subscription.unpaid");
 await checkFailure(10, "subscription.expired");
 await deliver(payload("subscription.paused", 11, renewal));
 await expectPatron("active", false);
-await expectAppearance(false);
+await expectTheme(false);
 await deliver(payload("subscription.paid", 12, renewal));
 await expectPatron("active", true);
-await expectAppearance(true);
+await expectTheme(true);
 await deliver(payload("subscription.scheduled_cancel", 13, renewal));
 await expectPatron("status", "ending");
 await deliver(
@@ -227,7 +248,7 @@ await deliver(
   })
 );
 await expectPatron("active", false);
-await expectAppearance(false);
+await expectTheme(false);
 // A refund delivered before the first (previously unseen) paid event is sticky.
 const delayed = {
   ...subscription,
@@ -243,13 +264,25 @@ await deliver(
 );
 await deliver(payload("subscription.paid", 15, delayed));
 await expectPatron("active", false);
-const invite = await call("/invites", Invite, device.token, { kind: "sender" });
-const sender = await call("/invites/redeem", CredentialGrant, undefined, {
-  code: invite.data.code,
-  name: "Free sender",
-  color: "moss",
-});
-const tap = await call("/taps", Tap, sender.data.token, {
+// A tap sent while active keeps its theme after refunds.
+const history = await call("/me", Snapshot, device.token);
+assert.equal(history.data.taps.find((t) => t.id === styled.id)?.theme, "note");
+// A historical receiver subscription goes to its inbox, manageable there, and
+// styles nobody's taps.
+const legacy = {
+  ...subscription,
+  id: `sub_fixture_legacy_${run}`,
+  last_transaction_id: `tran_fixture_legacy_${run}`,
+  metadata: { inbox_id: inboxId },
+};
+await deliver(payload("subscription.paid", 17, legacy));
+const receiver = await call("/me", Snapshot, device.token);
+assert.ok(receiver.data.kind === "device");
+assert.equal(receiver.data.patron?.active, true);
+assert.equal(receiver.data.patron?.canSubscribe, false);
+await expectPatron("active", false);
+await expectTheme(false);
+const tap = await call("/taps", Tap, firstInbox.sender.token, {
   requestId: crypto.randomUUID(),
   body: "Free after refund",
 });
@@ -268,6 +301,6 @@ assert.equal(reply.data.state, "acknowledged");
 assert.ok(reply.data.response?.kind === "text");
 assert.equal(reply.data.response.text, "Still free");
 console.log(
-  "SIGNED FIXTURES: renewal, old-refund ordering, failures do not extend, pause, recovery, scheduled cancel, free send/reply after refund, paid theme selection and appearance fallback/recovery passed"
+  "SIGNED FIXTURES: renewal, old-refund ordering, failures do not extend, pause, recovery, scheduled cancel, sender themes across two inboxes with lapse fallback for new taps, legacy receiver routing without themes, free send/reply after refund passed"
 );
-console.log("Synthetic inbox:", inboxId);
+console.log("Synthetic inbox:", inboxId, "patron:", patronId);

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   collectProtocolSyncErrors,
+  parseEnumCases,
   parseRustSwatches,
   parseRustThemes,
   parseSwiftThemes,
+  parseTsSenderThemes,
   parseTsSwatches,
   parseTsThemes,
 } from "./check-protocol-sync.ts";
@@ -41,5 +43,25 @@ describe("check-protocol-sync", () => {
         "impl TapTheme {\n    pub const ALL: [TapTheme; 1] = [Self::Default];"
       )
     ).toStrictEqual(["default"]);
+  });
+
+  it("reads the recipient's plain override from each mirror", () => {
+    expect(
+      parseTsSenderThemes(
+        `export const SENDER_THEME_PREFERENCES = ["show", "plain"] as const;`
+      )
+    ).toStrictEqual(["show", "plain"]);
+    expect(
+      parseEnumCases(
+        "public enum SenderThemePreference: String {\n  /// Doc.\n  case show\n  case plain\n\n  public init() {}\n}",
+        "SenderThemePreference"
+      )
+    ).toStrictEqual(["show", "plain"]);
+    expect(
+      parseEnumCases(
+        "pub enum SenderThemePreference {\n    #[default]\n    Show,\n    Plain,\n}",
+        "SenderThemePreference"
+      )
+    ).toStrictEqual(["show", "plain"]);
   });
 });

@@ -102,6 +102,28 @@ export const parseRustThemes = (source: string): string[] => {
   );
 };
 
+/** `SENDER_THEME_PREFERENCES` in contracts.ts, in order. */
+export const parseTsSenderThemes = (source: string): string[] => {
+  const block = source.match(
+    /export const SENDER_THEME_PREFERENCES = \[(?<body>[\s\S]*?)\] as const;/u
+  );
+  return [...(block?.groups?.body ?? "").matchAll(/"(?<name>\w+)"/gu)].map(
+    (m) => m.groups?.name ?? ""
+  );
+};
+
+/** The cases of an enum's body, Swift (`case show`) or Rust (`Show,`). */
+export const parseEnumCases = (source: string, name: string): string[] => {
+  const body = source.match(
+    new RegExp(`enum ${name}\\b[^{]*\\{(?<body>[\\s\\S]*?)\\n\\}`, "u")
+  )?.groups?.body;
+  return [
+    ...(body ?? "").matchAll(
+      /^\s*(?:case\s+(?<swift>\w+)|(?<rust>[A-Z]\w*),)\s*$/gmu
+    ),
+  ].map((m) => (m.groups?.swift ?? m.groups?.rust ?? "").toLowerCase());
+};
+
 /** Every theme must render on both computers; a server can't store one
  * either client lacks (the Inbox's CHECK constraint uses the same list). */
 const themeErrors = (swift: string, rust: string): string[] => {
@@ -118,6 +140,19 @@ const themeErrors = (swift: string, rust: string): string[] => {
   }
   if (rustThemes !== tsThemes) {
     errors.push(`Tap themes: TS [${tsThemes}] != Rust [${rustThemes}]`);
+  }
+  // The recipient's plain override must mean the same on every computer.
+  const tsPrefs = parseTsSenderThemes(contracts).join(", ");
+  const swiftPrefs = parseEnumCases(swift, "SenderThemePreference").join(", ");
+  const rustPrefs = parseEnumCases(rust, "SenderThemePreference").join(", ");
+  if (!tsPrefs) {
+    errors.push("Could not read SENDER_THEME_PREFERENCES from contracts.ts");
+  }
+  if (swiftPrefs !== tsPrefs) {
+    errors.push(`Sender themes: TS [${tsPrefs}] != Swift [${swiftPrefs}]`);
+  }
+  if (rustPrefs !== tsPrefs) {
+    errors.push(`Sender themes: TS [${tsPrefs}] != Rust [${rustPrefs}]`);
   }
 
   return errors;
@@ -204,6 +239,6 @@ if (import.meta.main) {
     read("packages/domain/src/colors.ts")
   ).size;
   console.log(
-    `OK: ${colorCount} person colors, tap themes and tap length limits match across Swift and Rust.`
+    `OK: ${colorCount} person colors, tap themes, sender theme settings and tap length limits match across Swift and Rust.`
   );
 }
