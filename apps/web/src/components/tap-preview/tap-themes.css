@@ -1,0 +1,645 @@
+/*
+ * The sender themes as the recipient's computer draws them, for the sender's
+ * style preview. Ported from the approved composition sketches; the Mac
+ * (ThemeViews.swift) and Windows (themes.rs) renderers are the shipping
+ * originals. Each theme is a whole composition laid out on a 1440×900 canvas
+ * and scaled into place. Everything is scoped to .tp-canvas so the app's own
+ * classes never leak in or out.
+ */
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("../../assets/fonts/instrument-serif-latin-400-normal.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: italic;
+  src: url("../../assets/fonts/instrument-serif-latin-400-italic.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Big Shoulders Display";
+  src: url("../../assets/fonts/big-shoulders-display.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VT323";
+  src: url("../../assets/fonts/vt323.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../../assets/fonts/geistmono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Caveat";
+  src: url("../../assets/fonts/caveat.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+/* Width comes from the caller. */
+.tp-screen {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: #c9c6be;
+  contain: strict;
+}
+.tp-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1440px;
+  height: 900px;
+  transform-origin: 0 0;
+  overflow: hidden;
+  --paper: #f6f5f1;
+  --faint: #ebe9e3;
+  --line: #dedcd5;
+  --tone: #6f6e69;
+  --ink: #161616;
+  color-scheme: light;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  pointer-events: none;
+  user-select: none;
+}
+.tp-canvas * {
+  box-sizing: border-box;
+}
+.tp-canvas .tap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.tp-canvas svg.ic {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tp-canvas .w {
+  display: inline-block;
+}
+
+/* Default: the Frame (docs/design.md, Overlay.swift) */
+.tp-canvas .t-def {
+  background: var(--base);
+  color: var(--onbase);
+  display: flex;
+  flex-direction: column;
+  font-family: "Bricolage Grotesque Variable", sans-serif;
+}
+.tp-canvas .t-def .band {
+  height: 96px;
+  flex: none;
+  padding: 30px 72px 0;
+  display: flex;
+  gap: 18px;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.tp-canvas .t-def .name {
+  font-weight: 700;
+  font-size: 36px;
+  letter-spacing: -0.72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-canvas .t-def .meta {
+  font-weight: 500;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
+}
+.tp-canvas .t-def .page {
+  flex: 1;
+  min-height: 0;
+  margin: 0 40px 40px;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 28px;
+  padding: 64px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.tp-canvas .t-def .slot {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.tp-canvas .t-def .msg {
+  margin: 0;
+  font-weight: 800;
+  font-variation-settings: "opsz" 96;
+  letter-spacing: -0.04em;
+  line-height: 0.98;
+  max-width: 12em;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.tp-canvas .t-def .acts {
+  display: flex;
+  gap: 14px;
+  flex: none;
+}
+.tp-canvas .t-def .dp {
+  height: 68px;
+  border-radius: 999px;
+  padding: 0 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 700;
+  font-size: 24px;
+  box-shadow: inset 0 0 0 2px var(--line);
+}
+.tp-canvas .t-def .dp.primary {
+  background: var(--base);
+  color: var(--onbase);
+  box-shadow: none;
+}
+.tp-canvas .t-def .dp svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 1.5;
+}
+.tp-canvas .t-def .hint {
+  font-weight: 500;
+  font-size: 15px;
+  opacity: 0.5;
+  margin-left: 4px;
+}
+
+/* Broadsheet: the tap as tomorrow's front page. Only message, sender,
+   context and answers: no filler copy in the sidebar. */
+.tp-canvas .t-bs {
+  background: #f2ede1;
+  color: #1b1813;
+  font-family: "Instrument Serif", serif;
+  display: flex;
+  flex-direction: column;
+  padding: 34px 64px 48px;
+  box-shadow: inset 0 0 0 16px var(--base);
+}
+.tp-canvas .t-bs .mast {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 24px;
+  padding-top: 6px;
+}
+.tp-canvas .t-bs .ear {
+  font-size: 22px;
+  font-style: italic;
+  color: #5b554a;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tp-canvas .t-bs .ear.r {
+  text-align: right;
+}
+.tp-canvas .t-bs .plate {
+  margin: 0;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 112px;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  text-align: center;
+  white-space: nowrap;
+}
+.tp-canvas .t-bs .rules {
+  flex: none;
+  margin: 18px 0 0;
+  height: 14px;
+  position: relative;
+}
+.tp-canvas .t-bs .rules i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--base);
+  transform-origin: 0 50%;
+}
+.tp-canvas .t-bs .rules i:first-child {
+  top: 0;
+  height: 7px;
+}
+.tp-canvas .t-bs .rules i:last-child {
+  bottom: 0;
+  height: 2px;
+}
+.tp-canvas .t-bs .body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 330px;
+  gap: 0 48px;
+  padding-top: 38px;
+}
+.tp-canvas .t-bs .slot {
+  min-height: 0;
+  overflow: hidden;
+}
+.tp-canvas .t-bs .msg {
+  margin: 0;
+  font-weight: 400;
+  line-height: 0.96;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.tp-canvas .t-bs .msg .w {
+  overflow: hidden;
+  vertical-align: top;
+  padding-bottom: 0.14em;
+  margin-bottom: -0.14em;
+  max-width: 100%;
+}
+.tp-canvas .t-bs .msg .wi {
+  display: inline-block;
+}
+.tp-canvas .t-bs .side {
+  border-left: 1.5px solid #1b1813;
+  padding-left: 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 0;
+}
+.tp-canvas .t-bs .ans {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 34px;
+  line-height: 1;
+  padding: 18px 4px 16px;
+  border-top: 1.5px solid #1b1813;
+}
+.tp-canvas .t-bs .ans:last-child {
+  border-bottom: 1.5px solid #1b1813;
+}
+.tp-canvas .t-bs .ans .n {
+  font-style: italic;
+  font-size: 24px;
+  color: #6d665a;
+  width: 18px;
+}
+.tp-canvas .t-bs .ans.primary {
+  background: var(--base);
+  color: var(--onbase);
+  padding-left: 14px;
+  border-top-color: var(--base);
+}
+.tp-canvas .t-bs .ans.primary .n {
+  color: inherit;
+  opacity: 0.7;
+}
+
+/* Billboard: the whole display becomes a poster in their color */
+.tp-canvas .t-bb {
+  background: var(--base);
+  color: var(--onbase);
+  font-family: "Big Shoulders Display", sans-serif;
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  grid-template-rows: 1fr auto;
+}
+.tp-canvas .t-bb .rail {
+  grid-row: 1 / 3;
+  border-right: 4px solid var(--onbase);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 40px 0 36px;
+  overflow: hidden;
+}
+.tp-canvas .t-bb .rail .name {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-weight: 900;
+  font-size: 132px;
+  line-height: 0.85;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.tp-canvas .t-bb .rail .ago {
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+.tp-canvas .t-bb .main {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 44px 64px 40px 56px;
+}
+.tp-canvas .t-bb .kick {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.tp-canvas .t-bb .slot {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  padding-top: 24px;
+}
+.tp-canvas .t-bb .msg {
+  margin: 0;
+  font-weight: 900;
+  text-transform: uppercase;
+  line-height: 0.86;
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.tp-canvas .t-bb .strip {
+  grid-column: 2;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 4px solid var(--onbase);
+  overflow: hidden;
+}
+.tp-canvas .t-bb .strip > * + * {
+  border-left: 4px solid var(--onbase);
+}
+.tp-canvas .t-bb .blk {
+  height: 128px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 36px;
+  font-weight: 800;
+  font-size: 50px;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+.tp-canvas .t-bb .blk .n {
+  font-size: 30px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+.tp-canvas .t-bb .blk.primary {
+  background: var(--onbase);
+  color: var(--base);
+}
+
+/* Terminal: a phosphor console tuned to their color */
+.tp-canvas .t-tm {
+  --bg: color-mix(in oklab, var(--base) 16%, #060708);
+  --ph: color-mix(in oklab, var(--base) 38%, #f1fff3);
+  background: var(--bg);
+  color: var(--ph);
+  font-family: "VT323", monospace;
+  display: flex;
+  flex-direction: column;
+}
+.tp-canvas .t-tm::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgb(0 0 0 / 0.22) 0 1px,
+      transparent 1px 4px
+    ),
+    radial-gradient(130% 110% at 50% 45%, transparent 55%, rgb(0 0 0 / 0.55));
+}
+.tp-canvas .t-tm .bar {
+  flex: none;
+  height: 54px;
+  background: var(--base);
+  color: var(--onbase);
+  font-family: "Geist Mono", monospace;
+  font-size: 19px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 0 40px;
+  white-space: nowrap;
+}
+.tp-canvas .t-tm .bar b {
+  font-weight: 700;
+}
+.tp-canvas .t-tm .bar .sp {
+  flex: 1;
+}
+.tp-canvas .t-tm .bar .dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 99px;
+  background: currentColor;
+  display: inline-block;
+  margin-right: 10px;
+  vertical-align: 1px;
+}
+.tp-canvas .t-tm .scr {
+  flex: 1;
+  min-height: 0;
+  padding: 48px 72px 52px;
+  display: flex;
+  flex-direction: column;
+  text-shadow: 0 0 14px color-mix(in oklab, var(--ph) 35%, transparent);
+}
+.tp-canvas .t-tm .cmd {
+  flex: none;
+  font-size: 38px;
+  line-height: 1;
+  opacity: 0.62;
+  margin-bottom: 26px;
+}
+.tp-canvas .t-tm .slot {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.tp-canvas .t-tm .msg {
+  margin: 0;
+  line-height: 0.98;
+  overflow-wrap: anywhere;
+  max-width: 24em;
+  text-wrap: pretty;
+}
+.tp-canvas .t-tm .cur {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.82em;
+  background: var(--ph);
+  vertical-align: -0.06em;
+  margin-left: 0.12em;
+}
+.tp-canvas .t-tm .menu {
+  flex: none;
+  display: flex;
+  gap: 14px 44px;
+  margin-top: 30px;
+  font-size: 48px;
+  line-height: 1;
+}
+.tp-canvas .t-tm .opt {
+  padding: 6px 12px;
+  margin: 0 -12px;
+  white-space: nowrap;
+}
+.tp-canvas .t-tm .opt.primary {
+  background: var(--ph);
+  color: var(--bg);
+  text-shadow: none;
+}
+.tp-canvas .t-tm .opt .k {
+  opacity: 0.6;
+}
+
+/* Note: a handwritten note taped to a desk in their color */
+.tp-canvas .t-nt {
+  background: var(--base);
+  font-family: "Caveat", cursive;
+  display: grid;
+  place-items: center;
+  padding: 56px 64px;
+}
+.tp-canvas .t-nt .stack {
+  position: relative;
+  width: min(1100px, 100%);
+  height: 100%;
+  max-height: 780px;
+  display: grid;
+}
+.tp-canvas .t-nt .sheet {
+  position: relative;
+  background: #fbf8ee;
+  border-radius: 6px;
+  transform: rotate(-1.1deg);
+  padding: 64px 84px 48px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: #1d2742;
+  box-shadow:
+    0 2px 4px rgb(0 0 0 / 0.12),
+    0 34px 60px -28px rgb(0 0 0 / 0.55);
+}
+.tp-canvas .t-nt .tape {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  width: 210px;
+  height: 48px;
+  margin-left: -105px;
+  background: color-mix(in oklab, var(--base) 60%, #fff);
+  opacity: 0.88;
+  transform: rotate(-3deg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+.tp-canvas .t-nt .head {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  font-size: 34px;
+  font-weight: 500;
+  color: #5a6074;
+}
+.tp-canvas .t-nt .slot {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 14px;
+}
+.tp-canvas .t-nt .msg {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.04;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(1lh - 2px),
+    rgb(29 39 66 / 0.13) calc(1lh - 2px),
+    rgb(29 39 66 / 0.13) 1lh
+  );
+  background-position: 0 0.1em;
+  padding-bottom: 0.1em;
+}
+.tp-canvas .t-nt .sig {
+  flex: none;
+  align-self: flex-end;
+  font-size: 64px;
+  font-weight: 600;
+  margin-top: 4px;
+  white-space: nowrap;
+}
+.tp-canvas .t-nt .ticks {
+  flex: none;
+  display: flex;
+  gap: 10px 40px;
+  margin-top: 14px;
+  padding-top: 22px;
+  border-top: 2px dashed rgb(29 39 66 / 0.18);
+}
+.tp-canvas .t-nt .tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 6px;
+}
+.tp-canvas .t-nt .tick .box {
+  width: 36px;
+  height: 36px;
+  flex: none;
+}
+.tp-canvas .t-nt .tick .box path {
+  fill: none;
+  stroke: #1d2742;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tp-canvas .t-nt .tick .k {
+  font-size: 26px;
+  font-weight: 500;
+  color: #7a8094;
+  margin-left: 2px;
+}
+.tp-canvas .t-nt .tick.primary .lbl {
+  background: linear-gradient(
+    transparent 18%,
+    var(--hl) 18%,
+    var(--hl) 88%,
+    transparent 88%
+  );
+  padding: 0 6px;
+  margin: 0 -6px;
+  border-radius: 4px 10px 6px 12px;
+}

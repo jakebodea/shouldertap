@@ -1,4 +1,5 @@
 import {
+  ArrowRight01Icon,
   BubbleChatIcon,
   Clock01Icon,
   SentIcon,
@@ -12,8 +13,13 @@ import {
   fallbackColor,
   MAX_TAP_LENGTH,
 } from "@shouldertap/domain";
-import type { Tap, TapResponse } from "@shouldertap/domain";
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import type { Tap, TapResponse, TapTheme } from "@shouldertap/domain";
+import {
+  createFileRoute,
+  Link,
+  redirect,
+  useNavigate,
+} from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { toast } from "sonner";
@@ -29,6 +35,13 @@ import {
   updatePairing,
 } from "@/lib/pairing";
 import type { Pairing } from "@/lib/pairing";
+import {
+  downgradeNote,
+  loadDraft,
+  loadStyle,
+  saveDraft,
+} from "@/lib/sender-style";
+import { THEME_NAMES } from "@/lib/theme-names";
 import { duration, relativeTime } from "@/lib/time";
 import { useSender } from "@/lib/use-sender";
 import type { OutgoingTap } from "@/lib/use-sender";
@@ -88,9 +101,18 @@ const Composer = ({
     toast.error(`${pairing.recipientName} removed this pairing`);
     onUnpair();
   }, [onUnpair, pairing.credentialId, pairing.recipientName]);
-  const { taps, outbox, status, loaded, senderColor, send, discard } =
-    useSender(pairing, handleRevoked);
-  const [draft, setDraft] = useState("");
+  const {
+    taps,
+    outbox,
+    requested,
+    status,
+    loaded,
+    senderColor,
+    send,
+    discard,
+  } = useSender(pairing, handleRevoked);
+  const [draft, setDraft] = usePersistedDraft(pairing.credentialId);
+  const style = useMemo(() => loadStyle(localStorage), []);
   const [, setTick] = useState(0);
   const color =
     pairing.color ?? senderColor ?? fallbackColor(pairing.credentialId);
@@ -119,7 +141,7 @@ const Composer = ({
       return;
     }
     setDraft("");
-    send(trimmed);
+    send(trimmed, style);
   };
 
   const onSubmit = (event: FormEvent) => {
@@ -179,6 +201,15 @@ const Composer = ({
           <HugeiconsIcon className="size-5" icon={SentIcon} />
           Send tap
         </button>
+        <Link
+          className="text-tone flex items-center justify-between rounded-[14px] px-1 py-1 text-[0.9375rem] font-semibold"
+          to="/style"
+        >
+          <span>
+            Style <b className="text-ink">{THEME_NAMES[style].name}</b>
+          </span>
+          <HugeiconsIcon className="size-[18px]" icon={ArrowRight01Icon} />
+        </Link>
       </form>
 
       <section aria-labelledby="recent" className="flex flex-col">
@@ -188,12 +219,22 @@ const Composer = ({
         <ul className="divide-line flex flex-col divide-y">
           {outbox.map((item) => (
             <li className="py-4 first:pt-2" key={item.requestId}>
-              <OutboxItem item={item} onDiscard={discard} onRetry={send} />
+              <OutboxItem
+                item={item}
+                onDiscard={discard}
+                onRetry={(body) => {
+                  send(body, item.theme);
+                }}
+              />
             </li>
           ))}
           {taps.map((tap) => (
             <li className="py-4 first:pt-2" key={tap.id}>
-              <TapItem recipientName={pairing.recipientName} tap={tap} />
+              <TapItem
+                recipientName={pairing.recipientName}
+                requested={requested[tap.id]}
+                tap={tap}
+              />
             </li>
           ))}
         </ul>
@@ -224,6 +265,22 @@ const Composer = ({
       </footer>
     </Frame>
   );
+};
+
+/** The unsent message, kept per person across leaving for the style page or
+ * checkout. */
+const usePersistedDraft = (credentialId: string) => {
+  const [draft, setDraft] = useState(() =>
+    loadDraft(localStorage, credentialId)
+  );
+  const update = useCallback(
+    (text: string) => {
+      setDraft(text);
+      saveDraft(localStorage, credentialId, text);
+    },
+    [credentialId]
+  );
+  return [draft, update] as const;
 };
 
 const ADD_SOMEONE = "add";
@@ -391,12 +448,16 @@ const RESPONSE_ICON = {
 const TapItem = ({
   tap,
   recipientName,
+  requested,
 }: {
   tap: Tap;
   recipientName: string;
+  requested?: TapTheme;
 }) => {
   const answered =
     tap.state === "acknowledged" && tap.response && tap.acknowledgedAt;
+  const theme = tap.theme ?? "default";
+  const note = downgradeNote(requested, tap);
   return (
     <article className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
@@ -407,9 +468,13 @@ const TapItem = ({
           className="text-tone shrink-0 text-[0.8125rem] tabular-nums"
           dateTime={new Date(tap.createdAt).toISOString()}
         >
+          {theme === "default" ? null : `${THEME_NAMES[theme].name} · `}
           {relativeTime(tap.createdAt)}
         </time>
       </div>
+      {note ? (
+        <p className="text-tone -mt-1 text-[0.875rem] leading-snug">{note}</p>
+      ) : null}
       {answered ? (
         <Answer
           acknowledgedAt={tap.acknowledgedAt}
