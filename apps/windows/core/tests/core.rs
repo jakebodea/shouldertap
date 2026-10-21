@@ -24,6 +24,7 @@ fn tap(id: &str, created_at: f64, sequence: i64, state: TapState) -> Tap {
         acknowledged_by: None,
         response: None,
         sequence,
+        theme: None,
     }
 }
 
@@ -430,45 +431,32 @@ fn free_core_plan_is_independent_of_patron_status() {
     );
     let patron = snapshot.patron.unwrap();
     assert_eq!(patron.status, "none");
-    assert!(patron.can_subscribe);
 }
 
 #[test]
-fn unknown_appearance_values_from_a_newer_server_show_default() {
-    let json = r#"{"kind":"device","credentialId":"d","recipientName":"J","sequence":1,"taps":[],"credentials":[],"appearance":{"theme":"neon","shownTheme":"neon","motion":"wiggle","canChooseTheme":"yes"}}"#;
+fn unknown_appearance_values_from_a_newer_server_fall_back_one_by_one() {
+    let json = r#"{"kind":"device","credentialId":"d","recipientName":"J","sequence":1,"taps":[],"credentials":[],"appearance":{"motion":"reduced","senderThemes":"sparkly"}}"#;
     let Snapshot::Receiver(snapshot) = serde_json::from_str(json).unwrap() else {
         panic!("expected receiver");
     };
     assert_eq!(
         snapshot.appearance,
         Some(Appearance {
-            theme: TapTheme::Default,
-            shown_theme: TapTheme::Default,
-            motion: MotionPreference::System,
-            can_choose_theme: false,
+            motion: MotionPreference::Reduced,
+            sender_themes: SenderThemePreference::Show,
         })
     );
 }
 
 #[test]
-fn a_lapsed_paid_period_falls_back_to_default_without_a_new_snapshot() {
-    let json = r#"{"kind":"device","credentialId":"d","recipientName":"J","sequence":1,"taps":[],"credentials":[],"patron":{"active":true,"status":"ending","paidUntil":1824163200000,"canManage":true,"canSubscribe":false,"legacySupporter":false},"appearance":{"theme":"broadsheet","shownTheme":"broadsheet","motion":"reduced","canChooseTheme":true}}"#;
+fn the_receiver_owned_experiments_snapshot_shows_senders_themes() {
+    // A sandbox server from before sender themes sent its own theme fields.
+    let json = r#"{"kind":"device","credentialId":"d","recipientName":"J","sequence":1,"taps":[],"credentials":[],"appearance":{"theme":"broadsheet","shownTheme":"broadsheet","motion":"reduced","canChooseTheme":true}}"#;
     let Snapshot::Receiver(snapshot) = serde_json::from_str(json).unwrap() else {
         panic!("expected receiver");
     };
     let appearance = snapshot.appearance.unwrap();
-    // Paid through October 21, 2027 (1824163200000 ms).
-    let october_20_2027 = 1_824_076_800_000.0;
-    let october_22_2027 = 1_824_249_600_000.0;
-    assert_eq!(
-        appearance.theme_on_screen(snapshot.patron.as_ref(), october_20_2027),
-        TapTheme::Broadsheet
-    );
-    assert_eq!(
-        appearance.theme_on_screen(snapshot.patron.as_ref(), october_22_2027),
-        TapTheme::Default
-    );
-    assert_eq!(appearance.theme_on_screen(None, october_20_2027), TapTheme::Default);
+    assert_eq!(appearance.sender_themes, SenderThemePreference::Show);
     assert!(appearance.reduces_motion(false));
     assert!(Appearance::default().reduces_motion(true));
     assert!(!Appearance::default().reduces_motion(false));

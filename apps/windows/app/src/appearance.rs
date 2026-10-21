@@ -1,13 +1,15 @@
-//! The Appearance window, ported from apps/macos's Appearance.swift: pick how
-//! taps look on this inbox's computers, with a live preview drawn by the real
-//! theme code. Settings live on the server, so every computer follows.
+//! The Appearance window, ported from apps/macos's Appearance.swift. People
+//! who tap you choose how their own taps look (their patron benefit); here a
+//! live preview drawn by the real theme code shows that, beside the free
+//! controls: show their styles or always plain, and motion. Settings live on
+//! the server, so every computer follows.
 
 use std::rc::Rc;
 use std::time::Instant;
 
-use gpui::{AnyElement, App, Context, Entity, FontWeight, Render, Subscription, Window, div, prelude::*, px};
+use gpui::{App, Context, Entity, FontWeight, Render, Subscription, Window, div, prelude::*, px};
 use shouldertap_core::{
-    ActiveTap, ApiError, CredentialKind, ErrorCode, MotionPreference, PersonColor, Tap, TapState, TapTheme,
+    ActiveTap, ApiError, CredentialKind, MotionPreference, PersonColor, SenderThemePreference, Tap, TapState,
     UpdateAppearance, now_ms,
 };
 
@@ -24,7 +26,6 @@ const PREVIEW_H: f32 = 716. * 900. / 1440.;
 
 pub struct AppearanceView {
     model: Entity<Model>,
-    previewing: TapTheme,
     sender: Option<String>,
     arrived_at: Instant,
     replying: bool,
@@ -36,8 +37,6 @@ pub struct AppearanceView {
 
 impl AppearanceView {
     pub fn new(model: Entity<Model>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let state = model.read(cx).state.clone();
-        let previewing = state.theme_on_screen(now_ms());
         let reply = cx.new(|cx| TextField::new(cx, "", 280));
         let subscriptions = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
@@ -49,7 +48,6 @@ impl AppearanceView {
         ];
         let mut view = Self {
             model,
-            previewing,
             sender: None,
             arrived_at: Instant::now(),
             replying: false,
@@ -62,8 +60,8 @@ impl AppearanceView {
         view
     }
 
-    /// A tap from someone who can tap you, with their latest message, or a
-    /// sample when nobody has yet.
+    /// A tap from someone who can tap you, with their latest message in the
+    /// theme they sent it with, or a sample when nobody has yet.
     fn sample(&self, cx: &App) -> ActiveTap {
         let state = &self.model.read(cx).state;
         let people: Vec<_> = state
@@ -93,6 +91,7 @@ impl AppearanceView {
                 acknowledged_by: None,
                 response: None,
                 sequence: 0,
+                theme: latest.and_then(|t| t.theme),
             },
             queued: 1,
         }
@@ -102,8 +101,8 @@ impl AppearanceView {
         self.arrived_at = Instant::now();
         self.replying = false;
         let sample = self.sample(cx);
-        let (placeholder, caret) = themes::reply_colors(self.previewing, sample.tap.sender_color);
-        let theme = self.previewing;
+        let theme = self.model.read(cx).state.theme_for(&sample.tap);
+        let (placeholder, caret) = themes::reply_colors(theme, sample.tap.sender_color);
         self.reply.update(cx, |field, cx| {
             field.clear(cx);
             field.set_placeholder(reply_placeholder(theme, &sample));
@@ -147,42 +146,6 @@ impl AppearanceView {
         })
         .detach();
     }
-
-    fn open_billing(&mut self, manage: bool, cx: &mut Context<Self>) {
-        self.busy = true;
-        self.error = None;
-        let store = self.model.read(cx).store.clone();
-        let task = cx.background_executor().spawn(async move {
-            if manage {
-                store.manage_patron_url()
-            } else {
-                store.checkout_url()
-            }
-        });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                this.busy = false;
-                match result {
-                    Ok(url) => cx.open_url(&url),
-                    Err(error) if error.code == ErrorCode::Conflict => this.error = Some(error.message),
-                    Err(error) => this.error = Some(error.to_string()),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn subtitle(theme: TapTheme) -> &'static str {
-        match theme {
-            TapTheme::Default => "The calm Frame · free",
-            TapTheme::Broadsheet => "Front-page serif",
-            TapTheme::Billboard => "Poster in their color",
-            TapTheme::Terminal => "Phosphor console",
-            TapTheme::Note => "Handwritten, taped down",
-        }
-    }
 }
 
 impl Render for AppearanceView {
@@ -190,13 +153,13 @@ impl Render for AppearanceView {
         let s = Surface::new(platform::is_dark(window));
         let state = self.model.read(cx).state.clone();
         let appearance = state.appearance;
-        let on_screen = state.theme_on_screen(now_ms());
         let system_reduce = platform::reduce_motion();
         let reduce = appearance.reduces_motion(system_reduce);
 
         let elapsed = self.arrived_at.elapsed().as_secs_f32();
         let sample = self.sample(cx);
-        if themes::arriving(self.previewing, &sample.tap.body, elapsed, reduce) {
+        let shown = state.theme_for(&sample.tap);
+        if themes::arriving(shown, &sample.tap.body, elapsed, reduce) {
             window.request_animation_frame();
         }
         let this = cx.entity().downgrade();
@@ -204,7 +167,7 @@ impl Render for AppearanceView {
             let _ = this.update(cx, |this, cx| this.act(act, window, cx));
         });
         let scene = Scene {
-            theme: self.previewing,
+            theme: shown,
             active: sample,
             replying: self.replying,
             reply: self.reply.clone(),
@@ -285,110 +248,64 @@ impl Render for AppearanceView {
             .child(div().flex_1())
             .child(replay);
 
-        let mut cards = div().flex().flex_row().gap(px(8.));
-        for theme in TapTheme::ALL {
-            let selected = theme == self.previewing;
-            cards = cards.child(
-                div()
-                    .id(theme.label())
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap(px(3.))
-                    .px(px(10.))
-                    .py(px(8.))
-                    .rounded(px(8.))
-                    .bg(s.card)
-                    .border_1()
-                    .border_color(if selected { s.primary } else { s.separator })
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.previewing = theme;
-                        this.replay(cx);
-                    }))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .justify_between()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(theme.label())
-                            .when(theme == on_screen, |d| {
-                                d.child(div().text_color(crate::theme::live_green()).child("●"))
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(s.secondary)
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(Self::subtitle(theme)),
-                    ),
-            );
-        }
-
-        let previewing = self.previewing;
-        let decision: AnyElement = if previewing == on_screen {
-            muted(s, "● On your screens").into_any_element()
-        } else if previewing == TapTheme::Default || appearance.can_choose_theme {
-            menu_button(
-                s,
-                "use",
-                &if self.busy {
-                    "Saving…".to_string()
-                } else {
-                    format!("Use {}", previewing.label())
-                },
-                None,
-                Kind::Primary,
-                false,
-                self.busy || !state.appearance_supported,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.save(
-                    UpdateAppearance {
-                        theme: Some(previewing),
-                        motion: None,
-                    },
-                    cx,
-                )
-            }))
-            .into_any_element()
-        } else {
-            let patron = state.patron.clone();
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .child(muted(
+        let sender_themes_button =
+            |id: &'static str, label: &'static str, value: SenderThemePreference, cx: &mut Context<Self>| {
+                menu_button(
                     s,
-                    "Themes other than Default come with patron support while it's active. Default and everything else stay free.",
-                ))
-                .when(patron.as_ref().is_some_and(|p| p.can_subscribe), |d| {
-                    d.child(
-                        menu_button(s, "subscribe", "Become a patron · $24/year…", None, Kind::Secondary, false, self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.open_billing(false, cx))),
-                    )
-                })
-                .when(patron.as_ref().is_some_and(|p| p.can_manage && !p.can_subscribe), |d| {
-                    d.child(
-                        menu_button(s, "manage", "Manage support…", None, Kind::Secondary, false, self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.open_billing(true, cx))),
-                    )
-                })
-                .into_any_element()
-        };
-        let lapsed = (appearance.theme != TapTheme::Default && on_screen == TapTheme::Default).then(|| {
-            muted(
-                s,
-                &format!(
-                    "{} is saved and comes back while patron support is active. Until then your screens show Default.",
-                    appearance.theme.label()
-                ),
+                    id,
+                    label,
+                    None,
+                    if appearance.sender_themes == value {
+                        Kind::Primary
+                    } else {
+                        Kind::Secondary
+                    },
+                    false,
+                    self.busy || !state.appearance_supported,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.save(
+                        UpdateAppearance {
+                            motion: None,
+                            sender_themes: Some(value),
+                        },
+                        cx,
+                    );
+                    this.replay(cx);
+                }))
+            };
+        let sender_themes = div()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Senders' styles"))
+                    .child(sender_themes_button(
+                        "show-styles",
+                        "Show their styles",
+                        SenderThemePreference::Show,
+                        cx,
+                    ))
+                    .child(sender_themes_button(
+                        "always-plain",
+                        "Always plain",
+                        SenderThemePreference::Plain,
+                        cx,
+                    )),
             )
-        });
+            .child(muted(
+                s,
+                if appearance.sender_themes == SenderThemePreference::Plain {
+                    "Every tap shows in Default, whoever sent it."
+                } else {
+                    "Each tap shows in the style its sender chose. Answering works the same in every style."
+                },
+            ));
 
         let motion_button = |id: &'static str, label: &'static str, value: MotionPreference, cx: &mut Context<Self>| {
             menu_button(
@@ -407,8 +324,8 @@ impl Render for AppearanceView {
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.save(
                     UpdateAppearance {
-                        theme: None,
                         motion: Some(value),
+                        sender_themes: None,
                     },
                     cx,
                 )
@@ -469,15 +386,13 @@ impl Render for AppearanceView {
                     )
                     .child(muted(
                         s,
-                        "Only you choose this. People who tap you can't change it, and it never changes what they see.",
+                        "People who tap you can send their taps in a style of their choosing. You never pay to see it, and you can always show every tap plain.",
                     )),
             )
             .child(preview)
             .child(top_row)
-            .child(cards)
-            .child(decision)
-            .children(lapsed)
             .child(div().h(px(1.)).bg(s.separator))
+            .child(sender_themes)
             .child(motion)
             .when(!state.appearance_supported, |d| {
                 d.child(muted(

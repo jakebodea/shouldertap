@@ -158,7 +158,7 @@ impl Shell {
         let model = cx.global::<Shell>().model.clone();
         let state = model.read(cx).store.state();
         let active = state.active_tap();
-        let look = crate::overlay::Look::of(&state);
+        let look = crate::overlay::Look::of(&state, active.as_ref());
         model.update(cx, |model, cx| {
             model.state = state;
             cx.notify();

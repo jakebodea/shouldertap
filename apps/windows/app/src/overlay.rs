@@ -10,7 +10,7 @@ use gpui::{
     Render, SharedString, Subscription, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
     WindowOptions, div, prelude::*,
 };
-use shouldertap_core::{ActiveTap, MAX_REPLY_LENGTH, StoreState, TapResponse, TapTheme, now_ms};
+use shouldertap_core::{ActiveTap, MAX_REPLY_LENGTH, StoreState, TapResponse, TapTheme};
 
 use crate::platform;
 use crate::text_field::{TextField, TextFieldEvent};
@@ -146,7 +146,8 @@ impl OverlayView {
     }
 }
 
-/// How the recipient's computers show taps right now.
+/// How the recipient's computers show the active tap: in its own sender's
+/// theme (or plain, if the recipient chose that), with their motion setting.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
     pub theme: TapTheme,
@@ -154,9 +155,9 @@ pub struct Look {
 }
 
 impl Look {
-    pub fn of(state: &StoreState) -> Self {
+    pub fn of(state: &StoreState, active: Option<&ActiveTap>) -> Self {
         Self {
-            theme: state.theme_on_screen(now_ms()),
+            theme: active.map(|a| state.theme_for(&a.tap)).unwrap_or_default(),
             reduce_motion: state.appearance.reduces_motion(platform::reduce_motion()),
         }
     }

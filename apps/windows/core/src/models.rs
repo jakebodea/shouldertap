@@ -211,6 +211,18 @@ pub struct Tap {
     pub acknowledged_by: Option<String>,
     pub response: Option<TapResponse>,
     pub sequence: i64,
+    /// The theme its sender sent it with, fixed by the server when it
+    /// accepted the tap. Missing from older servers and older taps; unknown
+    /// values from a newer server decode as Default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<TapTheme>,
+}
+
+impl Tap {
+    /// What the sender chose, Default when they chose nothing.
+    pub fn sender_theme(&self) -> TapTheme {
+        self.theme.unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -324,9 +336,10 @@ pub struct Patron {
     pub legacy_supporter: bool,
 }
 
-/// `TapTheme` from packages/domain/src/contracts.ts: how taps look on the
-/// recipient's own computers. Each variant is a whole composition the overlay
-/// renders natively; there is no free-form styling.
+/// `TapTheme` from packages/domain/src/contracts.ts: how a tap looks on the
+/// recipient's computers, chosen by its sender (an active patron) and carried
+/// on the tap. Each variant is a whole composition the overlay renders
+/// natively; there is no free-form styling and nothing from the sender but text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TapTheme {
@@ -389,37 +402,42 @@ impl<'de> Deserialize<'de> for MotionPreference {
     }
 }
 
-/// The recipient's appearance settings, owned by the server and shared by
-/// every computer on the inbox. Each field falls back on its own.
+/// The recipient's free override of senders' themes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SenderThemePreference {
+    /// Each tap in the theme its sender sent it with.
+    #[default]
+    Show,
+    /// Every tap in Default.
+    Plain,
+}
+
+impl<'de> Deserialize<'de> for SenderThemePreference {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Ok(if raw == "plain" { Self::Plain } else { Self::Show })
+    }
+}
+
+/// The recipient's free settings, owned by the server and shared by every
+/// computer on the inbox. Each field falls back on its own; the
+/// receiver-owned theme experiment's `theme`/`shownTheme` are ignored.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Appearance {
-    /// The saved choice, kept while patron support lapses.
-    #[serde(default, deserialize_with = "lenient_value")]
-    pub theme: TapTheme,
-    /// What the server says computers show now.
-    #[serde(default, deserialize_with = "lenient_value")]
-    pub shown_theme: TapTheme,
     #[serde(default, deserialize_with = "lenient_value")]
     pub motion: MotionPreference,
     #[serde(default, deserialize_with = "lenient_value")]
-    pub can_choose_theme: bool,
+    pub sender_themes: SenderThemePreference,
 }
 
 impl Appearance {
-    /// The theme to put on screen at `now`. The server decides; this only
-    /// ever falls back to Default, once the paid period in a stale snapshot
-    /// is over.
-    pub fn theme_on_screen(&self, patron: Option<&Patron>, now: Timestamp) -> TapTheme {
-        match patron {
-            Some(patron)
-                if self.shown_theme != TapTheme::Default
-                    && patron.active
-                    && patron.paid_until.is_some_and(|until| until > now) =>
-            {
-                self.shown_theme
-            }
-            _ => TapTheme::Default,
+    /// The theme to draw `tap` in: its sender's, unless the recipient chose plain.
+    pub fn theme_for(&self, tap: &Tap) -> TapTheme {
+        match self.sender_themes {
+            SenderThemePreference::Plain => TapTheme::Default,
+            SenderThemePreference::Show => tap.sender_theme(),
         }
     }
 
@@ -431,11 +449,12 @@ impl Appearance {
 
 /// `PUT /v1/appearance`: a missing field keeps the saved value.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateAppearance {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub theme: Option<TapTheme>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub motion: Option<MotionPreference>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_themes: Option<SenderThemePreference>,
 }
 
 /// What a paired computer sees: every pending tap plus recent history.

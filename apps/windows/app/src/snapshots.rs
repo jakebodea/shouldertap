@@ -112,6 +112,7 @@ pub fn run(directory: String, cx: &mut App) {
                 acknowledged_by: None,
                 response: None,
                 sequence: 0,
+                theme: Some(case.theme),
             };
             let (x, y) = (40., 60.);
             let _ = (x, y);

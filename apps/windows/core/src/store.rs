@@ -93,9 +93,9 @@ impl Default for StoreState {
 }
 
 impl StoreState {
-    /// The theme to show a tap in at `now`.
-    pub fn theme_on_screen(&self, now: crate::Timestamp) -> crate::TapTheme {
-        self.appearance.theme_on_screen(self.patron.as_ref(), now)
+    /// The theme to draw a tap in: its sender's, unless this recipient chose plain.
+    pub fn theme_for(&self, tap: &Tap) -> crate::TapTheme {
+        self.appearance.theme_for(tap)
     }
 
     pub fn active_tap(&self) -> Option<ActiveTap> {
@@ -204,44 +204,22 @@ impl ReceiverStore {
 
     // Plan
 
-    /// Where to pay for this inbox. If it turns out to be paid for already
-    /// (`Conflict`), the snapshot is refreshed so the menu catches up.
-    pub fn checkout_url(&self) -> Result<String, ApiError> {
-        match self.inner.api().create_checkout() {
-            Ok(checkout) => Ok(checkout.url),
-            Err(error) => {
-                if error.code == ErrorCode::Conflict {
-                    self.inner.resync();
-                }
-                Err(error)
-            }
-        }
-    }
-
+    /// The billing portal for a historical receiver-owned support
+    /// subscription, so it can be canceled. Recipients can't start one.
     pub fn manage_patron_url(&self) -> Result<String, ApiError> {
         self.inner.api().manage_patron().map(|checkout| checkout.url)
     }
 
     // Appearance
 
-    /// Saves a change for every computer on the inbox. The server checks
-    /// patron support; on `Conflict` the snapshot is refreshed.
+    /// Saves a change for every computer on the inbox. Free; any device.
     pub fn update_appearance(&self, update: crate::UpdateAppearance) -> Result<(), ApiError> {
-        match self.inner.api().update_appearance(&update) {
-            Ok(appearance) => {
-                self.inner.update(|state| {
-                    state.appearance = appearance;
-                    state.appearance_supported = true;
-                });
-                Ok(())
-            }
-            Err(error) => {
-                if error.code == ErrorCode::Conflict {
-                    self.inner.resync();
-                }
-                Err(error)
-            }
-        }
+        let appearance = self.inner.api().update_appearance(&update)?;
+        self.inner.update(|state| {
+            state.appearance = appearance;
+            state.appearance_supported = true;
+        });
+        Ok(())
     }
 
     // Overlay
