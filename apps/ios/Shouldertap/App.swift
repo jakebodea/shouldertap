@@ -29,6 +29,9 @@ struct ShouldertapApp: App {
   var body: some Scene {
     WindowGroup {
       RootView(store: Stores.senders, inbox: Stores.inbox)
+        #if DEBUG && targetEnvironment(simulator)
+          .task { await TapActivities.startMarketingCaptureIfRequested() }
+        #endif
     }
   }
 }
