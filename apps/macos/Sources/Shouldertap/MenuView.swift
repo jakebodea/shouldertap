@@ -9,6 +9,8 @@ struct MenuView: View {
   let store: ReceiverStore
   let updates: Updates
   let openAppearance: () -> Void
+  @State private var showAccount = false
+  @State private var account = AccountStore(server: Config.endpoints.server, clientID: "shouldertap-mac", vault: KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".account"))
   @State private var contentHeight: CGFloat = 0
 
   var body: some View {
@@ -24,6 +26,11 @@ struct MenuView: View {
         }
       }
       .padding(14)
+      .safeAreaInset(edge: .bottom) { Button("Account and recovery") { showAccount = true }.padding(8) }
+      .sheet(isPresented: $showAccount) {
+        VStack { AccountView(account: account, inbox: store); Button("Done") { showAccount = false }.padding() }
+          .frame(width: 540, height: 480)
+      }
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
     }
     .scrollBounceBehavior(.basedOnSize)

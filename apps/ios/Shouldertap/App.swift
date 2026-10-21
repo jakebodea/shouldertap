@@ -11,6 +11,8 @@ enum Stores {
     return store
   }()
 
+  static let account = AccountStore(server: Config.server, clientID: "shouldertap-ios", vault: KeychainVault(service: "app.shouldertap.iphone.account"))
+
   static let inbox: ReceiverStore = {
     let inbox = ReceiverStore(
       endpoints: Endpoints(server: Config.server, web: Config.web),
@@ -61,6 +63,7 @@ struct RootView: View {
   @State private var firstInvite = ""
   @State private var cover: RootCover?
   /// This phone is unlinking itself, so the inbox going away isn't news.
+  @State private var showAccount = false
   @State private var unlinking = false
   @State private var receiver = Receiver.shared
   @Environment(\.scenePhase) private var scenePhase
@@ -86,6 +89,15 @@ struct RootView: View {
       } else {
         home.transition(.opacity)
       }
+    }
+    .overlay(alignment: .topTrailing) {
+      Button("Account", systemImage: "person.crop.circle") { showAccount = true }
+        .padding().background(.regularMaterial, in: Capsule()).padding()
+    }
+    .sheet(isPresented: $showAccount) {
+      NavigationStack { AccountView(account: Stores.account, inbox: inbox, senders: store)
+        .navigationTitle("Account").toolbar { Button("Done") { showAccount = false } }
+      }.sheetOnPaper()
     }
     .environment(\.inboxActions, actions)
     .environment(inbox)
@@ -143,6 +155,7 @@ struct RootView: View {
       if !unlinking { store.notice = "This iPhone was unlinked from your Shouldertap" }
       unlinking = false
     }
+    .onChange(of: inbox.credentialId) { _, _ in receiver.sync() }
     .onChange(of: inbox.taps) { _, taps in receiver.reconcile(taps) }
     .onChange(of: scenePhase) { _, phase in
       switch phase {
