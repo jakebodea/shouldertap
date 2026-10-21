@@ -55,6 +55,9 @@ export default Alchemy.Stack(
             // Workers, the Inbox Durable Object, and the rate limiter.
             "Workers Scripts Write",
             "Workers R2 Storage Write",
+            // Account sessions/recovery and transactional sign-in email.
+            "D1 Write",
+            "Email Sending Write",
             "Account Settings Write",
             "Workers Tail Read",
             // Cloudflare.state() reads its bearer token from the Secrets Store.
