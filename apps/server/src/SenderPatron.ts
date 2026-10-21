@@ -14,13 +14,15 @@ import type {
 import type { RuntimeContext } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Drizzle from "alchemy/Drizzle/Cloudflare";
-import { eq } from "drizzle-orm";
+import { count, eq, isNull } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 
 import migrations from "../drizzle-patron/migrations.js";
 import type { PatronEvent } from "./patron";
 import {
   authenticateKey,
+  accountDeletionState,
+  initializeAccountIdentity,
   createIdentity,
   createLinkCode,
   isActiveKey,
@@ -28,7 +30,12 @@ import {
   revokeKey,
   statusOf,
 } from "./patron-identity";
-import { patronCheckout, patronEvents } from "./patron-schema";
+import {
+  patron,
+  patronKeys,
+  patronCheckout,
+  patronEvents,
+} from "./patron-schema";
 import { reserveCheckout, storePatronEvent } from "./patron-storage";
 import { hashSecret, randomId } from "./secrets";
 
@@ -36,6 +43,20 @@ type Rpc<A, E = never> = Effect.Effect<A, E, RuntimeContext>;
 
 /** The SenderPatron's typed RPC surface, called by the Server Worker. */
 export interface PatronRpc {
+  readonly initializeAccount: (patronId: string) => Rpc<void, Conflict>;
+  readonly accountDeletionStatus: () => Rpc<{
+    canDelete: boolean;
+    checkout: { requestId: string; providerId: string | null } | null;
+  }>;
+  readonly accountStatus: () => Rpc<PatronStatus>;
+  readonly accountCustomer: () => Rpc<string, Conflict>;
+  readonly accountReserveCheckout: () => Rpc<
+    { requestId: string; url: string | null; providerId: string | null },
+    Conflict
+  >;
+  readonly accountRestore: (
+    patronId: string
+  ) => Rpc<PatronKeyGrant, Unauthorized | Conflict>;
   /** Creates this identity with its first key. Conflict if it exists. */
   readonly initialize: (patronId: string) => Rpc<PatronKeyGrant, Conflict>;
   readonly status: (key: ParsedPatronKey) => Rpc<PatronStatus, Unauthorized>;
@@ -129,6 +150,83 @@ export const SenderPatronLive = SenderPatron.make(
       });
 
       return {
+        initializeAccount: Effect.fn("SenderPatron.initializeAccount")(
+          function* initializeAccount(patronId) {
+            yield* initializeAccountIdentity(db, patronId, yield* now);
+          },
+          orDie
+        ),
+        accountDeletionStatus: Effect.fn("SenderPatron.accountDeletionStatus")(
+          function* accountDeletionStatus() {
+            return yield* accountDeletionState(db, yield* now);
+          },
+          orDie
+        ),
+        accountStatus: Effect.fn("SenderPatron.accountStatus")(
+          function* accountStatus() {
+            return yield* statusOf(db, yield* now);
+          },
+          orDie
+        ),
+        accountReserveCheckout: Effect.fn(
+          "SenderPatron.accountReserveCheckout"
+        )(function* accountReserveCheckout() {
+          return yield* reserveCheckout(db, yield* randomId(), yield* now);
+        }, orDie),
+        accountCustomer: Effect.fn("SenderPatron.accountCustomer")(
+          function* accountCustomer() {
+            const [latest] = (yield* db.select().from(patronEvents))
+              .map((r) => r.event)
+              .toSorted((a, b) => b.at - a.at);
+            if (!latest?.customerId) {
+              return yield* new Conflict({
+                message: "No patron membership to manage yet.",
+              });
+            }
+            return latest.customerId;
+          },
+          orDie
+        ),
+        accountRestore: Effect.fn("SenderPatron.accountRestore")(
+          function* accountRestore(patronId) {
+            const key = yield* newKey;
+            yield* db.transaction((tx) =>
+              Effect.gen(function* restoreInTransaction() {
+                const [identity] = yield* tx.select().from(patron);
+                if (!identity || identity.patronId !== patronId) {
+                  return yield* new Unauthorized({
+                    message: "Membership unavailable",
+                  });
+                }
+                const [keys] = yield* tx
+                  .select({ n: count() })
+                  .from(patronKeys)
+                  .where(isNull(patronKeys.revokedAt));
+                if ((keys?.n ?? 0) >= 10) {
+                  return yield* new Conflict({
+                    message:
+                      "Forget a membership device before restoring another",
+                  });
+                }
+                yield* tx.insert(patronKeys).values({
+                  id: key.id,
+                  secretHash: key.secretHash,
+                  createdAt: yield* now,
+                });
+              })
+            );
+            return {
+              patronId,
+              keyId: key.id,
+              key: formatPatronKey({
+                patronId,
+                keyId: key.id,
+                secret: key.secret,
+              }),
+            };
+          },
+          orDie
+        ),
         initialize: Effect.fn("SenderPatron.initialize")(function* initialize(
           patronId
         ) {

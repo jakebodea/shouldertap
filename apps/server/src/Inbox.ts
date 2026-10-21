@@ -33,7 +33,7 @@ import type {
 import type { RuntimeContext } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Drizzle from "alchemy/Drizzle/Cloudflare";
-import { and, count, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, count, eq, isNull, lt, or, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { HttpServerRequest } from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
@@ -53,6 +53,10 @@ import {
 import type { ApnsRequest, PushContext } from "./apns";
 import { readAppearance, saveAppearance } from "./appearance";
 import { isObjectionable } from "./content";
+import {
+  authenticatePairing,
+  authorizePairingRevocation,
+} from "./pairing-auth";
 import { patronOf } from "./patron";
 import type { PatronEvent } from "./patron";
 import {
@@ -81,7 +85,6 @@ const SENDER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEVICE_INVITE_TTL_MS = 15 * 60 * 1000;
 const TICKET_TTL_MS = 60 * 1000;
 const HISTORY_LIMIT = 25;
-const LAST_SEEN_WRITE_INTERVAL_MS = 60 * 1000;
 
 /** Active (non-revoked) pairings an inbox may hold, by kind. */
 const PAIRING_CAPS: Record<CredentialKind, number> = {
@@ -126,6 +129,12 @@ type Rpc<A, E = never> = Effect.Effect<A, E, RuntimeContext>;
 
 /** The Inbox's typed RPC surface, called by the Server Worker. */
 export interface InboxRpc {
+  readonly accountRestore: (
+    inboxId: string,
+    senderId: string | null,
+    name: string,
+    platform: DevicePlatform
+  ) => Rpc<CredentialGrant, Unauthorized | Conflict>;
   /** `push` (when APNs is configured) clears the tap from linked iPhones. */
   readonly acknowledge: (
     token: ParsedToken,
@@ -250,6 +259,7 @@ export class Inbox extends Cloudflare.DurableObject<Inbox, InboxShape>()(
 const SocketSession = Schema.Struct({
   credentialId: Schema.String,
   kind: Schema.Literals(["device", "sender"]),
+  keyId: Schema.optionalKey(Schema.String),
 });
 type SocketSession = typeof SocketSession.Type;
 const decodeSession = Schema.decodeUnknownOption(SocketSession);
@@ -308,7 +318,11 @@ const send = (socket: Cloudflare.WebSocket, event: ServerEvent) =>
 
 /** Active (non-revoked) pairings of one kind. */
 const isActive = (kind: CredentialKind) =>
-  and(eq(credentials.kind, kind), isNull(credentials.revokedAt));
+  and(
+    eq(credentials.kind, kind),
+    isNull(credentials.revokedAt),
+    isNull(credentials.parentId)
+  );
 
 const unauthorized = (message: string) =>
   HttpServerResponse.text(message, { status: 401 });
@@ -348,7 +362,7 @@ export const InboxLive = Inbox.make(
       const listCredentials = db
         .select()
         .from(credentials)
-        .where(isNull(credentials.revokedAt))
+        .where(and(isNull(credentials.revokedAt), isNull(credentials.parentId)))
         .orderBy(credentials.createdAt)
         .pipe(
           Effect.map((rows) =>
@@ -367,30 +381,10 @@ export const InboxLive = Inbox.make(
           )
         );
 
-      const authenticate = Effect.fn("Inbox.authenticate")(
-        function* authenticate(token: ParsedToken) {
-          const secretHash = yield* hashSecret(token.secret);
-          const [row] = yield* db
-            .select()
-            .from(credentials)
-            .where(
-              and(eq(credentials.id, token.id), isNull(credentials.revokedAt))
-            );
-          if (!row || row.secretHash !== secretHash) {
-            return yield* new Unauthorized({
-              message: "This pairing is no longer valid",
-            });
-          }
-          const at = yield* now;
-          if ((row.lastSeenAt ?? 0) < at - LAST_SEEN_WRITE_INTERVAL_MS) {
-            yield* db
-              .update(credentials)
-              .set({ lastSeenAt: at })
-              .where(eq(credentials.id, row.id));
-          }
-          return row;
-        }
-      );
+      const authenticate = (token: ParsedToken) =>
+        Effect.gen(function* authenticatePresentedKey() {
+          return yield* authenticatePairing(db, token, yield* now);
+        });
 
       const requireKind = (kind: CredentialKind, message: string) =>
         Effect.fn(function* requireCredential(token: ParsedToken) {
@@ -720,6 +714,85 @@ export const InboxLive = Inbox.make(
       }
 
       const rpc: InboxRpc = {
+        accountRestore: Effect.fn("Inbox.accountRestore")(
+          function* accountRestore(inboxId, senderId, name, platform) {
+            const row = yield* inboxRow;
+            if (!row || row.inboxId !== inboxId) {
+              return yield* new Unauthorized({ message: "Inbox unavailable" });
+            }
+            const issued = yield* issueCredential(
+              senderId ? "sender" : "device",
+              name
+            );
+            yield* db.transaction((tx) =>
+              Effect.gen(function* restoreInTransaction() {
+                if (senderId) {
+                  const [parent] = yield* tx
+                    .select()
+                    .from(credentials)
+                    .where(
+                      and(
+                        eq(credentials.id, senderId),
+                        isNull(credentials.revokedAt)
+                      )
+                    );
+                  if (!parent || parent.kind !== "sender" || parent.parentId) {
+                    return yield* new Unauthorized({
+                      message: "This sender was removed",
+                    });
+                  }
+                  const [keys] = yield* tx
+                    .select({ n: count() })
+                    .from(credentials)
+                    .where(
+                      and(
+                        or(
+                          eq(credentials.parentId, senderId),
+                          eq(credentials.id, senderId)
+                        ),
+                        isNull(credentials.revokedAt),
+                        isNull(credentials.keyRevokedAt)
+                      )
+                    );
+                  if ((keys?.n ?? 0) >= 10) {
+                    return yield* new Conflict({
+                      message:
+                        "Remove a sender device before restoring another",
+                    });
+                  }
+                  yield* tx
+                    .insert(credentials)
+                    .values({ ...issued.row, parentId: senderId });
+                } else {
+                  const [devices] = yield* tx
+                    .select({ n: count() })
+                    .from(credentials)
+                    .where(isActive("device"));
+                  if ((devices?.n ?? 0) >= PAIRING_CAPS.device) {
+                    return yield* new Conflict({
+                      message: fullInviteMessage("device"),
+                    });
+                  }
+                  yield* tx
+                    .insert(credentials)
+                    .values({ ...issued.row, platform });
+                }
+              })
+            );
+            yield* broadcastCredentials;
+            return {
+              kind: senderId ? ("sender" as const) : ("device" as const),
+              credentialId: senderId ?? issued.row.id,
+              token: formatToken({
+                inboxId,
+                id: issued.row.id,
+                secret: issued.secret,
+              }),
+              recipientName: row.recipientName,
+            };
+          },
+          orDieOnStorage
+        ),
         initialize: Effect.fn("Inbox.initialize")(function* initialize(
           inboxId,
           request,
@@ -1081,19 +1154,15 @@ export const InboxLive = Inbox.make(
           token,
           credentialId
         ) {
-          // A device can remove anyone; a sender can only unpair itself.
           const actor = yield* authenticate(token);
-          if (actor.kind === "sender" && actor.id !== credentialId) {
-            return yield* new Unauthorized({
-              message: "A sender can only unpair itself",
-            });
-          }
+          yield* authorizePairingRevocation(actor.kind, token.id, credentialId);
+          const keyOnly = actor.kind === "sender";
           const at = yield* now;
           const revoked = yield* db.transaction((tx) =>
             Effect.gen(function* revokeInTransaction() {
               return yield* tx
                 .update(credentials)
-                .set({ revokedAt: at })
+                .set(keyOnly ? { keyRevokedAt: at } : { revokedAt: at })
                 .where(
                   and(
                     eq(credentials.id, credentialId),
@@ -1114,7 +1183,12 @@ export const InboxLive = Inbox.make(
             .delete(activityTokens)
             .where(eq(activityTokens.credentialId, credentialId));
           for (const { socket, session } of yield* sessions) {
-            if (session.credentialId === credentialId) {
+            if (
+              keyOnly
+                ? (session.keyId ?? session.credentialId) === credentialId
+                : session.credentialId === credentialId ||
+                  session.keyId === credentialId
+            ) {
               yield* send(socket, { v: 1, type: "revoked" });
               yield* socket.close(4001, "revoked");
             }
@@ -1244,7 +1318,7 @@ export const InboxLive = Inbox.make(
         createTicket: Effect.fn("Inbox.createTicket")(function* createTicket(
           token
         ) {
-          const actor = yield* authenticate(token);
+          yield* authenticate(token);
           const id = yield* randomId();
           const secret = yield* randomId(24);
           const at = yield* now;
@@ -1253,7 +1327,7 @@ export const InboxLive = Inbox.make(
           yield* db.insert(tickets).values({
             id,
             secretHash: yield* hashSecret(secret),
-            credentialId: actor.id,
+            credentialId: token.id,
             expiresAt,
           });
           return {
@@ -1297,15 +1371,33 @@ export const InboxLive = Inbox.make(
             .where(
               and(
                 eq(credentials.id, row.credentialId),
-                isNull(credentials.revokedAt)
+                isNull(credentials.revokedAt),
+                isNull(credentials.keyRevokedAt)
               )
             );
           if (!credential) {
             return unauthorized("Revoked");
           }
+          let canonicalId = credential.id;
+          if (credential.parentId) {
+            const [parent] = yield* db
+              .select()
+              .from(credentials)
+              .where(
+                and(
+                  eq(credentials.id, credential.parentId),
+                  isNull(credentials.revokedAt)
+                )
+              );
+            if (!parent || parent.kind !== "sender" || parent.parentId) {
+              return unauthorized("Revoked");
+            }
+            canonicalId = parent.id;
+          }
           const [response, socket] = yield* Cloudflare.upgrade();
           socket.serializeAttachment({
-            credentialId: credential.id,
+            credentialId: canonicalId,
+            keyId: credential.id,
             kind: credential.kind,
           } satisfies SocketSession);
           return response;

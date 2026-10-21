@@ -12,7 +12,8 @@ import {
   Unauthorized,
   Unavailable,
 } from "@shouldertap/domain";
-import { Stage } from "alchemy";
+import { Stage, makeRandom } from "alchemy";
+import type { RuntimeContext } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
@@ -20,25 +21,29 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as Etag from "effect/http/Etag";
 import * as HttpPlatform from "effect/http/HttpPlatform";
 import * as HttpRouter from "effect/http/HttpRouter";
-import { HttpServerRequest } from "effect/http/HttpServerRequest";
+import { HttpServerRequest, toWeb } from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 
-import { domains, isProduction } from "../../../domains.ts";
+import { accountEmail, domains, isProduction } from "../../../domains.ts";
+import { createAccountAuth } from "./account-auth";
+import { accountBilling } from "./account-billing";
+import { deleteAccount } from "./account-delete";
+import type { AccountEmailBinding } from "./account-email";
+import { handleAccountHttp } from "./account-http";
+import { accountAction } from "./account-identity";
+import { accountPage } from "./account-page";
 import { makeProviderTokens } from "./apns";
 import type { PushContext } from "./apns";
 import {
   checkoutInboxId,
   customerPortal,
   subscriptionOwner,
-  validatePatronProduct,
-  createCheckout,
   creemClient,
   verifyWebhook,
   readWebhookAction,
-  retrieveCheckout,
 } from "./Creem";
 import { Inbox, InboxLive } from "./Inbox";
 import { themeForSend } from "./presentation";
@@ -75,16 +80,40 @@ export default class Server extends Cloudflare.Worker<Server>()(
     // props without it, where the domain no longer matters.
     const stage = yield* Effect.serviceOption(Stage);
     const production = Option.exists(stage, isProduction);
+    const accountDatabase = yield* Cloudflare.D1.Database("Accounts", {
+      migrations: "./apps/server/account-migrations",
+    });
+    const accountSecret = yield* makeRandom("AccountSecret");
     return {
       main: import.meta.url,
-      compatibility: { date: "2026-08-31" },
+      compatibility: { date: "2026-08-31", flags: ["nodejs_compat"] },
       observability: { enabled: true },
       version: { tag: process.env.COMMIT_SHA ?? "local" },
       domain: production ? domains.api : undefined,
+      // Previews cannot send real sign-in messages from the production domain.
+      env: {
+        ACCOUNT_DB: accountDatabase,
+        ACCOUNT_SECRET: accountSecret,
+        ACCOUNT_PRODUCTION: production ? "true" : "false",
+        ...(production
+          ? {
+              ACCOUNT_EMAIL: yield* Cloudflare.Email.SendEmail("AccountEmail", {
+                allowedSenderAddresses: [accountEmail],
+              }),
+            }
+          : {}),
+      },
       dev: { port: 3000 },
     };
   }),
   Effect.gen(function* serverMain() {
+    const accountEnv = (yield* Cloudflare.Workers
+      .WorkerEnvironment) as unknown as {
+      ACCOUNT_DB: D1Database;
+      ACCOUNT_SECRET: string;
+      ACCOUNT_PRODUCTION: string;
+      ACCOUNT_EMAIL?: AccountEmailBinding;
+    };
     const inboxes = yield* Inbox;
     const versionMetadata = yield* Cloudflare.Workers.VersionMetadata();
     const patrons = yield* SenderPatron;
@@ -425,77 +454,13 @@ export default class Server extends Cloudflare.Worker<Server>()(
             forPatron.pipe(Effect.flatMap(({ key, stub }) => stub.status(key)))
           )
           .handle("patronCheckout", () =>
-            Effect.gen(function* startCheckout() {
+            Effect.gen(function* accountRequiredForCheckout() {
               const { key, stub } = yield* forPatron;
-              const request = yield* HttpServerRequest;
-              // Authenticates the key before touching the provider.
               yield* stub.status(key);
-              if (
-                !patronCheckoutEnabled ||
-                Option.isNone(creem) ||
-                !creem.value.patronProductId
-              ) {
-                return yield* new Unavailable({
-                  message:
-                    "New patron signup is not available yet. Messaging remains free.",
-                });
-              }
-              const billing = creem.value;
-              const url = yield* validatePatronProduct(
-                billing.client,
-                billing.patronProductId
-              ).pipe(
-                Effect.andThen(
-                  Effect.gen(function* checkoutOnce() {
-                    let attempt = yield* stub.reserveCheckout(key);
-                    if (attempt.url && attempt.providerId) {
-                      const remote = yield* retrieveCheckout(
-                        billing.client,
-                        attempt.providerId
-                      );
-                      if (remote.status === "expired") {
-                        yield* stub.releaseExpiredCheckout(attempt.requestId);
-                        attempt = yield* stub.reserveCheckout(key);
-                      } else if (remote.status === "pending") {
-                        return attempt.url;
-                      } else {
-                        return yield* new Conflict({
-                          message:
-                            "Checkout is processing or complete. Please wait for your membership to update, or contact support.",
-                        });
-                      }
-                    }
-                    if (attempt.url) {
-                      return attempt.url;
-                    }
-                    const checkout = yield* createCheckout(billing.client, {
-                      productId: billing.patronProductId,
-                      patronId: key.patronId,
-                      requestId: attempt.requestId,
-                      successUrl: new URL(
-                        "/v1/patrons/return",
-                        request.originalUrl
-                      ).href,
-                    });
-                    yield* stub.finishCheckout(
-                      attempt.requestId,
-                      checkout.id,
-                      checkout.url
-                    );
-                    return checkout.url;
-                  })
-                ),
-                Effect.tapError((error) => Effect.logError(error)),
-                Effect.mapError((error) =>
-                  error._tag === "CreemError"
-                    ? new Unavailable({
-                        message:
-                          "Couldn't prepare checkout. Contact support if this persists; an uncertain checkout is held to avoid duplicate subscriptions.",
-                      })
-                    : error
-                )
-              );
-              return { url };
+              return yield* new Conflict({
+                message:
+                  "Sign in at https://shouldertap.app/account to start patron support. Existing memberships can still be managed here.",
+              });
             })
           )
           .handle("patronManage", () =>
@@ -636,6 +601,141 @@ export default class Server extends Cloudflare.Worker<Server>()(
     return {
       fetch: Effect.gen(function* fetch() {
         const request = yield* HttpServerRequest;
+        if (
+          request.url.startsWith("/api/auth/") ||
+          request.url.startsWith("/account")
+        ) {
+          const webRequest = yield* toWeb(request).pipe(Effect.orDie);
+          const origin =
+            accountEnv.ACCOUNT_PRODUCTION === "true"
+              ? `https://${domains.api}`
+              : new URL(webRequest.url).origin;
+          const webOrigin =
+            accountEnv.ACCOUNT_PRODUCTION === "true"
+              ? `https://${domains.web}`
+              : "http://localhost:3001";
+          const auth = createAccountAuth({
+            database: accountEnv.ACCOUNT_DB,
+            secret: accountEnv.ACCOUNT_SECRET,
+            origin,
+            webOrigin,
+            email: accountEnv.ACCOUNT_EMAIL,
+          });
+          const run = Effect.runPromiseWith(
+            yield* Effect.context<RuntimeContext>()
+          );
+          const response = yield* Effect.promise(() =>
+            handleAccountHttp(webRequest, {
+              auth,
+              origin,
+              webOrigin,
+              page: () => accountPage(webOrigin),
+              deleteAccount: (userId, incoming) =>
+                run(
+                  deleteAccount(accountEnv.ACCOUNT_DB, patrons, userId, () =>
+                    auth.handler(incoming)
+                  ).pipe(
+                    Effect.catchTags({
+                      Conflict: (error) =>
+                        Effect.succeed(
+                          Response.json(
+                            { error: error.message },
+                            { status: 409 }
+                          )
+                        ),
+                      Unauthorized: (error) =>
+                        Effect.succeed(
+                          Response.json(
+                            { error: error.message },
+                            { status: 401 }
+                          )
+                        ),
+                    })
+                  )
+                ),
+              accountRequest: async (userId, incoming) => {
+                const path = new URL(incoming.url).pathname;
+                const isRead =
+                  path === "/account/data" || path === "/account/patron/status";
+                if (incoming.method !== (isRead ? "GET" : "POST")) {
+                  return Response.json(
+                    { error: "Method not allowed" },
+                    { status: 405 }
+                  );
+                }
+                const body: unknown = isRead ? {} : await incoming.json();
+                const deps = { db: accountEnv.ACCOUNT_DB, inboxes, patrons };
+                const action = Effect.gen(function* dispatchAccount() {
+                  if (path.startsWith("/account/patron/")) {
+                    return yield* accountBilling(
+                      {
+                        ...deps,
+                        origin,
+                        enabled: patronCheckoutEnabled,
+                        billing: Option.getOrUndefined(creem),
+                      },
+                      userId,
+                      path.slice("/account/patron/".length),
+                      body
+                    );
+                  }
+                  return yield* accountAction(
+                    deps,
+                    userId,
+                    path.slice("/account/".length),
+                    body
+                  );
+                });
+                return run(
+                  action.pipe(
+                    Effect.map((value) => Response.json(value)),
+                    Effect.catchTags({
+                      InvalidRequest: (error) =>
+                        Effect.succeed(
+                          Response.json(
+                            { error: error.message },
+                            { status: 400 }
+                          )
+                        ),
+                      Unauthorized: (error) =>
+                        Effect.succeed(
+                          Response.json(
+                            { error: error.message },
+                            { status: 403 }
+                          )
+                        ),
+                      Conflict: (error) =>
+                        Effect.succeed(
+                          Response.json(
+                            { error: error.message },
+                            { status: 409 }
+                          )
+                        ),
+                      Unavailable: (error) =>
+                        Effect.succeed(
+                          Response.json(
+                            { error: error.message },
+                            { status: 503 }
+                          )
+                        ),
+                      CreemError: () =>
+                        Effect.succeed(
+                          Response.json(
+                            {
+                              error:
+                                "Billing could not be reached. Try again later.",
+                            },
+                            { status: 503 }
+                          )
+                        ),
+                    })
+                  )
+                );
+              },
+            })
+          );
+          return HttpServerResponse.fromWeb(response);
+        }
         if (request.url.startsWith("/v1/connect?")) {
           // WebSocket upgrade with a one-time ticket; the Inbox accepts it.
           const query = request.url.slice(request.url.indexOf("?") + 1);

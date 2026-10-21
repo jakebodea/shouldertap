@@ -118,6 +118,9 @@ export const credentials = sqliteTable("credentials", {
   color: text("color").$type<PersonColor>(),
   /** Devices only: a Mac or an iPhone. Null for senders. */
   platform: text("platform").$type<DevicePlatform>(),
+  parentId: text("parent_id"),
+  /** Device-key unlinking is separate from recipient removal of a sender. */
+  keyRevokedAt: integer("key_revoked_at"),
   secretHash: text("secret_hash").notNull(),
   createdAt: integer("created_at").notNull(),
   lastSeenAt: integer("last_seen_at"),

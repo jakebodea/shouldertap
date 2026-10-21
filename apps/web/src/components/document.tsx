@@ -5,6 +5,7 @@ import { SitePage } from "@/components/site-page";
 export const SUPPORT_EMAIL = "support@shouldertap.app";
 
 const PAGES = [
+  { href: "/account", label: "Account & patron support" },
   { href: "/support", label: "Support" },
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },

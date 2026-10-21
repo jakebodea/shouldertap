@@ -547,6 +547,12 @@ export const Landing = () => {
           >
             <InkText>Pricing</InkText>
           </a>
+          <a
+            className="inline-flex min-h-11 items-center opacity-85 hover:opacity-100"
+            href="/account"
+          >
+            <InkText>Account</InkText>
+          </a>
           {pairing ? (
             <a
               className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"

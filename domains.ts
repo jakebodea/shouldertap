@@ -14,6 +14,10 @@ export const domains = {
 /** Inbound only: Email Routing hands it to the Support Worker. */
 export const supportEmail = `support@${domains.web}`;
 
+/** Transactional mail is separate from inbound support routing. */
+export const accountEmailDomain = `mail.${domains.web}`;
+export const accountEmail = `signin@${accountEmailDomain}`;
+
 export const isProduction = (stage: string) => stage === "prod";
 
 /** Always the newest Mac build; scripts/release-mac.sh overwrites it. */

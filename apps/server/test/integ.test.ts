@@ -185,9 +185,9 @@ test(
     const disabledSignup = yield* patronApi.patron
       .patronCheckout()
       .pipe(Effect.flip);
-    expect(disabledSignup._tag).toBe("Unavailable");
+    expect(disabledSignup._tag).toBe("Conflict");
     expect(disabledSignup.message).toBe(
-      "New patron signup is not available yet. Messaging remains free."
+      "Sign in at https://shouldertap.app/account to start patron support. Existing memberships can still be managed here."
     );
 
     // An iPhone links with the same device invite and receives independently. (Shares this inbox: tests stay under the

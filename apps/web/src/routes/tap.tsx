@@ -165,7 +165,15 @@ const Composer = ({
     <Frame color={color}>
       <header className="flex items-start justify-between gap-4">
         <RecipientPicker onSelect={onSelect} pairing={pairing} />
-        <StatusLabel status={status} />
+        <div className="flex flex-col items-end gap-1">
+          <StatusLabel status={status} />
+          <a
+            className="text-tone inline-flex min-h-11 items-center text-sm underline underline-offset-4"
+            href="/account"
+          >
+            Account
+          </a>
+        </div>
       </header>
 
       {paused ? (

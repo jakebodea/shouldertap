@@ -16,7 +16,7 @@ October 2026. The [Notion concept document](https://www.notion.so/3eb7155b453881
 
 **Wire protocol:** JSON over HTTPS and WebSocket events. The server and `packages/domain` are authoritative. The same shapes are mirrored manually in `ShouldertapCore` (Swift) and `shouldertap-core` (Rust). `scripts/check-protocol-sync.mjs` runs in `bun run check` to keep swatches and length limits aligned.
 
-**Auth / accounts:** Invite-link pairing with bearer credentials owned by each Inbox DO. A sender's patron membership is a separate SenderPatron DO with its own bearer keys (never a pairing credential), so one membership spans pairings. D1 + Better Auth are planned for account metadata but are not the pairing source of truth yet.
+**Auth / accounts:** Invite-link pairing with bearer credentials owned by each Inbox DO. A sender's patron membership is a separate SenderPatron DO with its own bearer keys (never a pairing credential), so one membership spans pairings. Better Auth uses D1 for email accounts, sessions, and ownership references. Inbox and SenderPatron DOs remain authoritative for messaging and membership. See [email accounts](accounts.md).
 
 ## Runtime topology
 
@@ -60,8 +60,6 @@ apps/ios/        Swift iOS app (Xcode)
 apps/windows/    Rust core + GPUI app
 packages/domain/
 packages/client/
-packages/auth/
-packages/db/
 stacks/          GitHub / Cloudflare admin stacks
 scripts/         Deploy helpers, protocol sync check
 docs/
@@ -82,6 +80,6 @@ Generator choices, Effect 4 / Alchemy beta notes, and early scaffolding rational
 
 ## Optional patron support
 
-Core messaging has no billing gate. `plan.status = paid` is the compatibility value for older clients; it is independent of actual purchase records. Patron support belongs to the **sender**: the SenderPatron DO folds signed Creem facts (metadata `patron_id`) and answers whether a presented patron key is active. The Worker turns a send's requested theme into a `VerifiedTheme` from that answer alone, and the Inbox stores it on the tap (`taps.theme`); anything else stores Default and still delivers. Recipients keep free per-inbox settings (`appearance.senderThemes` show/plain, `appearance.motion`). Historical receiver subscriptions (metadata `inbox_id`) still fold in their Inbox for management and refunds and grant nothing. See [patrons.md](patrons.md).
+Core messaging has no billing gate. `plan.status = paid` is the compatibility value for older clients; it is independent of actual purchase records. Patron support belongs to the **sender**: the SenderPatron DO folds signed Creem facts (metadata `patron_id`) and answers whether a presented patron key is active. The Worker turns a send's requested theme into a `VerifiedTheme` from that answer alone, and the Inbox stores it on the tap (`taps.theme`); anything else stores Default and still delivers. Recipients can reduce animation motion; tap styling belongs to the sender. Historical receiver subscriptions (metadata `inbox_id`) still fold in their Inbox for management and refunds and grant nothing. See [patrons.md](patrons.md).
 
-An iPhone can create an inbox independently; computers are optional. The sender owns theme entitlement in SenderPatron, while every recipient may choose plain/reduced motion for free. New sender checkout defaults off until approved; native iPhone billing links are not enabled.
+An iPhone can create an inbox independently; computers are optional. The sender owns theme entitlement in SenderPatron, while every recipient may reduce motion. New sender checkout defaults off until approved; native iPhone billing links use the actual US App Store storefront.
