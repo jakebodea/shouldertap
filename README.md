@@ -153,7 +153,7 @@ scripts/release-ios.sh
 
 Or label a pull request `release:beta`: when it merges, `.github/workflows/testflight.yml` runs the same script on a macOS runner from the merged `main` and comments the build number on the PR. Actions > TestFlight > Run workflow releases `main` on demand. CI signs with an App Store Connect API key (Admin role, so it can create the distribution certificate) from Infisical `shouldertap-prod` (`prod`): `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (the `.p8` file's contents).
 
-The version is `MARKETING_VERSION` in the Xcode project; bump it for a new version. The build number is the commit count (`git rev-list --count HEAD`), so it rises with every commit on `main` and needs no bumping; set `BUILD_NUMBER` to override. Releasing the same commit twice fails, since App Store Connect rejects a repeated build number. `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
+The app and widget share `apps/ios/Version.xcconfig`: bump `MARKETING_VERSION` for a new version and increment `CURRENT_PROJECT_VERSION` before an upload. Set `BUILD_NUMBER` only for an intentional override; the release script requires a positive integer. App Store Connect rejects repeated version/build pairs. `--no-upload` exports the `.ipa` only. Release builds talk to production. The app declares `ITSAppUsesNonExemptEncryption = NO` (HTTPS only), so uploads skip the export compliance question.
 
 ## Release the Mac app
 
@@ -209,3 +209,4 @@ Core messaging is free and does not expire. Optional patron support costs $24/ye
 
 Background delivery uses direct APNs from the server, not a Mac relay. Notifications and Live Activities depend on system permissions and APNs configuration; iOS cannot take over other apps. A foreground socket receipt is not proof of background push delivery. Verify real physical-device push-to-start, fallback notification, answer, cross-device dismissal and relaunch with a signed build before publishing claims.
 
+Candidate release preparation is tracked in [the 0.2.0 checklist](docs/release-0.2.0.md). The API `/version` exposes its Cloudflare version ID, revision tag and free-core/signup state without credentials; production deploys must tag the exact source revision.

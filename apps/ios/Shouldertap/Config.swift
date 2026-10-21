@@ -47,7 +47,7 @@ enum Config {
   /// In the Keychain like the sender pairings (readable after first unlock,
   /// never synced); unsent answers persist in UserDefaults for retry.
   static let inboxPersistence = LocalPersistence(
-    vault: KeychainVault(service: "app.shouldertap.ios.inbox"))
+    vault: KeychainVault(service: "app.shouldertap.iphone.inbox"))
 
   /// Where the Mac app comes from, for the person being tapped.
   static let macDownloadPage = URL(string: "https://shouldertap.app/download")!
