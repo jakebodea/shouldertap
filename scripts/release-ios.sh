@@ -69,6 +69,11 @@ if [[ "$bundle" != app.shouldertap.iphone ]]; then
   echo "Refusing export for unexpected app identity: $bundle" >&2
   exit 1
 fi
+archived_revision=$(/usr/libexec/PlistBuddy -c 'Print ShouldertapSourceRevision' "$app/Info.plist")
+if [[ "$archived_revision" != "$source_revision" ]]; then
+  echo "Refusing export: archive source revision does not match the candidate." >&2
+  exit 1
+fi
 for extension in "$app"/PlugIns/*.appex; do
   codesign --force --sign - "$extension"
 done
