@@ -114,6 +114,20 @@ pub fn ago(timestamp: Timestamp, now: Timestamp) -> String {
     }
 }
 
+/// How long an answer took: "8s", "3m", "2h" (`duration` in apps/web/src/lib/time.ts).
+pub fn duration(from: Timestamp, to: Timestamp) -> String {
+    let seconds = ((to - from) / 1000.0).round().max(1.0) as i64;
+    if seconds < 60 {
+        return format!("{seconds}s");
+    }
+    let minutes = (seconds as f64 / 60.0).round() as i64;
+    if minutes < 60 {
+        format!("{minutes}m")
+    } else {
+        format!("{}h", (minutes as f64 / 60.0).round() as i64)
+    }
+}
+
 /// Ease-out expo, the overlay's arrival and swap curve (docs/design.md, "Motion"):
 /// cubic-bezier(0.16, 1, 0.3, 1).
 pub fn ease_out_expo(t: f32) -> f32 {
@@ -156,6 +170,14 @@ mod tests {
         assert_eq!(ago(now - 4.0 * 60_000.0, now), "4m ago");
         assert_eq!(ago(now - 125.0 * 60_000.0, now), "2h ago");
         assert_eq!(ago(now - 3.0 * 86_400_000.0, now), "3d ago");
+    }
+
+    #[test]
+    fn durations() {
+        assert_eq!(duration(0.0, 200.0), "1s");
+        assert_eq!(duration(0.0, 8_000.0), "8s");
+        assert_eq!(duration(0.0, 150_000.0), "3m");
+        assert_eq!(duration(0.0, 7_200_000.0), "2h");
     }
 
     #[test]

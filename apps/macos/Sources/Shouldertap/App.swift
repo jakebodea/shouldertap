@@ -60,6 +60,21 @@ enum Config {
       LocalPersistence(vault: vault)
     #endif
   }
+
+  /// People this Mac can tap, kept beside its own pairing.
+  static var senderPersistence: LocalSenderPersistence {
+    let vault = vault.map { _ in
+      KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".senders")
+    }
+    #if DEBUG
+      return LocalSenderPersistence(
+        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+          .appending(path: "Shouldertap Debug", directoryHint: .isDirectory),
+        vault: vault)
+    #else
+      return LocalSenderPersistence(vault: vault)
+    #endif
+  }
 }
 
 /// Menu-bar-only app: a status item with a SwiftUI popover, plus full-screen
@@ -71,13 +86,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     persistence: Config.persistence,
     deviceName: { Host.current().localizedName ?? "Mac" },
     machine: HardwareID.trialFingerprint)
+  /// Everyone this Mac can tap; independent of its own inbox, so a Mac can
+  /// send without receiving, like an iPhone.
+  private let senders = SenderStore(server: Config.endpoints.server, persistence: Config.senderPersistence)
+  private lazy var sendWindow = SendController(store: senders)
   private lazy var overlays = OverlayController(store: store)
   private lazy var appearance = AppearanceController(store: store)
   /// Owned by the app, not the popover: sign-in keeps waiting for the
   /// browser after the popover closes and frees its views.
   private let account = AccountStore(server: Config.endpoints.server, clientID: "shouldertap-mac",
     vault: KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".account"))
-  private lazy var accountWindow = AccountController(account: account, inbox: store)
+  private lazy var accountWindow = AccountController(account: account, inbox: store, senders: senders)
   private let welcome = WelcomeController()
   private let updates = Updates()
   private let popover = NSPopover()
@@ -103,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     observeWake()
     observeNetwork()
     Task { await account.refresh() }
+    senders.start()
 
     if !store.start() {
       // Not set up yet: welcome them the first time, then open the menu so
@@ -143,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if popover.contentViewController == nil {
       let controller = NSHostingController(
         rootView: MenuView(
-          store: store, updates: updates, account: account,
+          store: store, senders: senders, updates: updates, account: account,
           openAppearance: { [weak self] in
             self?.popover.performClose(nil)
             self?.appearance.show()
@@ -151,6 +171,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           openAccount: { [weak self] in
             self?.popover.performClose(nil)
             self?.accountWindow.show()
+          },
+          openSend: { [weak self] personId in
+            self?.popover.performClose(nil)
+            self?.sendWindow.show(personId: personId)
           }))
       controller.sizingOptions = .preferredContentSize
       popover.contentViewController = controller
@@ -179,7 +203,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let center = NSWorkspace.shared.notificationCenter
     for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
       center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-        MainActor.assumeIsolated { self?.store.nudge() }
+        MainActor.assumeIsolated {
+          self?.store.nudge()
+          self?.senders.nudge()
+        }
       }
     }
   }
@@ -190,7 +217,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       let up = path.status == .satisfied
       Task { @MainActor in
         guard let self else { return }
-        if up, !self.networkWasUp { self.store.nudge() }
+        if up, !self.networkWasUp {
+          self.store.nudge()
+          self.senders.nudge()
+        }
         self.networkWasUp = up
       }
     }

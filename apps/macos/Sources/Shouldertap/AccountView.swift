@@ -8,11 +8,13 @@ import SwiftUI
 final class AccountController {
   private let account: AccountStore
   private let inbox: ReceiverStore
+  private let senders: SenderStore
   private var window: NSWindow?
 
-  init(account: AccountStore, inbox: ReceiverStore) {
+  init(account: AccountStore, inbox: ReceiverStore, senders: SenderStore) {
     self.account = account
     self.inbox = inbox
+    self.senders = senders
   }
 
   func show() {
@@ -22,7 +24,7 @@ final class AccountController {
         backing: .buffered, defer: false)
       window.title = "Account"
       window.isReleasedWhenClosed = false
-      window.contentView = NSHostingView(rootView: AccountView(account: account, inbox: inbox))
+      window.contentView = NSHostingView(rootView: AccountView(account: account, inbox: inbox, senders: senders))
       window.contentMinSize = NSSize(width: 400, height: 360)
       window.center()
       self.window = window
@@ -37,13 +39,14 @@ final class AccountController {
 struct AccountView: View {
   let account: AccountStore
   let inbox: ReceiverStore
+  let senders: SenderStore
   @Environment(\.openURL) private var openURL
   @State private var selectedInbox: AccountIdentity?
   @State private var confirmDeletion = false
   @State private var area = Area.top
   @State private var restoring: String?
 
-  private enum Area { case top, device, inboxes, delete }
+  private enum Area { case top, device, inboxes, people, delete }
 
   var body: some View {
     Form {
@@ -115,9 +118,9 @@ struct AccountView: View {
         Button("Sign out") { area = .top; Task { await account.signOut() } }
       }
     }
-    let tokens = [inbox.accountCredential].compactMap { $0 }
+    let tokens = [inbox.accountCredential].compactMap { $0 } + senders.sessions.map(\.pairing.token)
     Section {
-      if account.hasUnsaved(inboxToken: inbox.accountCredential) {
+      if account.hasUnsaved(inboxToken: inbox.accountCredential, senders: senders.sessions.map(\.pairing)) {
         HStack {
           Text("Save so you can restore this inbox.")
           Spacer()
@@ -141,6 +144,12 @@ struct AccountView: View {
           status(.inboxes)
         }
       }
+    }
+
+    if let data = account.data, !data.senders.isEmpty {
+      Section {
+        ForEach(data.senders) { identity in personRow(identity) }
+      } header: { Text("People you can tap") } footer: { status(.people) }
     }
 
     Section {
@@ -168,6 +177,37 @@ struct AccountView: View {
       .menuStyle(.borderlessButton)
       .fixedSize()
       .disabled(here && isDefault)
+    }
+  }
+
+  private func personRow(_ identity: AccountIdentity) -> some View {
+    let local = senders.sessions.contains { $0.pairing.inboxId == identity.inboxId }
+    return HStack {
+      Text("Tap \(identity.name)")
+      Spacer()
+      if local {
+        Text("On this Mac").foregroundStyle(.secondary)
+      } else if restoring == identity.id {
+        ProgressView().controlSize(.small)
+      } else {
+        Button("Restore") { restoreSender(identity) }.disabled(restoring != nil)
+      }
+    }
+  }
+
+  private func restoreSender(_ identity: AccountIdentity) {
+    area = .people
+    restoring = identity.id
+    account.error = nil
+    account.notice = nil
+    Task {
+      defer { restoring = nil }
+      do {
+        let grant = try await account.restore(
+          kind: "sender", id: identity.id, deviceName: Host.current().localizedName ?? "Mac", platform: "mac")
+        try await senders.restoreAccountSender(grant)
+        account.notice = "You can tap \(identity.name) again."
+      } catch { account.error = error.localizedDescription }
     }
   }
 

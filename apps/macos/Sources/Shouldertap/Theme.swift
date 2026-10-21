@@ -23,6 +23,8 @@ enum Bricolage {
   static func bold(_ size: CGFloat) -> Font { .custom("BricolageGrotesque-Bold", fixedSize: size) }
   /// 800, optical size 96: the message.
   static let extraBoldName = "BricolageGrotesque-ExtraBold"
+  /// 800: titles on the sender's page.
+  static func extraBold(_ size: CGFloat) -> Font { .custom(extraBoldName, fixedSize: size) }
 }
 
 /// Person colors from packages/domain/src/colors.ts (`PersonColor.swatch`).
@@ -53,4 +55,12 @@ func ago(_ timestamp: Timestamp, now: Date = .now) -> String {
   if minutes < 60 { return "\(minutes)m ago" }
   let hours = Int((Double(minutes) / 60).rounded())
   return hours < 24 ? "\(hours)h ago" : "\(Int((Double(hours) / 24).rounded()))d ago"
+}
+
+/// `duration` from apps/web/src/lib/time.ts: how long an answer took.
+func duration(from: Timestamp, to: Timestamp) -> String {
+  let seconds = max(1, Int(((to - from) / 1000).rounded()))
+  if seconds < 60 { return "\(seconds)s" }
+  let minutes = Int((Double(seconds) / 60).rounded())
+  return minutes < 60 ? "\(minutes)m" : "\(Int((Double(minutes) / 60).rounded()))h"
 }

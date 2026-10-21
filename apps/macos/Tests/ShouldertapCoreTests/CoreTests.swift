@@ -238,6 +238,51 @@ private func fixture(_ name: String) throws -> Data {
     // Still readable next launch: the file stays until a write succeeds.
     #expect(LocalPersistence(directory: directory).loadCredential() == "inbox.id.secret")
   }
+
+  @Test func senderPairingsSurviveARestartInAnOwnerOnlyFile() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let suite = "test.\(UUID().uuidString)"
+    defer {
+      try? FileManager.default.removeItem(at: directory)
+      UserDefaults().removePersistentDomain(forName: suite)
+    }
+    let jamie = SenderPairing(
+      token: "inbox123.s1s1s1s1.secret5678", credentialId: "s1s1s1s1", recipientName: "Jamie", senderName: "Rosa",
+      color: .rose, pairedAt: 1)
+    let alex = SenderPairing(
+      token: "inbox456.s2s2s2s2.secret5678", credentialId: "s2s2s2s2", recipientName: "Alex", senderName: "Rosa",
+      color: .moss, pairedAt: 2)
+    try LocalSenderPersistence(directory: directory, defaultsSuite: suite).savePairing(jamie)
+    try LocalSenderPersistence(directory: directory, defaultsSuite: suite).savePairing(alex)
+
+    let reopened = LocalSenderPersistence(directory: directory, defaultsSuite: suite)
+    #expect(reopened.loadPairings().map(\.recipientName).sorted() == ["Alex", "Jamie"])
+    let attributes = try FileManager.default.attributesOfItem(atPath: directory.appending(path: "senders.secret").path)
+    #expect((attributes[.posixPermissions] as? Int) == 0o600)
+
+    reopened.saveOutbox(
+      [OutgoingTap(requestId: "r1r1r1r1", body: "Dinner", createdAt: 3, failed: false, error: nil)], credentialId: "s1s1s1s1")
+    #expect(reopened.loadOutbox(credentialId: "s1s1s1s1").map(\.body) == ["Dinner"])
+
+    reopened.deletePairing(credentialId: "s1s1s1s1")
+    #expect(reopened.loadPairings().map(\.recipientName) == ["Alex"])
+    reopened.deletePairing(credentialId: "s2s2s2s2")
+    #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "senders.secret").path))
+  }
+
+  @Test func senderPairingsGoInTheVaultWhenThereIsOne() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let vault = MemoryVault()
+    let store = LocalSenderPersistence(directory: directory, vault: vault)
+    try store.savePairing(
+      SenderPairing(
+        token: "inbox123.s1s1s1s1.secret5678", credentialId: "s1s1s1s1", recipientName: "Jamie", senderName: "Rosa",
+        color: .rose, pairedAt: 1))
+    #expect(vault.read()?.contains("inbox123.s1s1s1s1.secret5678") == true)
+    #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "senders.secret").path))
+    #expect(store.loadPairings().map(\.token) == ["inbox123.s1s1s1s1.secret5678"])
+  }
 }
 
 final class MemoryVault: CredentialVault, @unchecked Sendable {
