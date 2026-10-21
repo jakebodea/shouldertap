@@ -1,17 +1,8 @@
-import { accountEmail, supportEmail } from "../../../domains.ts";
-import { accountEmailTemplate } from "./account-email-template";
+import { sendEmail } from "./emails/delivery";
+import type { EmailBinding } from "./emails/delivery";
+import { signInEmail } from "./emails/sign-in";
 
-/** Cloudflare Email Service's builder API; injectable at the provider boundary. */
-export interface AccountEmailBinding {
-  send: (message: {
-    from: { email: string; name: string };
-    to: string;
-    replyTo: string;
-    subject: string;
-    text: string;
-    html: string;
-  }) => Promise<unknown>;
-}
+export type AccountEmailBinding = EmailBinding;
 
 export class AccountEmailUnavailableError extends Error {
   constructor() {
@@ -32,13 +23,7 @@ export const accountEmailSender =
       throw new AccountEmailUnavailableError();
     }
     try {
-      await binding.send({
-        from: { email: accountEmail, name: "Shouldertap" },
-        to: email,
-        replyTo: supportEmail,
-        subject: "Sign in to Shouldertap",
-        ...accountEmailTemplate(url),
-      });
+      await sendEmail(binding, email, signInEmail(url));
     } catch {
       throw new AccountEmailUnavailableError();
     }

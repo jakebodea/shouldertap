@@ -2,11 +2,13 @@
   "extends": "@shouldertap/config/tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    "jsx": "react-jsx",
     "types": ["@cloudflare/workers-types", "bun"],
     "allowImportingTsExtensions": true
   },
   "include": [
     "src/**/*.ts",
+    "src/**/*.tsx",
     "test/**/*.ts",
     "drizzle/**/*.d.ts",
     "drizzle.config.ts"

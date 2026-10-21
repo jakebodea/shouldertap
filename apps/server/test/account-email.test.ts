@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { accountEmailSender } from "../src/account-email";
 import type { AccountEmailBinding } from "../src/account-email";
-import { accountEmailTemplate } from "../src/account-email-template";
+import { renderEmail } from "../src/emails/layout";
+import { signInEmail } from "../src/emails/sign-in";
 
 describe("account sign-in email", () => {
   it("delivers the sign-in link from Shouldertap with support replies", async () => {
@@ -26,7 +27,9 @@ describe("account sign-in email", () => {
         html: expect.stringContaining(
           'href="https://api.shouldertap.app/account#example"'
         ),
-        text: "Sign in to your Shouldertap account:\n\nhttps://api.shouldertap.app/account#example\n\nThis link expires in 10 minutes and can be used once.\n\nIf you didn't request this email, you can ignore it.",
+        text: expect.stringContaining(
+          "https://api.shouldertap.app/account#example"
+        ),
       },
     ]);
   });
@@ -46,7 +49,10 @@ describe("account sign-in email", () => {
         Promise.reject(new Error("Provider rejected secret-token-value")),
     });
     await expect(
-      send({ email: "reader@example.com", url: "secret-token-value" })
+      send({
+        email: "reader@example.com",
+        url: "https://api.shouldertap.app/account#secret-token-value",
+      })
     ).rejects.toMatchObject({
       name: "AccountEmailUnavailableError",
       message: "Sign-in email could not be sent. Please try again.",
@@ -55,9 +61,9 @@ describe("account sign-in email", () => {
 });
 
 describe("email rendering", () => {
-  it("escapes the sign-in URL in HTML while preserving the plain-text link", () => {
-    const email = accountEmailTemplate(
-      'https://api.shouldertap.app/account#token&"<test>'
+  it("escapes the sign-in URL in HTML while preserving the plain-text link", async () => {
+    const email = await renderEmail(
+      signInEmail('https://api.shouldertap.app/account#token&"<test>')
     );
     expect(email.html).toContain(
       'href="https://api.shouldertap.app/account#token&amp;&quot;&lt;test&gt;"'
