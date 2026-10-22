@@ -105,7 +105,7 @@
       window.orderOut(nil)
     }
 
-    /// Each first-run step at 1440×900, with no server: the account points
+    /// Each first-run step at the window's size, with no server: the account points
     /// nowhere and forgets nothing.
     private static func welcomeSteps(into directory: String) async {
       let account = AccountStore(server: URL(string: "http://127.0.0.1:9")!, vault: NoVault())
@@ -113,16 +113,16 @@
         ("welcome", .welcome), ("email", .email), ("code", .code), ("you", .you), ("ready", .ready),
       ]
       for (name, step) in steps {
-        let model = WelcomeModel(pointerX: 1240, menuBarHeight: 0, account: account, sync: {}, dismiss: { _ in })
+        let model = WelcomeModel(account: account, sync: {}, dismiss: { _ in })
         model.step = step
         model.email = "jake@example.com"
         model.code = step == .code ? "1234" : ""
         model.name = "Jake"
         model.color = .moss
         let window = NSWindow(
-          contentRect: NSRect(x: 40, y: 40, width: 1440, height: 900), styleMask: [.borderless], backing: .buffered,
+          contentRect: NSRect(origin: CGPoint(x: 40, y: 40), size: WelcomeController.size), styleMask: [.borderless], backing: .buffered,
           defer: false)
-        window.contentView = NSHostingView(rootView: WelcomeView(model: model))
+        window.contentView = WelcomeController.host(model)
         window.orderFrontRegardless()
         try? await Task.sleep(for: .seconds(1.5))
         // Drawn from the view itself: needs no Screen Recording permission.

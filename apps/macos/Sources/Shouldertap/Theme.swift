@@ -2,6 +2,20 @@ import AppKit
 import ShouldertapCore
 import SwiftUI
 
+/// Hosts a surface drawn on paper (the welcome): always the light
+/// appearance, whatever the system's, so anything left to the system (the
+/// text cursor, selection, spinners, default text) stays dark on paper
+/// instead of white on white.
+final class PaperHostingView<Content: View>: NSHostingView<Content> {
+  required init(rootView: Content) {
+    super.init(rootView: rootView)
+    appearance = NSAppearance(named: .aqua)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+}
+
 /// The paper world inside every frame (docs/design.md, "Color").
 enum Paper {
   static let paper = Color(hex: 0xf6f5f1)

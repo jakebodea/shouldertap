@@ -19,19 +19,27 @@ struct MenuView: View {
   @State private var contentHeight: CGFloat = 0
 
   var body: some View {
-    ScrollView {
-      VStack(spacing: 12) {
-        #if DEBUG
-          DebugBanner()
-        #endif
-        content
+    if account.signedIn, account.me?.profile != nil, store.phase == .ready {
+      HomeView(
+        store: store, senders: senders, updates: updates, account: account, openAppearance: openAppearance,
+        openSend: openSend
+      )
+      .frame(width: 640, height: 480)
+    } else {
+      ScrollView {
+        VStack(spacing: 12) {
+          #if DEBUG
+            DebugBanner()
+          #endif
+          content
+        }
+        .padding(14)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
       }
-      .padding(14)
-      .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+      .scrollBounceBehavior(.basedOnSize)
+      // Grow with the content, and scroll past 620pt.
+      .frame(width: 380, height: min(max(contentHeight, 120), 620))
     }
-    .scrollBounceBehavior(.basedOnSize)
-    // Grow with the content, and scroll past 620pt.
-    .frame(width: 380, height: min(max(contentHeight, 120), 620))
   }
 
   /// The account decides: signed in with a profile, this Mac is yours.
@@ -50,16 +58,10 @@ struct MenuView: View {
       StartView(updates: updates, title: account.email ?? "Welcome", openOnboarding: openOnboarding,
         message: "Choose your name and color so people know who's tapping.", action: "Finish setting up")
     } else {
-      switch store.phase {
-      case .ready:
-        ReadyView(
-          store: store, senders: senders, updates: updates, account: account, openAppearance: openAppearance,
-          openSend: openSend)
-      case .loading, .setup:
-        WaitingView(
-          updates: updates, message: account.error ?? "Setting up this Mac…",
-          retry: account.error == nil ? nil : { Task { await sync() } })
-      }
+      // Ready is the home view, above.
+      WaitingView(
+        updates: updates, message: account.error ?? "Setting up this Mac…",
+        retry: account.error == nil ? nil : { Task { await sync() } })
     }
   }
 }
@@ -118,84 +120,109 @@ private struct WaitingView: View {
   }
 }
 
-private struct ReadyView: View {
+/// Signed in and set up: who you tap on the left, what you got on the right,
+/// and everything else behind Settings at the bottom.
+private struct HomeView: View {
   let store: ReceiverStore
   let senders: SenderStore
   let updates: Updates
   let account: AccountStore
   let openAppearance: () -> Void
   let openSend: (String?) -> Void
+  @State private var settings = false
+  @State private var invite: SenderInvite?
+  @State private var inviteError: String?
 
   var body: some View {
-    let senders = store.credentials.filter { $0.kind == .sender }
-    let devices = store.credentials.filter { $0.kind == .device }
-    VStack(alignment: .leading, spacing: 16) {
-      Brand(subtitle: subtitle) {
-        StatusLabel(status: store.status)
-      }
-
-      InviteSender(store: store)
-
-      Section(title: "Can tap you") {
-        if senders.isEmpty {
-          Muted("No one yet. Invite someone above, and they can tap you once they accept.")
+    VStack(spacing: 0) {
+      #if DEBUG
+        DebugBanner().padding([.horizontal, .top], 14)
+      #endif
+      if settings {
+        SettingsView(store: store, updates: updates, account: account, openAppearance: openAppearance) {
+          settings = false
+        }
+      } else {
+        header.padding(14)
+        Divider()
+        if let invite {
+          InviteCard(invite: invite) { self.invite = nil }
         } else {
-          ForEach(senders) { PairingRow(store: store, credential: $0, isSelf: false) }
+          HStack(spacing: 0) {
+            SendPane(senders: senders, openSend: openSend)
+            Divider()
+            ReceivedPane(store: store) { settings = true }
+          }
         }
       }
-
-      YouCanTap(senders: self.senders, openSend: openSend)
-
-      Section(title: "Your devices") {
-        ForEach(devices) { PairingRow(store: store, credential: $0, isSelf: $0.id == store.credentialId) }
-      }
-
-      Section(title: "Accessibility") {
-        Row(action: openAppearance) { _ in
-          Text("Tap motion").font(.system(size: 13, weight: .medium))
-          Spacer(minLength: 0)
-          Text(appearanceLabel).font(.system(size: 12)).foregroundStyle(.secondary)
-          Text("›").font(.system(size: 13)).foregroundStyle(.tertiary)
-        }
-        .accessibilityLabel("Tap motion, \(appearanceLabel)")
-      }
-
-      AccountSection(account: account)
-
-      Section(title: "Recent") {
-        if store.taps.isEmpty {
-          Muted("Taps you receive show up here.")
-        } else {
-          ForEach(store.taps.prefix(6)) { TapRow(store: store, tap: $0) }
-        }
-      }
-
-      PatronView(store: store)
-      Footer(updates: updates)
+      BottomBar(updates: updates, settings: $settings)
     }
   }
 
-  private var appearanceLabel: String {
-    store.appearance.motion == .reduced ? "Reduced" : "Follow system"
+  private var header: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Brand(subtitle: store.recipientName.isEmpty ? " " : "Taps for \(store.recipientName)") {
+        HStack(spacing: 12) {
+          StatusLabel(status: store.status)
+          MenuButton(title: "Invite someone", icon: .invite, kind: .primary) {
+            inviteError = nil
+            Task {
+              do { invite = try await store.createSenderInvite() } catch { inviteError = error.localizedDescription }
+            }
+          }
+          .disabled(invite != nil)
+        }
+      }
+      if let inviteError { ErrorText(inviteError) }
+    }
   }
+}
 
-  /// Billing never changes the recipient name or messaging controls.
-  private var subtitle: String {
-    guard !store.recipientName.isEmpty else { return " " }
-    let base = "Taps for \(store.recipientName)"
-    return base
+/// A pane: a title, its list scrolling under it, and an optional foot.
+private struct Pane<Trailing: View, Content: View, Foot: View>: View {
+  let title: String
+  @ViewBuilder var trailing: Trailing
+  @ViewBuilder var content: Content
+  @ViewBuilder var foot: Foot
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 8) {
+        Text(title).font(.system(size: 13, weight: .semibold))
+        Spacer(minLength: 0)
+        trailing
+      }
+      .frame(height: 26)
+      .padding(.horizontal, 14)
+      .padding(.top, 10)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 4) { content }
+          .padding(.horizontal, 14)
+          .padding(.vertical, 6)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .scrollBounceBehavior(.basedOnSize)
+      foot.padding(.horizontal, 14).padding(.bottom, 8)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
 }
 
 /// The other direction: people this Mac can tap, each opening the composer.
-private struct YouCanTap: View {
+private struct SendPane: View {
   let senders: SenderStore
   let openSend: (String?) -> Void
 
   var body: some View {
-    Section(title: "You can tap") {
+    Pane(title: "Send") {
+      EmptyView()
+    } content: {
+      if senders.sessions.isEmpty {
+        Muted("No one to tap yet. When someone sends you an invite link, paste it below.")
+          .padding(.top, 4)
+      }
       TimelineView(.periodic(from: .now, by: 30)) { context in
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
           ForEach(senders.sessions) { person in
             Row(action: { openSend(person.id) }) { _ in
               Avatar(name: person.pairing.recipientName, color: person.color)
@@ -211,11 +238,140 @@ private struct YouCanTap: View {
           }
         }
       }
+    } foot: {
       Row(action: { openSend(nil) }) { _ in
         Glyph(icon: .send)
         Text("Got a link? Paste it")
           .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
       }
+    }
+  }
+}
+
+/// Taps you got, newest first; who can tap you as avatars beside the title.
+private struct ReceivedPane: View {
+  let store: ReceiverStore
+  let manage: () -> Void
+
+  var body: some View {
+    let people = store.credentials.filter { $0.kind == .sender }
+    Pane(title: "Received") {
+      if !people.isEmpty {
+        Button(action: manage) {
+          HStack(spacing: 3) {
+            ForEach(people.prefix(5)) { Avatar(name: $0.name, color: $0.swatchColor, size: 20) }
+            if people.count > 5 {
+              Text("+\(people.count - 5)").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            }
+          }
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Can tap you: \(people.map(\.name).formatted(.list(type: .and)))")
+        .accessibilityLabel("\(people.count) can tap you. Manage in Settings.")
+      }
+    } content: {
+      if store.taps.isEmpty {
+        Muted(people.isEmpty
+          ? "No one can tap you yet. Invite someone, and they can once they accept."
+          : "Taps you receive show up here.")
+          .padding(.top, 4)
+      } else {
+        ForEach(store.taps.prefix(30)) { TapRow(store: store, tap: $0) }
+      }
+    } foot: {
+      EmptyView()
+    }
+  }
+}
+
+/// Everything you set once: who can tap you, devices, motion, account, app.
+private struct SettingsView: View {
+  let store: ReceiverStore
+  let updates: Updates
+  let account: AccountStore
+  let openAppearance: () -> Void
+  let back: () -> Void
+
+  var body: some View {
+    let senders = store.credentials.filter { $0.kind == .sender }
+    let devices = store.credentials.filter { $0.kind == .device }
+    VStack(spacing: 0) {
+      HStack(spacing: 6) {
+        Button(action: back) {
+          HStack(spacing: 4) {
+            IconView(icon: .back, size: 15)
+            Text("Settings").font(.system(size: 13, weight: .semibold))
+          }
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.cancelAction)
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 14)
+      .frame(height: 44)
+      Divider()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          Section(title: "Can tap you") {
+            if senders.isEmpty {
+              Muted("No one yet. Invite someone, and they can tap you once they accept.")
+            } else {
+              ForEach(senders) { PairingRow(store: store, credential: $0, isSelf: false) }
+            }
+          }
+          Section(title: "Your devices") {
+            ForEach(devices) { PairingRow(store: store, credential: $0, isSelf: $0.id == store.credentialId) }
+          }
+          Section(title: "Accessibility") {
+            Row(action: openAppearance) { _ in
+              Text("Tap motion").font(.system(size: 13, weight: .medium))
+              Spacer(minLength: 0)
+              Text(appearanceLabel).font(.system(size: 12)).foregroundStyle(.secondary)
+              Text("›").font(.system(size: 13)).foregroundStyle(.tertiary)
+            }
+            .accessibilityLabel("Tap motion, \(appearanceLabel)")
+          }
+          AccountSection(account: account)
+          Section(title: "App") {
+            LaunchAtLogin()
+            MenuButton(title: "Check for Updates…", kind: .plain, action: updates.checkForUpdates)
+              .padding(.leading, -4)
+          }
+          PatronView(store: store)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .scrollBounceBehavior(.basedOnSize)
+    }
+    .frame(maxHeight: .infinity, alignment: .top)
+  }
+
+  private var appearanceLabel: String {
+    store.appearance.motion == .reduced ? "Reduced" : "Follow system"
+  }
+}
+
+/// Settings, an update when there is one, and Quit.
+private struct BottomBar: View {
+  let updates: Updates
+  @Binding var settings: Bool
+
+  var body: some View {
+    VStack(spacing: 0) {
+      Divider()
+      HStack(spacing: 8) {
+        MenuButton(title: settings ? "Done" : "Settings", kind: .plain) { settings.toggle() }
+        Spacer(minLength: 0)
+        if let version = updates.available {
+          MenuButton(title: "Update to \(version)", kind: .secondary, action: updates.checkForUpdates)
+        }
+        MenuButton(title: "Quit", kind: .plain) { NSApp.terminate(nil) }
+      }
+      .padding(.horizontal, 10)
+      .frame(height: 40)
     }
   }
 }
@@ -297,48 +453,37 @@ private struct StatusLabel: View {
   }
 }
 
-private struct InviteSender: View {
-  let store: ReceiverStore
-  @State private var invite: SenderInvite?
+/// A fresh invite in place of the panes: QR, link, Copy, Done.
+private struct InviteCard: View {
+  let invite: SenderInvite
+  let done: () -> Void
   @State private var copied = false
-  @State private var error: String?
 
   var body: some View {
-    if let invite {
-      Card {
-        if let qr = QRCode.image(for: invite.url.absoluteString) {
-          Image(nsImage: qr)
-            .interpolation(.none)
-            .resizable()
-            .frame(width: 176, height: 176)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .accessibilityLabel("QR code for the invite link")
-        }
-        Muted("Scan with their iPhone camera, or send them the link to open on their phone or computer. It works once and expires in 7 days.")
-          .multilineTextAlignment(.center)
-        Mono(invite.url.absoluteString, lines: 2)
-        HStack(spacing: 8) {
-          MenuButton(title: copied ? "Copied" : "Copy link", icon: .copy, kind: .primary) {
-            copyToClipboard(invite.url.absoluteString)
-            copied = true
-          }
-          MenuButton(title: "Done", kind: .plain) {
-            self.invite = nil
-            copied = false
-          }
-        }
+    VStack(spacing: 12) {
+      if let qr = QRCode.image(for: invite.url.absoluteString) {
+        Image(nsImage: qr)
+          .interpolation(.none)
+          .resizable()
+          .frame(width: 176, height: 176)
+          .clipShape(RoundedRectangle(cornerRadius: 6))
+          .accessibilityLabel("QR code for the invite link")
       }
-    } else {
-      VStack(alignment: .leading, spacing: 8) {
-        MenuButton(title: "Invite someone", icon: .invite, kind: .primary, fullWidth: true) {
-          error = nil
-          Task {
-            do { invite = try await store.createSenderInvite() } catch { self.error = error.localizedDescription }
-          }
+      Muted("Scan with their iPhone camera, or send them the link to open on their phone or computer. It works once and expires in 7 days.")
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 360)
+      Mono(invite.url.absoluteString, lines: 2).frame(maxWidth: 360)
+      HStack(spacing: 8) {
+        MenuButton(title: copied ? "Copied" : "Copy link", icon: .copy, kind: .primary) {
+          copyToClipboard(invite.url.absoluteString)
+          copied = true
         }
-        if let error { ErrorText(error) }
+        MenuButton(title: "Done", kind: .plain, action: done)
+          .keyboardShortcut(.cancelAction)
       }
     }
+    .padding(14)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }
 
@@ -481,9 +626,9 @@ private struct TapRow: View {
   }
 }
 
+/// The footer on the setup screens; home moves these into Settings.
 private struct Footer: View {
   let updates: Updates
-  @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -498,21 +643,29 @@ private struct Footer: View {
       }
       Divider().padding(.bottom, 12)
       HStack {
-        Toggle(isOn: $launchAtLogin) {
-          Text("Open at login").font(.system(size: 12)).foregroundStyle(.secondary)
-        }
-        .toggleStyle(.switch)
-        .controlSize(.mini)
-        .onChange(of: launchAtLogin) { _, enabled in
-          do {
-            if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-          } catch {}
-          launchAtLogin = SMAppService.mainApp.status == .enabled
-        }
+        LaunchAtLogin()
         Spacer()
         MenuButton(title: "Check for Updates…", kind: .plain, action: updates.checkForUpdates)
         MenuButton(title: "Quit", kind: .plain) { NSApp.terminate(nil) }
       }
+    }
+  }
+}
+
+private struct LaunchAtLogin: View {
+  @State private var enabled = SMAppService.mainApp.status == .enabled
+
+  var body: some View {
+    Toggle(isOn: $enabled) {
+      Text("Open at login").font(.system(size: 12)).foregroundStyle(.secondary)
+    }
+    .toggleStyle(.switch)
+    .controlSize(.mini)
+    .onChange(of: enabled) { _, enabled in
+      do {
+        if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+      } catch {}
+      self.enabled = SMAppService.mainApp.status == .enabled
     }
   }
 }
@@ -568,29 +721,19 @@ private struct Mono: View {
   }
 }
 
-private struct Card<Content: View>: View {
-  @ViewBuilder var content: Content
-
-  var body: some View {
-    VStack(spacing: 10) { content }
-      .padding(12)
-      .frame(maxWidth: .infinity)
-      .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
-  }
-}
-
 /// A person: a circle in their color with their initial in its ink.
 private struct Avatar: View {
   let name: String
   let color: PersonColor
+  var size: CGFloat = 26
 
   var body: some View {
     Circle()
       .fill(color.base)
-      .frame(width: 26, height: 26)
+      .frame(width: size, height: size)
       .overlay(
         Text(name.trimmingCharacters(in: .whitespaces).prefix(1).uppercased().nilIfEmpty ?? "?")
-          .font(Bricolage.bold(12))
+          .font(Bricolage.bold(size * 0.46))
           .foregroundStyle(color.ink)
       )
       .accessibilityHidden(true)

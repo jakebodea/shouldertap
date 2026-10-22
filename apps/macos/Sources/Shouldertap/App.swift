@@ -146,13 +146,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   /// The first-run window, from launch or the menu's Get started.
   private func showWelcome() {
-    guard !welcome.isShowing, let itemWindow = statusItem.button?.window,
-      let screen = itemWindow.screen ?? NSScreen.main
-    else { return }
+    guard !welcome.isShowing else { return }
     popover.performClose(nil)
-    // The real icon knocks while the welcome points at it.
+    // The real icon knocks while the welcome is up, so they know where it lives.
     knock.pending = true
-    welcome.show(on: screen, item: itemWindow, account: account, sync: { [weak self] in await self?.sync() }) {
+    welcome.show(account: account, sync: { [weak self] in await self?.sync() }) {
       [weak self] setUp in
       guard let self else { return }
       knock.pending = store.activeTap != nil
@@ -162,7 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   /// Launching the app again (Finder, Spotlight, `open`) shows the menu.
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-    guard !welcome.isShowing else { return false }
+    guard !welcome.isShowing else {
+      welcome.focus()
+      return false
+    }
     openPopover()
     return false
   }
@@ -170,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   // MARK: Popover
 
   @objc private func togglePopover() {
-    if welcome.isShowing { return welcome.dismiss(setUp: true) }
+    if welcome.isShowing { return welcome.statusItemClicked() }
     popover.isShown ? popover.performClose(nil) : openPopover()
   }
 
