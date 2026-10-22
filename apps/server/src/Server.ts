@@ -35,6 +35,7 @@ import type { AccountEmailBinding } from "./account-email";
 import { handleAccountHttp } from "./account-http";
 import { accountAction } from "./account-identity";
 import { accountPage } from "./account-page";
+import { invitePreview, peopleAction } from "./account-people";
 import { makeProviderTokens } from "./apns";
 import type { PushContext } from "./apns";
 import {
@@ -250,6 +251,9 @@ export default class Server extends Cloudflare.Worker<Server>()(
                 .initialize(inboxId, names)
                 .pipe(Effect.orDie);
             })
+          )
+          .handle("previewInvite", ({ query }) =>
+            invitePreview({ db: accountEnv.ACCOUNT_DB, inboxes }, query.code)
           )
           .handle("redeemInvite", ({ payload }) => {
             const code = parseToken(payload.code);
@@ -663,7 +667,9 @@ export default class Server extends Cloudflare.Worker<Server>()(
               accountRequest: async (userId, incoming) => {
                 const path = new URL(incoming.url).pathname;
                 const isRead =
-                  path === "/account/data" || path === "/account/patron/status";
+                  path === "/account/data" ||
+                  path === "/account/me" ||
+                  path === "/account/patron/status";
                 if (incoming.method !== (isRead ? "GET" : "POST")) {
                   return Response.json(
                     { error: "Method not allowed" },
@@ -685,6 +691,15 @@ export default class Server extends Cloudflare.Worker<Server>()(
                       path.slice("/account/patron/".length),
                       body
                     );
+                  }
+                  const people = peopleAction(
+                    deps,
+                    userId,
+                    path.slice("/account/".length),
+                    body
+                  );
+                  if (people) {
+                    return yield* people;
                   }
                   return yield* accountAction(
                     deps,

@@ -167,6 +167,15 @@ export const RedeemInviteRequest = Schema.Struct({
 });
 export type RedeemInviteRequest = typeof RedeemInviteRequest.Type;
 
+/** Who an invite is from, shown before accepting it (docs/onboarding.md). */
+export const InvitePreview = Schema.Struct({
+  name: Schema.String,
+  /** The inviter's color; null when they have no account yet. */
+  color: Schema.NullOr(PersonColor),
+  expiresAt: Schema.Number,
+});
+export type InvitePreview = typeof InvitePreview.Type;
+
 export const SendTapRequest = Schema.Struct({
   requestId: Schema.String.pipe(
     Schema.check(Schema.isMinLength(8), Schema.isMaxLength(64))

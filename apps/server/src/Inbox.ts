@@ -222,6 +222,43 @@ export interface InboxRpc {
     push?: PushContext
   ) => Rpc<Tap, Unauthorized | Conflict | TooManyRequests | InvalidRequest>;
   readonly snapshot: (token: ParsedToken) => Rpc<Snapshot, Unauthorized>;
+  /** Which identity a token is, without reading taps: sync's proof check. */
+  readonly identify: (
+    token: ParsedToken
+  ) => Rpc<
+    { kind: CredentialKind; credentialId: string; recipientName: string },
+    Unauthorized
+  >;
+  /** An account's inbox: created with no device; sync issues each one. */
+  readonly initializeForAccount: (
+    inboxId: string,
+    recipientName: string
+  ) => Rpc<{ created: boolean }>;
+  /** The account's name changed: taps are now addressed to it. */
+  readonly rename: (
+    inboxId: string,
+    recipientName: string
+  ) => Rpc<void, Unauthorized>;
+  /**
+   * Half of a connection made by accepting an invite: someone who can now tap
+   * this inbox. Nobody holds this person-level credential; each of their
+   * devices gets its own key from `accountRestore`.
+   */
+  readonly addAccountSender: (
+    inboxId: string,
+    name: string,
+    color: PersonColor
+  ) => Rpc<{ credentialId: string }, Unauthorized | Conflict>;
+  /** Undoes `addAccountSender` when the other half of the connection fails. */
+  readonly removeAccountSender: (credentialId: string) => Rpc<void>;
+  /** A sender invite made through the account (the browser has no device). */
+  readonly accountInvite: (
+    inboxId: string
+  ) => Rpc<Invite, Unauthorized | Conflict>;
+  /** Who an invite is from, before accepting it. Doesn't consume it. */
+  readonly previewInvite: (
+    code: ParsedToken
+  ) => Rpc<{ recipientName: string; expiresAt: number }, NotFound | Expired>;
   /** The recipient's own screens (motion, plain override); devices only. */
   readonly updateAppearance: (
     token: ParsedToken,
@@ -703,6 +740,40 @@ export const InboxLive = Inbox.make(
         yield* ensureRetention;
       }
 
+      const newInvite = Effect.fn(function* newInvite(
+        inboxId: string,
+        kind: CredentialKind,
+        createdBy: string
+      ) {
+        // Refuse early; redeeming re-checks, since pairings change meanwhile.
+        const [active] = yield* db
+          .select({ n: count() })
+          .from(credentials)
+          .where(connectedPairingCondition(kind));
+        if ((active?.n ?? 0) >= PAIRING_CAPS[kind]) {
+          return yield* new Conflict({ message: fullInviteMessage(kind) });
+        }
+        const id = yield* randomId();
+        const secret = yield* randomId(24);
+        const createdAt = yield* now;
+        const expiresAt =
+          createdAt +
+          (kind === "sender" ? SENDER_INVITE_TTL_MS : DEVICE_INVITE_TTL_MS);
+        yield* db.insert(invites).values({
+          id,
+          kind,
+          secretHash: yield* hashSecret(secret),
+          createdBy,
+          createdAt,
+          expiresAt,
+        });
+        return {
+          kind,
+          code: formatToken({ inboxId, id, secret }),
+          expiresAt,
+        };
+      });
+
       const rpc: InboxRpc = {
         accountRestore: Effect.fn("Inbox.accountRestore")(
           function* accountRestore(inboxId, senderId, name, platform) {
@@ -873,6 +944,89 @@ export const InboxLive = Inbox.make(
           };
         }, orDieOnStorage),
 
+        identify: Effect.fn("Inbox.identify")(function* identify(token) {
+          const actor = yield* authenticate(token);
+          const row = yield* inboxRow;
+          return {
+            kind: actor.kind,
+            credentialId: actor.id,
+            recipientName: row?.recipientName ?? "",
+          };
+        }, orDieOnStorage),
+
+        initializeForAccount: Effect.fn("Inbox.initializeForAccount")(
+          function* initializeForAccount(inboxId, recipientName) {
+            if (yield* inboxRow) {
+              return { created: false };
+            }
+            yield* db.insert(inbox).values({
+              id: 1,
+              inboxId,
+              recipientName,
+              trialEndsAt: (yield* now) + TRIAL_MS,
+            });
+            yield* ensureRetention;
+            return { created: true };
+          },
+          orDieOnStorage
+        ),
+
+        rename: Effect.fn("Inbox.rename")(function* rename(
+          inboxId,
+          recipientName
+        ) {
+          const row = yield* inboxRow;
+          if (!row || row.inboxId !== inboxId) {
+            return yield* new Unauthorized({ message: "Inbox unavailable" });
+          }
+          yield* db.update(inbox).set({ recipientName }).where(eq(inbox.id, 1));
+          yield* broadcastCredentials;
+        }, orDieOnStorage),
+
+        addAccountSender: Effect.fn("Inbox.addAccountSender")(
+          function* addAccountSender(inboxId, name, color) {
+            const row = yield* inboxRow;
+            if (!row || row.inboxId !== inboxId) {
+              return yield* new Unauthorized({ message: "Inbox unavailable" });
+            }
+            const issued = yield* issueCredential("sender", name);
+            yield* db.transaction((tx) =>
+              Effect.gen(function* addInTransaction() {
+                const [active] = yield* tx
+                  .select({ n: count() })
+                  .from(credentials)
+                  .where(connectedPairingCondition("sender"));
+                if ((active?.n ?? 0) >= PAIRING_CAPS.sender) {
+                  return yield* new Conflict({
+                    message: fullInviteMessage("sender"),
+                  });
+                }
+                yield* tx.insert(credentials).values({ ...issued.row, color });
+              })
+            );
+            yield* broadcastCredentials;
+            return { credentialId: issued.row.id };
+          },
+          orDieOnStorage
+        ),
+
+        removeAccountSender: Effect.fn("Inbox.removeAccountSender")(
+          function* removeAccountSender(credentialId) {
+            yield* db
+              .update(credentials)
+              .set({ revokedAt: yield* now })
+              .where(
+                and(
+                  eq(credentials.id, credentialId),
+                  eq(credentials.kind, "sender"),
+                  isNull(credentials.revokedAt)
+                )
+              );
+            yield* broadcastCredentials;
+          },
+          orDieOnStorage
+        ),
+
         updateAppearance: Effect.fn("Inbox.updateAppearance")(
           function* updateAppearance(token, request) {
             const actor = yield* requireDevice(token);
@@ -894,36 +1048,40 @@ export const InboxLive = Inbox.make(
           request
         ) {
           const actor = yield* requireDevice(token);
-          // Refuse early; redeeming re-checks, since pairings change meanwhile.
-          const [active] = yield* db
-            .select({ n: count() })
-            .from(credentials)
-            .where(connectedPairingCondition(request.kind));
-          if ((active?.n ?? 0) >= PAIRING_CAPS[request.kind]) {
-            return yield* new Conflict({
-              message: fullInviteMessage(request.kind),
+          return yield* newInvite(token.inboxId, request.kind, actor.id);
+        }, orDieOnStorage),
+
+        accountInvite: Effect.fn("Inbox.accountInvite")(function* accountInvite(
+          inboxId
+        ) {
+          const row = yield* inboxRow;
+          if (!row || row.inboxId !== inboxId) {
+            return yield* new Unauthorized({ message: "Inbox unavailable" });
+          }
+          return yield* newInvite(inboxId, "sender", "account");
+        }, orDieOnStorage),
+
+        previewInvite: Effect.fn("Inbox.previewInvite")(function* previewInvite(
+          code
+        ) {
+          const [invite] = yield* db
+            .select()
+            .from(invites)
+            .where(eq(invites.id, code.id));
+          const checked = yield* checkInvite(
+            invite,
+            yield* hashSecret(code.secret),
+            yield* now
+          );
+          if (checked.kind !== "sender") {
+            return yield* new NotFound({
+              message: "This invite link isn't valid",
             });
           }
-          const id = yield* randomId();
-          const secret = yield* randomId(24);
-          const createdAt = yield* now;
-          const expiresAt =
-            createdAt +
-            (request.kind === "sender"
-              ? SENDER_INVITE_TTL_MS
-              : DEVICE_INVITE_TTL_MS);
-          yield* db.insert(invites).values({
-            id,
-            kind: request.kind,
-            secretHash: yield* hashSecret(secret),
-            createdBy: actor.id,
-            createdAt,
-            expiresAt,
-          });
+          const row = yield* inboxRow;
           return {
-            kind: request.kind,
-            code: formatToken({ inboxId: token.inboxId, id, secret }),
-            expiresAt,
+            recipientName: row?.recipientName ?? "",
+            expiresAt: checked.expiresAt,
           };
         }, orDieOnStorage),
 

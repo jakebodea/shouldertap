@@ -19,6 +19,8 @@ export interface EmailContent {
   heading: string;
   paragraphs: readonly string[];
   action?: { label: string; url: string };
+  /** A one-time code, set large for reading and copying. */
+  code?: string;
   note?: string;
   footer: string;
 }
@@ -79,6 +81,23 @@ export const BrandedEmail = ({ content }: { content: EmailContent }) => (
                 {paragraph}
               </Text>
             ))}
+            {content.code && (
+              <Text
+                style={{
+                  margin: 0,
+                  padding: "18px 0",
+                  borderRadius: 18,
+                  backgroundColor: "#ebe9e3",
+                  textAlign: "center",
+                  fontSize: 40,
+                  fontWeight: 800,
+                  letterSpacing: 10,
+                  fontFamily: "'SFMono-Regular', Menlo, Consolas, monospace",
+                }}
+              >
+                {content.code}
+              </Text>
+            )}
             {content.action && (
               <Button
                 href={content.action.url}
