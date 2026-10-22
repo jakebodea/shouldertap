@@ -120,25 +120,6 @@ export const styleOffer = ({
   return checkoutEnabled ? "subscribe" : "soon";
 };
 
-interface SenderIdentity {
-  inboxId: string | null;
-  credentialId: string;
-}
-
-/** Same inbox can contain several people; adoption tracks the canonical sender. */
-export const hasUnsavedSenders = (
-  local: readonly SenderIdentity[],
-  saved: readonly SenderIdentity[]
-) =>
-  local.some(
-    (pairing) =>
-      !saved.some(
-        (sender) =>
-          sender.inboxId === pairing.inboxId &&
-          sender.credentialId === pairing.credentialId
-      )
-  );
-
 interface MembershipChoice {
   id: string;
   name: string;

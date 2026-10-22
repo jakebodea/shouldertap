@@ -1,19 +1,25 @@
+import type { Me } from "@shouldertap/client";
 import { parsePatronKey } from "@shouldertap/domain";
-import { createFileRoute } from "@tanstack/react-router";
+import type { PersonColor } from "@shouldertap/domain";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 import { DocPage, DocSection } from "@/components/document";
+import { Frame } from "@/components/frame";
+import { Mark } from "@/components/mark";
+import { ProfileFields, SignIn } from "@/components/sign-in";
+import { account, isSignedOutError, loadSession } from "@/lib/account";
+import type { Session } from "@/lib/account";
 import {
   forgetIntent,
-  hasUnsavedSenders,
   membershipChoices,
   patronPlan,
   resolveIntent,
 } from "@/lib/account-flow";
 import type { PatronPlan } from "@/lib/account-flow";
-import { api } from "@/lib/api";
-import { addPairing, inboxOf, loadPairings } from "@/lib/pairing";
+import { failureMessage } from "@/lib/onboarding";
+import { loadPairings } from "@/lib/pairing";
 import { loadPatronKey, savePatronKey } from "@/lib/sender-style";
 import { useCheckoutEnabled } from "@/lib/use-patron";
 
@@ -22,13 +28,8 @@ const accountOrigin = import.meta.env.VITE_SERVER_URL;
 interface Resource {
   id: string;
   name: string;
-  kind: "sender" | "patron";
-  inboxId?: string;
-  credentialId?: string;
   billing?: { status: string; paidUntil: number | null };
 }
-
-type Section = "browser" | "connections" | "patron";
 
 /** A result line next to the action that caused it. */
 const Notice = ({ children }: { children?: string }) =>
@@ -153,7 +154,7 @@ const PatronPanel = ({
             onClick={onSave}
             type="button"
           >
-            Save to my account
+            Save membership to my account
           </button>
           {style}
         </Actions>
@@ -169,7 +170,7 @@ const PatronPanel = ({
             onClick={onSave}
             type="button"
           >
-            Save to my account
+            Save membership to my account
           </button>
           {style}
         </Actions>
@@ -203,297 +204,274 @@ const PatronPanel = ({
   );
 };
 
-const BrowserPanel = ({
-  unsaved,
-  busy,
-  notice,
-  onSave,
+/** Name and color, as the people you connect with from now on see them. */
+const ProfileSection = ({
+  me,
+  onSaved,
+  onSignedOut,
 }: {
-  unsaved: boolean;
-  busy: boolean;
-  notice?: string;
-  onSave: () => void;
-}) => (
-  <DocSection title="On this browser">
-    {unsaved ? (
-      <>
-        <p>Save this browser’s connections so you can restore them.</p>
+  me: Me;
+  onSaved: (me: Me) => void;
+  onSignedOut: () => void;
+}) => {
+  const [name, setName] = useState(me.profile?.name ?? "");
+  const [color, setColor] = useState<PersonColor>(
+    me.profile?.color ?? "cobalt"
+  );
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string>();
+  const changed =
+    name.trim() !== (me.profile?.name ?? "") || color !== me.profile?.color;
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      onSaved(await account.setProfile({ name: name.trim(), color }));
+      setNotice("Saved. People you connect with from now on see this.");
+    } catch (error) {
+      if (isSignedOutError(error)) {
+        onSignedOut();
+        return;
+      }
+      setNotice(failureMessage(error));
+    }
+    setBusy(false);
+  };
+  return (
+    <DocSection title="You">
+      <form className="flex max-w-md flex-col gap-6" onSubmit={onSubmit}>
+        <ProfileFields
+          color={color}
+          name={name}
+          onColor={setColor}
+          onName={setName}
+        />
+        <Notice>{notice}</Notice>
         <Actions>
           <button
-            className="pill"
-            disabled={busy}
-            onClick={onSave}
-            type="button"
+            className="pill pill-ink"
+            disabled={busy || !name.trim() || !changed}
+            type="submit"
           >
-            Save to my account
+            {busy ? "Saving…" : "Save"}
           </button>
         </Actions>
-      </>
-    ) : null}
-    <Notice>{notice}</Notice>
-  </DocSection>
-);
+      </form>
+    </DocSection>
+  );
+};
 
-const ConnectionsPanel = ({
-  senders,
-  isLocal,
-  busy,
-  loadError,
-  hasPairings,
-  notice,
-  onRefresh,
-  onRestore,
-}: {
-  senders: Resource[];
-  isLocal: (resource: Resource) => boolean;
-  busy: boolean;
-  loadError: boolean;
-  hasPairings: boolean;
-  notice?: string;
-  onRefresh: () => void;
-  onRestore: (resource: Resource) => void;
-}) => (
-  <DocSection title="People you can tap">
-    {loadError ? (
-      <>
-        <p>Connections couldn’t load.</p>
-        <Actions>
-          <button className="pill" onClick={onRefresh} type="button">
-            Try again
-          </button>
-        </Actions>
-      </>
-    ) : (
-      <div>
-        {senders.map((resource) => (
-          <div
-            className="border-line flex items-center justify-between gap-4 border-b py-3"
-            key={resource.id}
-          >
-            <strong className="min-w-0 break-words">Tap {resource.name}</strong>
-            {isLocal(resource) ? (
-              <span className="text-tone shrink-0 text-sm font-semibold">
-                On this browser
-              </span>
-            ) : (
-              <button
-                className="pill pill-sm shrink-0"
-                disabled={busy}
-                onClick={() => {
-                  onRestore(resource);
-                }}
-                type="button"
-              >
-                Use here
-              </button>
-            )}
-          </div>
-        ))}
-        {senders.length ? null : <p>No saved connections yet.</p>}
-      </div>
-    )}
-    <Notice>{notice}</Notice>
-    {hasPairings ? (
-      <Actions>
-        <a className="pill" href="/tap">
-          Continue to my taps
-        </a>
-      </Actions>
-    ) : null}
-  </DocSection>
-);
-
-const Account = () => {
-  const { intent } = Route.useLoaderData();
-  const [notices, setNotices] = useState<Partial<Record<Section, string>>>({});
-  const notify = (section: Section, text: string) => {
-    setNotices((current) => ({ ...current, [section]: text }));
-  };
+const SessionSection = ({ onSignedOut }: { onSignedOut: () => void }) => {
   const [busy, setBusy] = useState(false);
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [session, setSession] = useState<
-    { email: string } | "loading" | "signed-out" | "error"
-  >("loading");
-  const [loadError, setLoadError] = useState(false);
+  const [notice, setNotice] = useState<string>();
+  const signOut = async () => {
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      await account.signOut();
+      onSignedOut();
+    } catch (error) {
+      setNotice(failureMessage(error));
+      setBusy(false);
+    }
+  };
+  return (
+    <DocSection title="On this browser">
+      <p>
+        Signing out keeps the people you can tap on this browser. Sign in again
+        to pick up anyone new.
+      </p>
+      <Actions>
+        <Link className="pill pill-ink" to="/tap">
+          Continue to my taps
+        </Link>
+        <button
+          className="pill"
+          disabled={busy}
+          onClick={signOut}
+          type="button"
+        >
+          Sign out
+        </button>
+      </Actions>
+      <Notice>{notice}</Notice>
+    </DocSection>
+  );
+};
+
+const DeleteSection = ({ onDeleted }: { onDeleted: () => void }) => {
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string>();
+  const remove = async () => {
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      await account.deleteAccount();
+      onDeleted();
+    } catch (error) {
+      setNotice(failureMessage(error));
+      setBusy(false);
+    }
+  };
+  return (
+    <DocSection title="Delete account">
+      <p>
+        Deletes your account and signs you out everywhere. Devices that can
+        already tap someone keep working until you unpair them. An active patron
+        subscription has to end first.
+      </p>
+      <label className="flex min-h-11 items-center gap-3 font-semibold">
+        <input
+          checked={confirmed}
+          className="accent-ink size-5"
+          onChange={(event) => {
+            setConfirmed(event.target.checked);
+          }}
+          type="checkbox"
+        />
+        Delete my account
+      </label>
+      <Actions>
+        <button
+          className="pill text-destructive"
+          disabled={busy || !confirmed}
+          onClick={remove}
+          type="button"
+        >
+          {busy ? "Deleting…" : "Delete account"}
+        </button>
+      </Actions>
+      <Notice>{notice}</Notice>
+    </DocSection>
+  );
+};
+
+/** The account's patron memberships, with billing facts when ambiguous. */
+const loadMemberships = async (): Promise<Resource[]> => {
+  const saved = await fetch(`${accountOrigin}/account/data`, {
+    credentials: "include",
+  });
+  if (!saved.ok) {
+    throw new Error(String(saved.status));
+  }
+  const data = (await saved.json()) as { patrons: Resource[] };
+  let billing: {
+    memberships: {
+      id: string;
+      status: { patron: { status: string; paidUntil: number | null } };
+    }[];
+  } | null = null;
+  if (data.patrons.length > 1) {
+    try {
+      const billingResponse = await fetch(
+        `${accountOrigin}/account/patron/status`,
+        { credentials: "include" }
+      );
+      if (billingResponse.ok) {
+        billing = await billingResponse.json();
+      }
+    } catch {
+      /* Keep ambiguous choices disabled when billing is unavailable. */
+    }
+  }
+  return data.patrons.map((item) => ({
+    ...item,
+    billing: billing?.memberships.find(
+      (membership) => membership.id === item.id
+    )?.status.patron,
+  }));
+};
+
+const SignedIn = ({
+  me,
+  intent,
+  onMe,
+  onSignedOut,
+}: {
+  me: Me;
+  intent: "patron" | null;
+  onMe: (me: Me) => void;
+  onSignedOut: () => void;
+}) => {
+  const navigate = useNavigate();
+  const [notice, setNotice] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [patrons, setPatrons] = useState<Resource[]>([]);
   const checkoutEnabled = useCheckoutEnabled() ?? false;
-  // Local credentials change under React's feet (restore writes storage).
+  // The patron key changes under React's feet (using a membership writes it).
   const [, setLocalVersion] = useState(0);
   const refresh = useCallback(async () => {
     try {
-      const response = await fetch(`${accountOrigin}/api/auth/get-session`, {
-        credentials: "include",
-      });
-      if (!response.ok) {
-        setSession("error");
-        return;
-      }
-      const auth = (await response.json()) as {
-        user?: { email: string };
-      } | null;
-      if (!auth?.user) {
-        setSession("signed-out");
-        setResources([]);
-        return;
-      }
-      const saved = await fetch(`${accountOrigin}/account/data`, {
-        credentials: "include",
-      });
-      setSession({ email: auth.user.email });
-      if (!saved.ok) {
-        setLoadError(true);
-        return;
-      }
-      const data = (await saved.json()) as {
-        senders: Omit<Resource, "kind">[];
-        patrons: Omit<Resource, "kind">[];
-      };
-      let billing: {
-        memberships: {
-          id: string;
-          status: { patron: { status: string; paidUntil: number | null } };
-        }[];
-      } | null = null;
-      if (data.patrons.length > 1) {
-        try {
-          const billingResponse = await fetch(
-            `${accountOrigin}/account/patron/status`,
-            { credentials: "include" }
-          );
-          if (billingResponse.ok) {
-            billing = await billingResponse.json();
-          }
-        } catch {
-          /* Keep ambiguous choices disabled when billing is unavailable. */
-        }
-      }
-      setResources([
-        ...data.senders.map((item) => ({ ...item, kind: "sender" as const })),
-        ...data.patrons.map((item) => ({
-          ...item,
-          kind: "patron" as const,
-          billing: billing?.memberships.find(
-            (membership) => membership.id === item.id
-          )?.status.patron,
-        })),
-      ]);
-      setLoadError(false);
+      setPatrons(await loadMemberships());
     } catch {
-      setSession("error");
+      setNotice("Patron status couldn’t load. Refresh to try again.");
     }
   }, []);
   useEffect(() => {
-    // A session read and account snapshot are external system boundaries.
+    // The account snapshot is an external system boundary.
     // oxlint-disable-next-line react/set-state-in-effect -- state changes happen after network requests
     refresh();
-    const wake = () => {
-      if (document.visibilityState === "visible") {
-        refresh();
-      }
-    };
-    document.addEventListener("visibilitychange", wake);
-    return () => document.removeEventListener("visibilitychange", wake);
   }, [refresh]);
 
   const pairings = loadPairings();
   const patronKey = loadPatronKey(localStorage);
   const localPatronId = parsePatronKey(patronKey ?? "")?.patronId ?? null;
-  const senders = resources.filter((r) => r.kind === "sender");
-  const patrons = resources.filter((r) => r.kind === "patron");
   const plan = patronPlan({
     localPatronId,
     accountPatronIds: patrons.map((p) => p.id),
     checkoutEnabled,
   });
-  const isLocal = (resource: Resource) =>
-    pairings.some((pairing) => inboxOf(pairing.token) === resource.inboxId);
-  const unsaved =
-    hasUnsavedSenders(
-      pairings.map((pairing) => ({
-        inboxId: inboxOf(pairing.token),
-        credentialId: pairing.credentialId,
-      })),
-      senders.map((sender) => ({
-        inboxId: sender.inboxId ?? null,
-        credentialId: sender.credentialId ?? "",
-      }))
-    ) ||
-    (localPatronId !== null && !patrons.some((p) => p.id === localPatronId));
 
-  const restore = async (resource: Resource) => {
-    const section = resource.kind === "patron" ? "patron" : "connections";
+  /** Adds one of the account's memberships to this browser. */
+  const addMembership = async (patronId: string) => {
     // Never replace a membership this browser already has.
-    if (resource.kind === "patron" && patronKey) {
-      notify(
-        section,
-        localPatronId === resource.id
+    if (patronKey) {
+      setNotice(
+        localPatronId === patronId
           ? "Your membership is already on this browser."
           : "This browser already has another membership. It stays."
       );
       return;
     }
-    if (resource.kind === "sender" && isLocal(resource)) {
-      notify(section, "Already on this browser.");
-      return;
-    }
     setBusy(true);
-    notify(section, "");
+    setNotice(undefined);
     try {
       const response = await fetch(`${accountOrigin}/account/restore`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kind: resource.kind,
-          id: resource.id,
+          kind: "patron",
+          id: patronId,
           deviceName: "Web browser",
         }),
       });
-      if (!response.ok) {
-        notify(
-          section,
-          response.status === 401
-            ? "Your sign-in expired. Sign in again."
-            : "That couldn’t be added to this browser. Try again."
-        );
-        setBusy(false);
+      if (response.status === 401) {
+        onSignedOut();
         return;
       }
-      const grant = (await response.json()) as {
-        key?: string;
-        token?: string;
-        credentialId: string;
-        recipientName: string;
-      };
-      if (resource.kind === "patron" && grant.key) {
+      const grant = response.ok
+        ? ((await response.json()) as { key?: string })
+        : null;
+      if (grant?.key) {
         savePatronKey(localStorage, grant.key);
-      } else if (grant.token) {
-        const snapshot = await api.withToken(grant.token).me();
-        if (snapshot.kind === "sender") {
-          addPairing({
-            token: grant.token,
-            credentialId: grant.credentialId,
-            recipientName: grant.recipientName,
-            senderName: snapshot.senderName,
-            color: snapshot.senderColor,
-          });
-        }
+        setLocalVersion((n) => n + 1);
+        setNotice("Your membership is on this browser.");
+      } else {
+        setNotice("That couldn’t be added to this browser. Try again.");
       }
-      setLocalVersion((n) => n + 1);
-      notify(
-        section,
-        resource.kind === "patron"
-          ? "Your membership is on this browser."
-          : `You can tap ${resource.name} from this browser.`
-      );
     } catch {
-      notify(section, "Couldn’t reach Shouldertap. Try again.");
+      setNotice("Couldn’t reach Shouldertap. Try again.");
     }
     setBusy(false);
   };
 
-  const save = async (section: Section, continueToBilling = false) => {
+  /** Saves this browser's membership to the account, then maybe billing. */
+  const saveMembership = async (continueToBilling = false) => {
     setBusy(true);
-    notify(section, "");
+    setNotice(undefined);
     try {
       const response = await fetch(`${accountOrigin}/account/adopt`, {
         method: "POST",
@@ -504,24 +482,23 @@ const Account = () => {
           patronKey: patronKey ?? undefined,
         }),
       });
+      if (response.status === 401) {
+        onSignedOut();
+        return;
+      }
       if (!response.ok) {
-        notify(
-          section,
-          response.status === 401
-            ? "Your sign-in expired. Sign in again."
-            : "This browser couldn’t be saved. Try again."
-        );
+        setNotice("Your membership couldn’t be saved. Try again.");
         setBusy(false);
         return;
       }
       await refresh();
-      notify(section, "Saved to your account.");
+      setNotice("Saved to your account.");
       if (continueToBilling) {
         window.location.assign(`${accountOrigin}/account?section=patron`);
         return;
       }
     } catch {
-      notify(section, "Couldn’t reach Shouldertap. Try again.");
+      setNotice("Couldn’t reach Shouldertap. Try again.");
     }
     setBusy(false);
   };
@@ -531,59 +508,67 @@ const Account = () => {
       busy={busy}
       canStyle={pairings.length > 0}
       key="patron"
-      notice={notices.patron}
-      onCheckout={() => save("patron", true)}
-      onSave={() => save("patron")}
-      onUse={(patronId) => {
-        const resource = patrons.find((p) => p.id === patronId);
-        if (resource) {
-          restore(resource);
-        }
-      }}
-      plan={plan}
       memberships={patrons}
+      notice={notice}
+      onCheckout={() => saveMembership(true)}
+      onSave={() => saveMembership()}
+      onUse={addMembership}
+      plan={plan}
     />
   );
-
-  const browserSection =
-    unsaved || notices.browser ? (
-      <BrowserPanel
-        busy={busy}
-        key="browser"
-        notice={notices.browser}
-        onSave={() => save("browser")}
-        unsaved={unsaved}
-      />
-    ) : null;
-
-  const connectionsSection = (
-    <ConnectionsPanel
-      busy={busy}
-      hasPairings={pairings.length > 0}
-      isLocal={isLocal}
-      key="connections"
-      loadError={loadError}
-      notice={notices.connections}
-      onRefresh={refresh}
-      onRestore={restore}
-      senders={senders}
+  const profileSection = (
+    <ProfileSection
+      key="profile"
+      me={me}
+      onSaved={onMe}
+      onSignedOut={onSignedOut}
     />
   );
-
-  const signedIn = typeof session === "object";
   return (
     <DocPage
-      intro={
-        signedIn
-          ? `Signed in as ${session.email}`
-          : "Keep your connections and patron membership with you."
-      }
+      intro={`Signed in as ${me.email}`}
       title={intent === "patron" ? "Patron." : "Your account."}
     >
-      {session === "loading" ? (
+      {intent === "patron"
+        ? [patronSection, profileSection]
+        : [profileSection, patronSection]}
+      <SessionSection onSignedOut={onSignedOut} />
+      <DeleteSection
+        onDeleted={() => {
+          navigate({ to: "/", replace: true });
+        }}
+      />
+    </DocPage>
+  );
+};
+
+const Account = () => {
+  const { intent } = Route.useLoaderData();
+  const [session, setSession] = useState<Session | "loading">("loading");
+  const [color, setColor] = useState<PersonColor>("cobalt");
+  const refresh = useCallback(async () => {
+    setSession("loading");
+    setSession(await loadSession());
+  }, []);
+  useEffect(() => {
+    // A session read is an external system boundary.
+    // oxlint-disable-next-line react/set-state-in-effect -- state changes happen after network requests
+    refresh();
+  }, [refresh]);
+  const signedOut = () => {
+    setSession({ kind: "signed-out" });
+  };
+
+  if (session === "loading") {
+    return (
+      <DocPage title="Your account.">
         <output className="text-tone block py-8">Checking your sign-in…</output>
-      ) : null}
-      {session === "error" ? (
+      </DocPage>
+    );
+  }
+  if (session.kind === "offline") {
+    return (
+      <DocPage title="Your account.">
         <DocSection title="Couldn’t reach your account">
           <p>Check your connection and try again.</p>
           <Actions>
@@ -592,40 +577,39 @@ const Account = () => {
             </button>
           </Actions>
         </DocSection>
-      ) : null}
-      {session === "signed-out" ? (
-        <DocSection title="Sign in by email">
-          <p>
-            {intent === "patron"
-              ? "Sign in to restore your membership on this browser, or to become a patron."
-              : "Sign in to save this browser’s connections and restore them on another device."}
-          </p>
-          <Actions>
-            <a
-              className="pill pill-ink"
-              href={`${accountOrigin}/account${intent === "patron" ? "?section=patron" : ""}`}
-            >
-              Sign in
-            </a>
-          </Actions>
-        </DocSection>
-      ) : null}
-      {signedIn ? (
-        <>
-          {intent === "patron"
-            ? [patronSection, browserSection, connectionsSection]
-            : [browserSection, connectionsSection, patronSection]}
-          <div className="pt-6">
-            <a
-              className="text-tone inline-flex min-h-11 items-center underline underline-offset-4"
-              href={`${accountOrigin}/account`}
-            >
-              Account settings
-            </a>
-          </div>
-        </>
-      ) : null}
-    </DocPage>
+      </DocPage>
+    );
+  }
+  if (session.kind === "signed-out" || !session.me.profile) {
+    return (
+      <Frame color={color}>
+        <Mark className="size-9" />
+        <SignIn
+          color={color}
+          key={session.kind}
+          lead={
+            intent === "patron"
+              ? "Sign in to become a patron, or to use your membership on this browser. We'll email you a six-digit code."
+              : "Sign in to tap your people from this browser. We'll email you a six-digit code. No password."
+          }
+          me={session.kind === "signed-in" ? session.me : null}
+          onColor={setColor}
+          onDone={(me) => {
+            setSession({ kind: "signed-in", me });
+          }}
+        />
+      </Frame>
+    );
+  }
+  return (
+    <SignedIn
+      intent={intent}
+      me={session.me}
+      onMe={(me) => {
+        setSession({ kind: "signed-in", me });
+      }}
+      onSignedOut={signedOut}
+    />
   );
 };
 
