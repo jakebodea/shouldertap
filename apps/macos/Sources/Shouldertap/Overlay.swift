@@ -348,21 +348,24 @@ struct Pill: View {
   var hint: String?
   var fill: PersonColor?
   var accessibilityLabel: String?
+  /// Window-sized (the welcome) rather than screen-sized (the overlay).
+  var compact = false
   let action: () -> Void
 
   var body: some View {
+    let height: CGFloat = compact ? 46 : 68
     Button(action: action) {
-      HStack(spacing: 12) {
-        if let icon { IconView(icon: icon, size: 26) }
+      HStack(spacing: compact ? 8 : 12) {
+        if let icon { IconView(icon: icon, size: compact ? 18 : 26) }
         if let label {
-          Text(label).font(Bricolage.bold(24))
+          Text(label).font(Bricolage.bold(compact ? 17 : 24))
         }
         if let hint {
-          Text(hint).font(Bricolage.medium(15)).monospacedDigit().opacity(0.5).padding(.leading, 4)
+          Text(hint).font(Bricolage.medium(compact ? 13 : 15)).monospacedDigit().opacity(0.5).padding(.leading, 4)
         }
       }
-      .padding(.horizontal, label == nil ? 0 : 28)
-      .frame(width: label == nil ? 68 : nil, height: 68)
+      .padding(.horizontal, label == nil ? 0 : compact ? 20 : 28)
+      .frame(width: label == nil ? height : nil, height: height)
       .contentShape(Capsule())
     }
     .buttonStyle(PillStyle(fill: fill))

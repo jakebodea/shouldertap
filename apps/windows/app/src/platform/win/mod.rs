@@ -347,24 +347,24 @@ pub fn focus_menu(window: &mut Window) {
 
 /// Resizes through GPUI (so it redraws at the new size), then re-anchors by
 /// the new size once GPUI has applied it.
-pub fn resize_menu(window: &mut Window, height: f32, anchor: Option<TrayAnchor>, cx: &mut App) {
-    window.resize(size(px(MENU_WIDTH), px(height)));
+pub fn resize_menu(window: &mut Window, width: f32, height: f32, anchor: Option<TrayAnchor>, cx: &mut App) {
+    window.resize(size(px(width), px(height)));
     let Some(hwnd) = hwnd(window) else { return };
     let hwnd = hwnd.0 as isize;
-    cx.spawn(async move |_| place_menu(HWND(hwnd as *mut c_void), anchor, Some(height)))
+    cx.spawn(async move |_| place_menu(HWND(hwnd as *mut c_void), anchor, Some((width, height))))
         .detach();
 }
 
 /// Above the tray icon (or beside it, for a taskbar on another edge), kept
 /// inside the work area; bottom right when the icon can't be found, as when
 /// it's in the overflow.
-/// `height` is the size it's becoming (logical pixels); None uses its current size.
-fn place_menu(hwnd: HWND, anchor: Option<TrayAnchor>, height: Option<f32>) {
+/// `becoming` is the size it's becoming (logical width and height); None uses its current size.
+fn place_menu(hwnd: HWND, anchor: Option<TrayAnchor>, becoming: Option<(f32, f32)>) {
     unsafe {
         let dpi = windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd).max(96) as f32;
-        let size = match height {
-            Some(height) => SIZE {
-                cx: (MENU_WIDTH * dpi / 96.).round() as i32,
+        let size = match becoming {
+            Some((width, height)) => SIZE {
+                cx: (width * dpi / 96.).round() as i32,
                 cy: (height * dpi / 96.).round() as i32,
             },
             None => {

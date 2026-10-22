@@ -2,13 +2,14 @@ import AppKit
 import ShouldertapCore
 import SwiftUI
 
-/// The first run (docs/onboarding.md, "The flow"): a full-screen Frame in
-/// Cobalt, under the menu bar so the real icon stays visible (and knocks).
+/// The first run (docs/onboarding.md, "The flow"): a centered window framed
+/// in Cobalt, while the real menu bar icon knocks.
 /// Welcome → email → code → you (name and color, once) → ready. Shown on
 /// first launch, and again from the menu until this Mac is signed in.
 @MainActor
-final class WelcomeController {
+final class WelcomeController: NSObject, NSWindowDelegate {
   private static let seenKey = "welcomeSeen"
+  static let size = NSSize(width: 860, height: 600)
 
   /// Not seen yet. Debug builds show it every launch with SHOULDERTAP_WELCOME=1.
   static var shouldShow: Bool {
@@ -18,53 +19,78 @@ final class WelcomeController {
     return !UserDefaults.standard.bool(forKey: seenKey)
   }
 
-  private var window: OverlayWindow?
+  private var window: NSWindow?
+  private var model: WelcomeModel?
   private var finished: ((_ setUp: Bool) -> Void)?
-  private var itemMoves: (any NSObjectProtocol)?
 
   var isShowing: Bool { window != nil }
 
-  /// `item` is the status item's window. `finished` runs once the welcome
-  /// is dismissed, `setUp` true when the menu should open next.
+  /// `finished` runs once the welcome is dismissed, `setUp` true when the
+  /// menu should open next.
   func show(
-    on screen: NSScreen, item: NSWindow, account: AccountStore, sync: @escaping @MainActor () async -> Void,
+    account: AccountStore, sync: @escaping @MainActor () async -> Void,
     finished: @escaping (_ setUp: Bool) -> Void
   ) {
     guard window == nil else { return }
     self.finished = finished
-    let window = OverlayWindow(screen: screen)
-    // Just under the menu bar, which stays live above it.
-    window.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue - 1)
-    let menuBar = screen.frame.maxY - screen.visibleFrame.maxY
+    let window = NSWindow(
+      contentRect: NSRect(origin: .zero, size: Self.size),
+      styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+    window.titlebarAppearsTransparent = true
+    window.titleVisibility = .hidden
+    // An empty unified toolbar makes the title bar as tall as the band, so the
+    // traffic lights line up with the wordmark.
+    window.toolbar = NSToolbar()
+    window.toolbarStyle = .unified
+    window.title = "Welcome to Shouldertap"
+    window.isMovableByWindowBackground = true
+    window.isReleasedWhenClosed = false
+    window.delegate = self
     let model = WelcomeModel(
-      pointerX: Self.pointerX(item.frame, on: screen),
-      menuBarHeight: menuBar > 0 ? menuBar : NSStatusBar.system.thickness,
       account: account, sync: sync,
       dismiss: { [weak self] setUp in self?.dismiss(setUp: setUp) })
-    let host = NSHostingView(rootView: WelcomeView(model: model))
-    host.frame = NSRect(origin: .zero, size: screen.frame.size)
-    window.contentView = host
+    window.contentView = Self.host(model)
+    window.setContentSize(Self.size)
+    self.model = model
+    window.center()
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
     self.window = window
-    // Right after launch the menu bar hasn't placed the item yet.
-    itemMoves = NotificationCenter.default.addObserver(
-      forName: NSWindow.didMoveNotification, object: item, queue: .main
-    ) { [weak self, weak model] _ in
-      MainActor.assumeIsolated {
-        guard let screen = self?.window?.screen else { return }
-        let x = Self.pointerX(item.frame, on: screen)
-        withAnimation(.easeOutExpo(0.5)) { model?.pointerX = x }
-      }
-    }
+  }
+
+  /// The welcome's view, on paper and at the window's size: the window sets
+  /// the size and the view fills it, title bar included. Snapshots use it too.
+  static func host(_ model: WelcomeModel) -> NSView {
+    let host = PaperHostingView(rootView: WelcomeView(model: model))
+    host.sizingOptions = []
+    host.frame = NSRect(origin: .zero, size: size)
+    return host
+  }
+
+  /// The menu bar icon, clicked while it's up: on the last step that's
+  /// "Open the menu"; before that it would throw away a sign-in halfway
+  /// through, so it only brings the window forward.
+  func statusItemClicked() {
+    if model?.step == .ready { dismiss(setUp: true) } else { focus() }
+  }
+
+  /// Launched again while it's up: bring it forward.
+  func focus() {
+    NSApp.activate(ignoringOtherApps: true)
+    window?.makeKeyAndOrderFront(nil)
+  }
+
+  /// The close button is Later.
+  func windowShouldClose(_ sender: NSWindow) -> Bool {
+    dismiss(setUp: false)
+    return false
   }
 
   /// Leaves with the overlay's 420ms fade.
   func dismiss(setUp: Bool) {
     guard let window else { return }
     self.window = nil
-    if let itemMoves { NotificationCenter.default.removeObserver(itemMoves) }
-    itemMoves = nil
+    model = nil
     UserDefaults.standard.set(true, forKey: Self.seenKey)
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.42
@@ -78,19 +104,6 @@ final class WelcomeController {
     }
     finished?(setUp)
     finished = nil
-  }
-
-  /// The item's center in the window's coordinates, or nil when there's
-  /// nothing to point at: not placed yet, or hidden behind the notch of a
-  /// crowded menu bar.
-  private static func pointerX(_ item: NSRect, on screen: NSScreen) -> CGFloat? {
-    guard item.width > 0, screen.frame.contains(NSPoint(x: item.midX, y: item.midY)) else { return nil }
-    if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea,
-      item.midX > left.maxX, item.midX < right.minX
-    {
-      return nil
-    }
-    return item.midX - screen.frame.minX
   }
 }
 
@@ -108,9 +121,6 @@ final class WelcomeModel {
     case failed(String)
   }
 
-  /// Where the menu bar icon is, in the window's coordinates; nil if hidden.
-  var pointerX: CGFloat?
-  let menuBarHeight: CGFloat
   let needsMove = Install.needsMove
   let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
   var moveError: String?
@@ -128,11 +138,8 @@ final class WelcomeModel {
   @ObservationIgnored private var phoneTask: Task<Void, Never>?
 
   init(
-    pointerX: CGFloat?, menuBarHeight: CGFloat, account: AccountStore, sync: @escaping @MainActor () async -> Void,
-    dismiss: @escaping (_ setUp: Bool) -> Void
+    account: AccountStore, sync: @escaping @MainActor () async -> Void, dismiss: @escaping (_ setUp: Bool) -> Void
   ) {
-    self.pointerX = pointerX
-    self.menuBarHeight = menuBarHeight
     self.account = account
     self.sync = sync
     self.close = dismiss
@@ -310,26 +317,13 @@ struct WelcomeView: View {
   @State private var arrived = false
 
   var body: some View {
-    GeometryReader { geometry in
-      let scale = min(1.4, max(0.7, min(geometry.size.width / 1440, geometry.size.height / 900)))
-      VStack(alignment: .leading, spacing: 0) {
-        Color.clear.frame(height: model.menuBarHeight)
-        band
-        page(scale: scale)
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(model.frameColor.base)
-      .animation(.easeOutExpo(0.7), value: model.frameColor)
-      .overlay(alignment: .topLeading) {
-        if let x = model.pointerX, model.step == .welcome || model.step == .ready {
-          // Trailing edge half an arrow past the icon's center, so the arrow sits under it.
-          MenuBarPointer(color: model.frameColor, reduceMotion: model.reduceMotion)
-            .frame(width: x + MenuBarPointer.arrowWidth / 2, alignment: .trailing)
-            .padding(.top, model.menuBarHeight + 6)
-            .rise(arrived, delay: 0.5, reduceMotion: model.reduceMotion)
-        }
-      }
+    VStack(alignment: .leading, spacing: 0) {
+      band
+      page
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(model.frameColor.base)
+    .animation(.easeOutExpo(0.7), value: model.frameColor)
     .opacity(arrived ? 1 : 0)
     .onAppear {
       withAnimation(.easeOutExpo(0.52)) { arrived = true }
@@ -337,46 +331,47 @@ struct WelcomeView: View {
     .ignoresSafeArea()
   }
 
-  /// The wordmark on the frame's top edge, where a tap shows its sender.
+  /// The wordmark on the frame's top edge, where a tap shows its sender;
+  /// the traffic lights sit to its left.
   private var band: some View {
-    HStack(spacing: 12) {
-      MarkView().frame(width: 34, height: 34)
+    HStack(spacing: 8) {
+      MarkView().frame(width: 20, height: 20)
       Text("Shouldertap")
-        .font(.custom(Bricolage.extraBoldName, fixedSize: 32))
-        .tracking(-0.035 * 32)
+        .font(.custom(Bricolage.extraBoldName, fixedSize: 18))
+        .tracking(-0.035 * 18)
       Spacer(minLength: 0)
       if model.step != .welcome, model.step != .ready {
         Button("Later") { model.dismiss(false) }
           .buttonStyle(.plain)
-          .font(Bricolage.bold(17))
+          .font(Bricolage.bold(14))
           .keyboardShortcut(.cancelAction)
       }
     }
     .foregroundStyle(model.frameColor.ink)
-    .padding(.top, 26)
-    .padding(.horizontal, 72)
-    .frame(height: 96, alignment: .topLeading)
+    .padding(.leading, 92)
+    .padding(.trailing, 28)
+    .frame(height: 52)
   }
 
-  private func page(scale: CGFloat) -> some View {
+  private var page: some View {
     Group {
       switch model.step {
-      case .welcome: WelcomeStep(model: model, scale: scale, arrived: arrived)
-      case .email: EmailStep(model: model, scale: scale)
-      case .code: CodeStep(model: model, scale: scale)
-      case .phone: PhoneStep(model: model, scale: scale)
-      case .you: YouStep(model: model, scale: scale)
-      case .ready: ReadyStep(model: model, scale: scale)
+      case .welcome: WelcomeStep(model: model, arrived: arrived)
+      case .email: EmailStep(model: model)
+      case .code: CodeStep(model: model)
+      case .phone: PhoneStep(model: model)
+      case .you: YouStep(model: model)
+      case .ready: ReadyStep(model: model)
       }
     }
     .transition(.opacity.combined(with: .offset(y: model.reduceMotion ? 0 : 18)))
     .id(model.step)
-    .padding(.vertical, 64)
-    .padding(.horizontal, 72)
+    .padding(.vertical, 32)
+    .padding(.horizontal, 48)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(RoundedRectangle(cornerRadius: 28, style: .continuous).fill(Paper.paper))
-    .padding(.horizontal, 40)
-    .padding(.bottom, 40)
+    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Paper.paper))
+    .padding(.horizontal, 16)
+    .padding(.bottom, 16)
   }
 }
 
@@ -386,36 +381,35 @@ struct WelcomeView: View {
 /// tap looks.
 private struct WelcomeStep: View {
   let model: WelcomeModel
-  let scale: CGFloat
   let arrived: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      MessageText(text: "Welcome to Shouldertap.", size: (128 * scale).rounded())
+      MessageText(text: "Welcome to Shouldertap.", size: 64)
         .rise(arrived, delay: 0.08, reduceMotion: model.reduceMotion)
       Lede("When someone you trust taps you on the shoulder, their message covers your screen, just like this, until you answer.")
         .rise(arrived, delay: 0.16, reduceMotion: model.reduceMotion)
-      Spacer(minLength: 40)
-      VStack(alignment: .leading, spacing: 18) {
+      Spacer(minLength: 16)
+      VStack(alignment: .leading, spacing: 14) {
         if model.needsMove {
           Text("Shouldertap is running from the disk image. Move it to Applications so it can open at login and stay up to date.")
-            .font(Bricolage.medium(19))
+            .font(Bricolage.medium(15))
             .foregroundStyle(Paper.ink)
         }
         if let error = model.moveError {
           Text("Couldn't move it: \(error) Drag it into Applications from the disk image instead.")
-            .font(Bricolage.medium(17))
+            .font(Bricolage.medium(14))
             .foregroundStyle(Color(nsColor: .systemRed))
         }
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
           if model.needsMove, model.moveError == nil {
-            Pill(icon: .mac, label: "Move to Applications", hint: "↩", fill: .cobalt) { model.moveToApplications() }
+            Pill(icon: .mac, label: "Move to Applications", hint: "↩", fill: .cobalt, compact: true) { model.moveToApplications() }
               .keyboardShortcut(.defaultAction)
           } else {
-            Pill(label: "Get started", hint: "↩", fill: .cobalt) { model.go(.email) }
+            Pill(label: "Get started", hint: "↩", fill: .cobalt, compact: true) { model.go(.email) }
               .keyboardShortcut(.defaultAction)
           }
-          Pill(label: "Later", hint: "esc") { model.dismiss(false) }
+          Pill(label: "Later", hint: "esc", compact: true) { model.dismiss(false) }
             .keyboardShortcut(.cancelAction)
         }
         if !model.needsMove || model.moveError != nil {
@@ -432,25 +426,24 @@ private struct WelcomeStep: View {
 
 private struct EmailStep: View {
   @Bindable var model: WelcomeModel
-  let scale: CGFloat
   @FocusState private var focused: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      MessageText(text: "What's your email?", size: (104 * scale).rounded())
+      MessageText(text: "What's your email?", size: 52)
       Lede("We'll send you a code to sign in. No password to remember.")
       PaperField(placeholder: "you@example.com", text: $model.email)
         .focused($focused)
         .onSubmit(model.sendCode)
-        .frame(maxWidth: 560)
-        .padding(.top, 40)
+        .frame(maxWidth: 440)
+        .padding(.top, 28)
       ErrorLine(model.account.error)
-      Spacer(minLength: 40)
-      HStack(spacing: 14) {
-        Pill(label: model.account.busy ? "Sending…" : "Send code", hint: "↩", fill: .cobalt, action: model.sendCode)
+      Spacer(minLength: 16)
+      HStack(spacing: 10) {
+        Pill(label: model.account.busy ? "Sending…" : "Send code", hint: "↩", fill: .cobalt, compact: true, action: model.sendCode)
           .keyboardShortcut(.defaultAction)
           .disabled(model.account.busy || model.email.trimmingCharacters(in: .whitespaces).isEmpty)
-        Pill(icon: .back, label: "Back") { model.go(.welcome) }
+        Pill(icon: .back, label: "Back", compact: true) { model.go(.welcome) }
       }
       Quiet("Sign in with your phone instead") { model.signInWithPhone() }
         .padding(.top, 18)
@@ -463,42 +456,41 @@ private struct EmailStep: View {
 /// and the code under it, for a signed-in iPhone to scan and approve.
 private struct PhoneStep: View {
   let model: WelcomeModel
-  let scale: CGFloat
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      MessageText(text: "Sign in with your phone.", size: (104 * scale).rounded())
+      MessageText(text: "Sign in with your phone.", size: 52)
       Lede("Open Shouldertap on your iPhone → Account → Sign in on a computer, and scan this.")
-      HStack(alignment: .center, spacing: 48) {
+      HStack(alignment: .center, spacing: 32) {
         code
       }
-      .padding(.top, 40)
-      Spacer(minLength: 40)
-      HStack(spacing: 14) {
+      .padding(.top, 20)
+      Spacer(minLength: 16)
+      HStack(spacing: 10) {
         switch model.phone {
         case .denied, .expired:
-          Pill(label: "Show a new code", hint: "↩", fill: .cobalt) { model.showNewPhoneCode() }
+          Pill(label: "Show a new code", hint: "↩", fill: .cobalt, compact: true) { model.showNewPhoneCode() }
             .keyboardShortcut(.defaultAction)
         case .failed:
           if model.account.signedIn {
-            Pill(label: "Try again", hint: "↩", fill: .cobalt) { Task { await model.afterSignIn() } }
+            Pill(label: "Try again", hint: "↩", fill: .cobalt, compact: true) { Task { await model.afterSignIn() } }
               .keyboardShortcut(.defaultAction)
           } else {
-            Pill(label: "Show a new code", hint: "↩", fill: .cobalt) { model.showNewPhoneCode() }
+            Pill(label: "Show a new code", hint: "↩", fill: .cobalt, compact: true) { model.showNewPhoneCode() }
               .keyboardShortcut(.defaultAction)
           }
         case .starting, .showing:
           EmptyView()
         }
-        Pill(icon: .back, label: "Back") { model.go(.welcome) }
+        Pill(icon: .back, label: "Back", compact: true) { model.go(.welcome) }
       }
       Quiet("Use your email instead") { model.go(.email) }
-        .padding(.top, 18)
+        .padding(.top, 14)
     }
   }
 
   @ViewBuilder private var code: some View {
-    let side = (280 * scale).rounded()
+    let side: CGFloat = 168
     switch model.phone {
     case .starting:
       ProgressView().frame(width: side, height: side)
@@ -508,26 +500,26 @@ private struct PhoneStep: View {
           .interpolation(.none)
           .resizable()
           .frame(width: side, height: side)
-          .padding(16)
-          .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(.white))
+          .padding(12)
+          .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white))
           .accessibilityLabel("QR code to sign in this Mac")
       }
       VStack(alignment: .leading, spacing: 10) {
         Text(started.userCode)
-          .font(Bricolage.extraBold((72 * scale).rounded()))
+          .font(Bricolage.extraBold(44))
           .monospaced()
           .tracking(4)
           .foregroundStyle(Paper.ink)
           .textSelection(.enabled)
           .accessibilityLabel("Code \(started.userCode.map(String.init).joined(separator: " "))")
         Text("Your iPhone shows this code too. Check they match.")
-          .font(Bricolage.medium(19))
+          .font(Bricolage.medium(15))
           .foregroundStyle(Paper.tone)
         HStack(spacing: 8) {
           ProgressView().controlSize(.small)
-          Text("Waiting for your iPhone…").font(Bricolage.medium(17)).foregroundStyle(Paper.tone)
+          Text("Waiting for your iPhone…").font(Bricolage.medium(14)).foregroundStyle(Paper.tone)
         }
-        .padding(.top, 10)
+        .padding(.top, 6)
       }
     case .denied:
       Notice("Your iPhone didn’t approve this Mac.")
@@ -544,34 +536,33 @@ private struct Notice: View {
   init(_ text: String) { self.text = text }
 
   var body: some View {
-    Text(text).font(Bricolage.bold(26)).foregroundStyle(Paper.ink)
+    Text(text).font(Bricolage.bold(20)).foregroundStyle(Paper.ink)
   }
 }
 
 private struct CodeStep: View {
   @Bindable var model: WelcomeModel
-  let scale: CGFloat
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      MessageText(text: "Check your email.", size: (104 * scale).rounded())
+      MessageText(text: "Check your email.", size: 52)
       Lede("Enter the six digits we sent to \(model.account.pendingEmail ?? model.email).")
       CodeBoxes(code: $model.code, color: .cobalt, onComplete: model.verify)
         .disabled(model.account.busy)
-        .padding(.top, 40)
+        .padding(.top, 28)
       ErrorLine(model.account.error)
       if model.resent, model.account.error == nil {
-        Text("Sent a new code.").font(Bricolage.medium(17)).foregroundStyle(Paper.tone).padding(.top, 14)
+        Text("Sent a new code.").font(Bricolage.medium(14)).foregroundStyle(Paper.tone).padding(.top, 14)
       }
-      Spacer(minLength: 40)
-      HStack(spacing: 14) {
+      Spacer(minLength: 16)
+      HStack(spacing: 10) {
         if model.account.signedIn {
           // Signed in, but loading the account failed: try that again.
-          Pill(label: "Try again", hint: "↩", fill: .cobalt) { Task { await model.afterSignIn() } }
+          Pill(label: "Try again", hint: "↩", fill: .cobalt, compact: true) { Task { await model.afterSignIn() } }
             .keyboardShortcut(.defaultAction)
         } else {
-          Pill(label: "Resend") { model.resend() }.disabled(model.account.busy)
-          Pill(icon: .back, label: "Change email") { model.changeEmail() }
+          Pill(label: "Resend", compact: true) { model.resend() }.disabled(model.account.busy)
+          Pill(icon: .back, label: "Change email", compact: true) { model.changeEmail() }
           if model.account.busy { ProgressView().controlSize(.small) }
         }
       }
@@ -581,7 +572,6 @@ private struct CodeStep: View {
 
 private struct YouStep: View {
   @Bindable var model: WelcomeModel
-  let scale: CGFloat
   @FocusState private var focused: Bool
 
   private var preview: String {
@@ -591,10 +581,10 @@ private struct YouStep: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      MessageText(text: "What should people call you?", size: (88 * scale).rounded())
+      MessageText(text: "What should people call you?", size: 46)
       Lede("Your name and color frame every tap you send, so they know it's you from across the room.")
-      HStack(alignment: .top, spacing: 48) {
-        VStack(alignment: .leading, spacing: 28) {
+      HStack(alignment: .top, spacing: 32) {
+        VStack(alignment: .leading, spacing: 20) {
           PaperField(placeholder: "Your first name", text: $model.name)
             .focused($focused)
             .onSubmit(model.saveProfile)
@@ -603,14 +593,14 @@ private struct YouStep: View {
             }
           ColorGrid(selection: $model.color)
         }
-        .frame(maxWidth: 480)
+        .frame(maxWidth: 340)
         SenderPreview(name: preview, color: model.color, large: true)
-          .frame(maxWidth: 440)
+          .frame(maxWidth: 320)
       }
-      .padding(.top, 40)
+      .padding(.top, 24)
       ErrorLine(model.account.error)
-      Spacer(minLength: 40)
-      Pill(label: model.account.busy ? "Saving…" : "Continue", hint: "↩", fill: model.color, action: model.saveProfile)
+      Spacer(minLength: 16)
+      Pill(label: model.account.busy ? "Saving…" : "Continue", hint: "↩", fill: model.color, compact: true, action: model.saveProfile)
         .keyboardShortcut(.defaultAction)
         .disabled(model.account.busy || model.name.trimmingCharacters(in: .whitespaces).isEmpty)
     }
@@ -620,14 +610,13 @@ private struct YouStep: View {
 
 private struct ReadyStep: View {
   let model: WelcomeModel
-  let scale: CGFloat
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      MessageText(text: "You're all set, \(model.name).", size: (112 * scale).rounded())
-      Lede("Shouldertap lives in your menu bar. Invite someone from there; when they tap, it covers this screen until you answer.")
-      Spacer(minLength: 40)
-      Pill(label: "Open the menu", hint: "↩", fill: model.color) { model.dismiss(true) }
+      MessageText(text: "You're all set, \(model.name).", size: 56)
+      Lede("Shouldertap lives in your menu bar: look for the mark knocking up there. Invite someone from it; when they tap, it covers this screen until you answer.")
+      Spacer(minLength: 16)
+      Pill(label: "Open the menu", hint: "↩", fill: model.color, compact: true) { model.dismiss(true) }
         .keyboardShortcut(.defaultAction)
     }
   }
@@ -641,12 +630,12 @@ private struct Lede: View {
 
   var body: some View {
     Text(text)
-      .font(Bricolage.medium(26))
+      .font(Bricolage.medium(18))
       .foregroundStyle(Paper.tone)
-      .lineSpacing(4)
-      .frame(maxWidth: 820, alignment: .leading)
+      .lineSpacing(3)
+      .frame(maxWidth: 600, alignment: .leading)
       .fixedSize(horizontal: false, vertical: true)
-      .padding(.top, 28)
+      .padding(.top, 18)
   }
 }
 
@@ -661,7 +650,7 @@ private struct Quiet: View {
 
   var body: some View {
     Button(action: action) {
-      Text(label).font(Bricolage.medium(19)).underline().foregroundStyle(Paper.tone)
+      Text(label).font(Bricolage.medium(15)).underline().foregroundStyle(Paper.tone)
     }
     .buttonStyle(.plain)
     .focusable(false)
@@ -674,7 +663,7 @@ private struct ErrorLine: View {
 
   var body: some View {
     if let text {
-      Text(text).font(Bricolage.medium(17)).foregroundStyle(Color(nsColor: .systemRed)).padding(.top, 14)
+      Text(text).font(Bricolage.medium(14)).foregroundStyle(Color(nsColor: .systemRed)).padding(.top, 12)
     }
   }
 }
@@ -687,10 +676,10 @@ private struct PaperField: View {
   var body: some View {
     TextField("", text: $text, prompt: Text(placeholder).foregroundStyle(Paper.tone))
       .textFieldStyle(.plain)
-      .font(Bricolage.medium(26))
+      .font(Bricolage.medium(20))
       .foregroundStyle(Paper.ink)
-      .padding(.horizontal, 22)
-      .frame(height: 68)
+      .padding(.horizontal, 18)
+      .frame(height: 54)
       .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Paper.faint))
   }
 }
@@ -710,22 +699,22 @@ struct CodeBoxes: View {
         .textContentType(.oneTimeCode)
         .focused($focused)
         .opacity(0.001)
-        .frame(width: 6 * 72 + 5 * 12, height: 84)
+        .frame(width: 6 * 60 + 5 * 10, height: 70)
         .onChange(of: code) { _, value in
           let digits = String(value.filter(\.isNumber).prefix(6))
           if digits != value { code = digits }
           if digits.count == 6 { onComplete() }
         }
-      HStack(spacing: 12) {
+      HStack(spacing: 10) {
         ForEach(0..<6, id: \.self) { index in
           Text(index < code.count ? String(Array(code)[index]) : "")
-            .font(Bricolage.bold(44))
+            .font(Bricolage.bold(36))
             .monospacedDigit()
             .foregroundStyle(Paper.ink)
-            .frame(width: 72, height: 84)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Paper.faint))
+            .frame(width: 60, height: 70)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Paper.faint))
             .overlay(
-              RoundedRectangle(cornerRadius: 18, style: .continuous)
+              RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(color.base, lineWidth: focused && index == min(code.count, 5) ? 3 : 0))
         }
       }
@@ -745,7 +734,7 @@ struct ColorGrid: View {
 
   var body: some View {
     LazyVGrid(
-      columns: Array(repeating: GridItem(.fixed(52), spacing: 14), count: 4), alignment: .leading, spacing: 14
+      columns: Array(repeating: GridItem(.fixed(44), spacing: 12), count: 4), alignment: .leading, spacing: 12
     ) {
       ForEach(PersonColor.allCases, id: \.self) { option in
         Button {
@@ -753,10 +742,10 @@ struct ColorGrid: View {
         } label: {
           Circle()
             .fill(option.base)
-            .overlay { if option == selection { IconView(icon: .onIt, size: 22).foregroundStyle(option.ink) } }
+            .overlay { if option == selection { IconView(icon: .onIt, size: 20).foregroundStyle(option.ink) } }
             .overlay(
               Circle().strokeBorder(Paper.ink.opacity(option == selection ? 0.85 : 0), lineWidth: 2.5).padding(-5))
-            .frame(width: 52, height: 52)
+            .frame(width: 44, height: 44)
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -765,46 +754,6 @@ struct ColorGrid: View {
         .accessibilityAddTraits(option == selection ? .isSelected : [])
       }
     }
-  }
-}
-
-/// An arrow up at the menu bar icon, with its label to the left; it bobs
-/// gently unless Reduce Motion is on.
-private struct MenuBarPointer: View {
-  nonisolated static let arrowWidth: CGFloat = 28
-  let color: PersonColor
-  let reduceMotion: Bool
-  @State private var up = false
-
-  var body: some View {
-    HStack(alignment: .top, spacing: 10) {
-      Text("Shouldertap lives up here")
-        .font(Bricolage.bold(20))
-        .tracking(-0.2)
-        .padding(.top, 34)
-      UpArrow()
-        .stroke(style: StrokeStyle(lineWidth: 3.5, lineCap: .round, lineJoin: .round))
-        .frame(width: Self.arrowWidth, height: 52)
-    }
-    .foregroundStyle(color.ink)
-    .offset(y: up ? -5 : 2)
-    .onAppear {
-      guard !reduceMotion else { return }
-      withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { up = true }
-    }
-    .accessibilityElement(children: .combine)
-  }
-}
-
-private struct UpArrow: Shape {
-  func path(in rect: CGRect) -> Path {
-    var path = Path()
-    path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
-    path.addLine(to: CGPoint(x: rect.midX, y: rect.minY + 2))
-    path.move(to: CGPoint(x: rect.minX + 2, y: rect.minY + rect.width / 2))
-    path.addLine(to: CGPoint(x: rect.midX, y: rect.minY + 2))
-    path.addLine(to: CGPoint(x: rect.maxX - 2, y: rect.minY + rect.width / 2))
-    return path
   }
 }
 

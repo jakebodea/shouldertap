@@ -16,7 +16,7 @@ use shouldertap_core::{
 
 use crate::assets::{Icon, MARK_PATH};
 use crate::config;
-use crate::platform::{self, TrayAnchor};
+use crate::platform::{self, HOME_SIZE, MENU_WIDTH, TrayAnchor};
 use crate::qr::qr_code;
 use crate::send::{SendTarget, latest_status};
 use crate::shell::{Model, Shell};
@@ -45,7 +45,11 @@ pub struct MenuView {
     model: Entity<Model>,
     anchor: Option<TrayAnchor>,
     focus: FocusHandle,
-    height: f32,
+    /// The window's size, width then height: grows with the content before
+    /// setup, `HOME_SIZE` once signed in.
+    size: (f32, f32),
+    /// Settings shows in place of the panes.
+    settings: bool,
     // Account
     account_busy: bool,
     account_error: Option<String>,
@@ -88,7 +92,8 @@ impl MenuView {
             model,
             anchor,
             focus,
-            height: MIN_HEIGHT,
+            size: (MENU_WIDTH, MIN_HEIGHT),
+            settings: false,
             account_busy: false,
             account_error: None,
             phone_sign_in: None,
@@ -326,15 +331,41 @@ impl MenuView {
         );
     }
 
-    /// The window follows its content's height, anchored to the tray.
+    /// Before setup the window follows its content's height, anchored to the tray.
     fn content_measured(&mut self, height: f32, window: &mut Window, cx: &mut Context<Self>) {
         let height = height.clamp(MIN_HEIGHT, MAX_HEIGHT).ceil();
-        if (height - self.height).abs() < 1. {
-            return;
+        if self.resize_to(MENU_WIDTH, height, window) {
+            cx.notify();
         }
-        self.height = height;
+    }
+
+    /// Resizes the window on the next frame; false when it's that size already.
+    fn resize_to(&mut self, width: f32, height: f32, window: &mut Window) -> bool {
+        if (width - self.size.0).abs() < 1. && (height - self.size.1).abs() < 1. {
+            return false;
+        }
+        self.size = (width, height);
         let anchor = self.anchor;
-        window.on_next_frame(move |window, cx| platform::resize_menu(window, height, anchor, cx));
+        window.on_next_frame(move |window, cx| platform::resize_menu(window, width, height, anchor, cx));
+        true
+    }
+
+    /// Signed in, named and receiving: the two panes. Anything less is setup.
+    fn is_home(&self, cx: &App) -> bool {
+        let model = self.model.read(cx);
+        model.state.phase == Phase::Ready && model.account_state.signed_in && !model.account_state.needs_profile()
+    }
+
+    /// Esc backs out of Settings or an invite before it closes the menu.
+    fn escape(&mut self, cx: &mut Context<Self>) {
+        if self.settings {
+            self.settings = false;
+        } else if self.invite.is_some() {
+            self.invite = None;
+            self.invite_copied = false;
+        } else {
+            return Shell::close_menu(cx);
+        }
         cx.notify();
     }
 }
@@ -348,10 +379,27 @@ impl Focusable for MenuView {
 impl Render for MenuView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let s = Surface::new(platform::is_dark(window));
-        let phase = self.model.read(cx).state.phase;
-        let body: AnyElement = match phase {
+        let root = div()
+            .id("menu")
+            .track_focus(&self.focus)
+            .key_context("Menu")
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" {
+                    this.escape(cx);
+                }
+            }))
+            .size_full()
+            .bg(s.background)
+            .text_color(s.primary)
+            .text_size(px(13.));
+        if self.is_home(cx) {
+            self.resize_to(HOME_SIZE.0, HOME_SIZE.1, window);
+            return root.child(self.home(s, cx)).into_any_element();
+        }
+        self.settings = false;
+        let body: AnyElement = match self.model.read(cx).state.phase {
             Phase::Loading => div().h(px(120.)).into_any_element(),
-            Phase::Setup | Phase::Ready => self.home(s, cx).into_any_element(),
+            Phase::Setup | Phase::Ready => self.setup(s, cx),
         };
         let this = cx.entity();
         let content = div()
@@ -361,20 +409,7 @@ impl Render for MenuView {
             .p(px(14.))
             .when(config::DEV, |content| content.child(debug_banner()))
             .child(body);
-        div()
-            .id("menu")
-            .track_focus(&self.focus)
-            .key_context("Menu")
-            .on_key_down(cx.listener(|_, event: &gpui::KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape" {
-                    Shell::close_menu(cx);
-                }
-            }))
-            .size_full()
-            .bg(s.background)
-            .text_color(s.primary)
-            .text_size(px(13.))
-            .overflow_y_scroll()
+        root.overflow_y_scroll()
             .child(
                 div()
                     .on_children_prepainted(move |bounds: Vec<Bounds<Pixels>>, window, cx| {
@@ -386,89 +421,367 @@ impl Render for MenuView {
                     })
                     .child(content),
             )
+            .into_any_element()
     }
 }
 
 // Screens
 
 impl MenuView {
-    /// Your people and taps once this PC receives; before that (signed out,
-    /// or the account still handing it a credential), what to do next.
-    fn home(&mut self, s: Surface, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Before this PC is signed in, named and receiving: what to do next.
+    fn setup(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
         let state = self.model.read(cx).state.clone();
-        let account = self.model.read(cx).account_state.clone();
         let receiving = state.phase == Phase::Ready;
-        let senders: Vec<Credential> = state
-            .credentials
-            .iter()
-            .filter(|c| c.kind == CredentialKind::Sender)
-            .cloned()
-            .collect();
-        let devices: Vec<Credential> = state
-            .credentials
-            .iter()
-            .filter(|c| c.kind == CredentialKind::Device)
-            .cloned()
-            .collect();
-        // Billing never changes the recipient name or messaging controls.
-        let name = if state.recipient_name.is_empty() {
-            account.profile().map(|profile| profile.name.clone())
-        } else {
-            Some(state.recipient_name.clone())
-        };
-        let subtitle = name.map_or_else(|| " ".to_string(), |name| format!("Taps for {name}"));
-
-        let mut people: Vec<AnyElement> = Vec::new();
-        if senders.is_empty() {
-            people.push(muted(s, "No one yet. Invite someone above.").into_any_element());
-        } else {
-            for sender in &senders {
-                people.push(self.pairing_row(s, sender, false, cx));
-            }
-        }
-        let your_devices: Vec<AnyElement> = devices
-            .iter()
-            .map(|device| self.pairing_row(s, device, Some(&device.id) == state.credential_id.as_ref(), cx))
-            .collect();
-        let recent: Vec<AnyElement> = if state.taps.is_empty() {
-            vec![muted(s, "Taps you receive show up here.").into_any_element()]
-        } else {
-            state.taps.iter().take(6).map(|tap| self.tap_row(s, tap, cx)).collect()
-        };
-
-        let support = self.support(s, state.patron.as_ref(), cx);
-        let next_step = self.next_step(s, cx);
-        let receiving_sections: Vec<AnyElement> = if receiving {
-            vec![
-                support,
-                self.invite_sender(s, cx),
-                section(s, "Can tap you", people).into_any_element(),
-            ]
-        } else {
-            Vec::new()
-        };
-        let receiving_details: Vec<AnyElement> = if receiving {
-            vec![
-                section(s, "Your devices", your_devices).into_any_element(),
-                section(s, "Accessibility", vec![self.appearance_row(s, &state, cx)]).into_any_element(),
-                section(s, "Recent", recent).into_any_element(),
-            ]
-        } else {
-            Vec::new()
-        };
-        let account_section = account.signed_in.then(|| self.account_section(s, cx));
-
+        let subtitle = self.subtitle(cx);
         div()
             .flex()
             .flex_col()
             .gap(px(16.))
             .child(brand(s, &subtitle, receiving.then(|| status_label(s, state.status))))
-            .children(next_step)
-            .children(receiving_sections)
-            .child(self.you_can_tap(s, cx))
-            .children(receiving_details)
-            .children(account_section)
+            .children(self.next_step(s, cx))
             .child(self.footer(s, cx))
+            .into_any_element()
+    }
+
+    /// "Taps for {name}", or a blank line until there's a name.
+    fn subtitle(&self, cx: &App) -> String {
+        let model = self.model.read(cx);
+        // Billing never changes the recipient name or messaging controls.
+        let name = if model.state.recipient_name.is_empty() {
+            model.account_state.profile().map(|profile| profile.name.clone())
+        } else {
+            Some(model.state.recipient_name.clone())
+        };
+        name.map_or_else(|| " ".to_string(), |name| format!("Taps for {name}"))
+    }
+
+    /// Signed in: who you tap on the left, what you got on the right, and
+    /// everything else behind Settings at the bottom (apps/macos's HomeView).
+    fn home(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let body = if self.settings {
+            self.settings_view(s, cx)
+        } else {
+            let main = match self.invite.clone() {
+                Some(invite) => self.invite_card(s, invite, cx),
+                None => div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.send_pane(s, cx))
+                    .child(div().w(px(1.)).h_full().flex_none().bg(s.separator))
+                    .child(self.received_pane(s, cx))
+                    .into_any_element(),
+            };
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .child(div().p(px(14.)).flex_none().child(self.header(s, cx)))
+                .child(hairline(s))
+                .child(main)
+                .into_any_element()
+        };
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .when(config::DEV, |el| {
+                el.child(div().px(px(14.)).pt(px(14.)).flex_none().child(debug_banner()))
+            })
+            .child(body)
+            .child(self.bottom_bar(s, cx))
+            .into_any_element()
+    }
+
+    fn header(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let status = self.model.read(cx).state.status;
+        let subtitle = self.subtitle(cx);
+        let inviting = self.invite.is_some();
+        let trailing = div()
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .child(status_label(s, status))
+            .child(
+                menu_button(
+                    s,
+                    "invite",
+                    "Invite someone",
+                    Some(Icon::Invite),
+                    Kind::Primary,
+                    false,
+                    inviting,
+                )
+                .when(!inviting, |button| {
+                    button.on_click(cx.listener(|this, _, _, cx| this.create_invite(cx)))
+                }),
+            )
+            .into_any_element();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(brand(s, &subtitle, Some(trailing)))
+            .when_some(self.invite_error.clone(), |el, error| el.child(error_text(s, error)))
+            .into_any_element()
+    }
+
+    /// The people this PC can tap: each opens the Send window on them.
+    fn send_pane(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let state = self.model.read(cx).sender_state.clone();
+        let now = now_ms();
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if let Some(notice) = state.notice.clone() {
+            let senders = self.model.read(cx).senders.clone();
+            rows.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(muted(s, &notice).flex_1())
+                    .child(
+                        menu_button(s, "dismiss-notice", "OK", None, Kind::Plain, false, false)
+                            .on_click(move |_, _, _| senders.clear_notice()),
+                    )
+                    .into_any_element(),
+            );
+        }
+        if state.sessions.is_empty() {
+            rows.push(
+                muted(
+                    s,
+                    "No one to tap yet. When someone sends you an invite link, paste it below.",
+                )
+                .pt(px(4.))
+                .into_any_element(),
+            );
+        }
+        for session in &state.sessions {
+            let id = session.id().to_string();
+            rows.push(
+                row(s, SharedString::from(format!("tap-person-{id}")))
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| Shell::open_send(SendTarget::Person(id.clone()), cx))
+                    .child(avatar(&session.pairing.recipient_name, session.color(), 26.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .truncate()
+                                    .child(session.pairing.recipient_name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(s.secondary)
+                                    .truncate()
+                                    .child(latest_status(session, now)),
+                            ),
+                    )
+                    .child(div().text_color(s.tertiary).child("›"))
+                    .into_any_element(),
+            );
+        }
+        let foot = row(s, "add-tap-person")
+            .cursor_pointer()
+            .on_click(|_, _, cx| Shell::open_send(SendTarget::Add, cx))
+            .child(glyph(s, Icon::Send))
+            .child(
+                div()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(s.secondary)
+                    .child("Got a link? Paste it"),
+            )
+            .into_any_element();
+        pane("send", "Send", None, rows, Some(foot)).into_any_element()
+    }
+
+    /// Taps you got, newest first; who can tap you as avatars by the title.
+    fn received_pane(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let state = self.model.read(cx).state.clone();
+        let people: Vec<Credential> = state
+            .credentials
+            .iter()
+            .filter(|c| c.kind == CredentialKind::Sender)
+            .cloned()
+            .collect();
+        let trailing = (!people.is_empty()).then(|| {
+            div()
+                .id("can-tap-you")
+                .flex()
+                .items_center()
+                .gap(px(3.))
+                .cursor_pointer()
+                .children(
+                    people
+                        .iter()
+                        .take(5)
+                        .map(|person| avatar(&person.name, person.swatch_color(), 20.)),
+                )
+                .when(people.len() > 5, |el| {
+                    el.child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(s.secondary)
+                            .child(format!("+{}", people.len() - 5)),
+                    )
+                })
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.settings = true;
+                    cx.notify();
+                }))
+                .into_any_element()
+        });
+        let rows: Vec<AnyElement> = if state.taps.is_empty() {
+            vec![
+                muted(
+                    s,
+                    if people.is_empty() {
+                        "No one can tap you yet. Invite someone, and they can once they accept."
+                    } else {
+                        "Taps you receive show up here."
+                    },
+                )
+                .pt(px(4.))
+                .into_any_element(),
+            ]
+        } else {
+            state.taps.iter().take(30).map(|tap| self.tap_row(s, tap, cx)).collect()
+        };
+        pane("received", "Received", trailing, rows, None).into_any_element()
+    }
+
+    /// Everything you set once: who can tap you, devices, motion, account, app.
+    fn settings_view(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let state = self.model.read(cx).state.clone();
+        let mut people: Vec<AnyElement> = Vec::new();
+        let mut devices: Vec<AnyElement> = Vec::new();
+        for credential in &state.credentials {
+            match credential.kind {
+                CredentialKind::Sender => people.push(self.pairing_row(s, credential, false, cx)),
+                CredentialKind::Device => {
+                    let is_self = Some(&credential.id) == state.credential_id.as_ref();
+                    devices.push(self.pairing_row(s, credential, is_self, cx));
+                }
+            }
+        }
+        if people.is_empty() {
+            people.push(
+                muted(s, "No one yet. Invite someone, and they can tap you once they accept.").into_any_element(),
+            );
+        }
+        let back = div()
+            .id("settings-back")
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .cursor_pointer()
+            .child(svg().path(Icon::Back.path()).size(px(15.)).text_color(s.primary))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child("Settings"))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.settings = false;
+                cx.notify();
+            }));
+        let appearance = self.appearance_row(s, &state, cx);
+        let account = self.account_section(s, cx);
+        let app = vec![self.launch_at_login(s, cx), self.check_updates(s, cx)];
+        let support = self.support(s, state.patron.as_ref(), cx);
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(44.))
+                    .px(px(14.))
+                    .flex_none()
+                    .child(back),
+            )
+            .child(hairline(s))
+            .child(
+                div().id("settings").flex_1().min_h_0().overflow_y_scroll().child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(18.))
+                        .p(px(14.))
+                        .child(section(s, "Can tap you", people))
+                        .child(section(s, "Your devices", devices))
+                        .child(section(s, "Accessibility", vec![appearance]))
+                        .child(account)
+                        .child(section(s, "App", app))
+                        .child(support),
+                ),
+            )
+            .into_any_element()
+    }
+
+    /// Settings, an update when there is one, and Quit.
+    fn bottom_bar(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let updates = self.model.read(cx).updates.clone();
+        let update_label = match (&updates.available, updates.installing) {
+            (_, true) => Some("Installing…".to_string()),
+            (Some(version), false) => Some(format!("Update to {version}")),
+            (None, false) => None,
+        };
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .child(hairline(s))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(10.))
+                    .h(px(40.))
+                    .child(
+                        menu_button(
+                            s,
+                            "settings",
+                            if self.settings { "Done" } else { "Settings" },
+                            None,
+                            Kind::Plain,
+                            false,
+                            false,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings = !this.settings;
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .when_some(updates.message.clone(), |el, message| {
+                                el.child(muted(s, &message).truncate())
+                            }),
+                    )
+                    .when_some(update_label, |el, label| {
+                        el.child(
+                            menu_button(s, "update", &label, None, Kind::Secondary, false, updates.installing)
+                                .when(!updates.installing, |button| {
+                                    button.on_click(cx.listener(|_, _, _, cx| Shell::install_update(cx)))
+                                }),
+                        )
+                    })
+                    .child(
+                        menu_button(s, "quit", "Quit", None, Kind::Plain, false, false).on_click(|_, _, cx| cx.quit()),
+                    ),
+            )
+            .into_any_element()
     }
 
     /// What this PC still needs from the person or the account, if anything.
@@ -634,6 +947,23 @@ impl MenuView {
         if let Some(error) = self.account_error.clone() {
             rows.push(error_text(s, error).into_any_element());
         }
+        // Signed in and receiving, a failed sync shows here rather than over the panes.
+        if let Some(error) = self.model.read(cx).account_state.sync_error.clone() {
+            rows.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().flex_1().child(error_text(s, error)))
+                    .child(
+                        menu_button(s, "sync-again", "Try again", None, Kind::Plain, false, busy)
+                            .when(!busy, |button| {
+                                button.on_click(cx.listener(|this, _, _, cx| this.sync(cx)))
+                            }),
+                    )
+                    .into_any_element(),
+            );
+        }
         section(s, "Account", rows).into_any_element()
     }
 
@@ -707,87 +1037,6 @@ impl MenuView {
                 .child(div().flex().gap(px(8.)).child(new_code(cx)).child(done)),
         }
         .into_any_element()
-    }
-
-    /// The people this PC can tap: each opens the Send window on them.
-    fn you_can_tap(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
-        let state = self.model.read(cx).sender_state.clone();
-        let now = now_ms();
-        let mut rows: Vec<AnyElement> = Vec::new();
-        if let Some(notice) = state.notice.clone() {
-            let senders = self.model.read(cx).senders.clone();
-            rows.push(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(muted(s, &notice).flex_1())
-                    .child(
-                        menu_button(s, "dismiss-notice", "OK", None, Kind::Plain, false, false)
-                            .on_click(move |_, _, _| senders.clear_notice()),
-                    )
-                    .into_any_element(),
-            );
-        }
-        for session in &state.sessions {
-            let id = session.id().to_string();
-            rows.push(
-                row(s, SharedString::from(format!("tap-person-{id}")))
-                    .cursor_pointer()
-                    .on_click(move |_, _, cx| Shell::open_send(SendTarget::Person(id.clone()), cx))
-                    .child(avatar(&session.pairing.recipient_name, session.color()))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.))
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .truncate()
-                                    .child(session.pairing.recipient_name.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(s.secondary)
-                                    .truncate()
-                                    .child(latest_status(session, now)),
-                            ),
-                    )
-                    .child(svg().path(Icon::Send.path()).size(px(16.)).text_color(s.secondary))
-                    .into_any_element(),
-            );
-        }
-        let first = state.sessions.is_empty();
-        rows.push(
-            row(s, "add-tap-person")
-                .cursor_pointer()
-                .on_click(|_, _, cx| Shell::open_send(SendTarget::Add, cx))
-                .child(glyph(s, Icon::Invite))
-                .child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .flex_col()
-                        .gap(px(1.))
-                        .child(
-                            div()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(s.secondary)
-                                .child(if first {
-                                    "Tap someone"
-                                } else {
-                                    "Add someone you can tap"
-                                }),
-                        )
-                        .when(first, |el| el.child(muted(s, "Got a link? Paste it to connect."))),
-                )
-                .into_any_element(),
-        );
-        section(s, "You can tap", rows).into_any_element()
     }
 
     /// Opens the Appearance window; shows what taps look like right now.
@@ -879,35 +1128,24 @@ impl MenuView {
         }
     }
 
-    fn invite_sender(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
-        let Some(invite) = self.invite.clone() else {
-            return div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .child(
-                    menu_button(
-                        s,
-                        "invite",
-                        "Invite someone",
-                        Some(Icon::Invite),
-                        Kind::Primary,
-                        true,
-                        false,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.create_invite(cx))),
-                )
-                .when_some(self.invite_error.clone(), |el, error| el.child(error_text(s, error)))
-                .into_any_element();
-        };
+    /// A fresh invite in place of the panes: QR, link, Copy, Done.
+    fn invite_card(&mut self, s: Surface, invite: SenderInvite, cx: &mut Context<Self>) -> AnyElement {
         let url = invite.url.clone();
-        card(s)
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(12.))
+            .p(px(14.))
             .child(qr_code(&invite.url, px(176.)))
-            .child(muted_center(
+            .child(div().w(px(360.)).child(muted_center(
                 s,
-                "Scan with their iPhone camera, or send them the link. It works once and expires in 7 days.",
-            ))
-            .child(mono(s, &invite.url))
+                "Scan with their iPhone camera, or send them the link to open on their phone or computer. It works once and expires in 7 days.",
+            )))
+            .child(div().w(px(360.)).child(mono(s, &invite.url)))
             .child(
                 div()
                     .flex()
@@ -970,7 +1208,7 @@ impl MenuView {
         row(s, SharedString::from(key))
             .group(group)
             .items_start()
-            .child(avatar(&tap.sender_name, tap.sender_color))
+            .child(avatar(&tap.sender_name, tap.sender_color, 26.))
             .child(
                 div()
                     .flex_1()
@@ -1065,7 +1303,7 @@ impl MenuView {
         let error = self.row_errors.get(&id).cloned();
         let status = error.clone().unwrap_or_else(|| pairing_status(credential, is_self));
         let leading = if credential.kind == CredentialKind::Sender {
-            avatar(&credential.name, credential.swatch_color()).into_any_element()
+            avatar(&credential.name, credential.swatch_color(), 26.).into_any_element()
         } else {
             glyph(s, platform_icon(credential.device_platform())).into_any_element()
         };
@@ -1106,11 +1344,9 @@ impl MenuView {
             .into_any_element()
     }
 
+    /// The footer on the setup screens; once signed in these live in Settings.
     fn footer(&mut self, s: Surface, cx: &mut Context<Self>) -> impl IntoElement {
-        let (updates, launch_at_login) = {
-            let model = self.model.read(cx);
-            (model.updates.clone(), model.launch_at_login)
-        };
+        let updates = self.model.read(cx).updates.clone();
         let update_row = updates.available.clone().map(|version| {
             row(s, "update")
                 .cursor_pointer()
@@ -1129,7 +1365,6 @@ impl MenuView {
                         .child(if updates.installing { "Installing…" } else { "Install" }),
                 )
         });
-        let model = self.model.clone();
         div()
             .flex()
             .flex_col()
@@ -1143,41 +1378,51 @@ impl MenuView {
                     .flex()
                     .items_center()
                     .gap(px(4.))
-                    .child(toggle(s, "launch-at-login", launch_at_login).on_click(move |_, _, cx| {
-                        let enabled = !model.read(cx).launch_at_login;
-                        let _ = platform::set_launch_at_login(enabled);
-                        model.update(cx, |model, cx| {
-                            model.launch_at_login = platform::launch_at_login();
-                            cx.notify();
-                        });
-                    }))
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(12.))
-                            .text_color(s.secondary)
-                            .child("Open at login"),
-                    )
-                    .child(
-                        menu_button(
-                            s,
-                            "check-updates",
-                            if updates.checking {
-                                "Checking…"
-                            } else {
-                                "Check for Updates…"
-                            },
-                            None,
-                            Kind::Plain,
-                            false,
-                            updates.checking || config::DEV,
-                        )
-                        .on_click(|_, _, cx| Shell::check_for_updates(cx)),
-                    )
+                    .child(div().flex_1().child(self.launch_at_login(s, cx)))
+                    .child(self.check_updates(s, cx))
                     .child(
                         menu_button(s, "quit", "Quit", None, Kind::Plain, false, false).on_click(|_, _, cx| cx.quit()),
                     ),
             )
+    }
+
+    /// The "Open at login" switch and its label.
+    fn launch_at_login(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let model = self.model.clone();
+        let on = model.read(cx).launch_at_login;
+        div()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .child(toggle(s, "launch-at-login", on).on_click(move |_, _, cx| {
+                let enabled = !model.read(cx).launch_at_login;
+                let _ = platform::set_launch_at_login(enabled);
+                model.update(cx, |model, cx| {
+                    model.launch_at_login = platform::launch_at_login();
+                    cx.notify();
+                });
+            }))
+            .child(div().text_size(px(12.)).text_color(s.secondary).child("Open at login"))
+            .into_any_element()
+    }
+
+    fn check_updates(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let checking = self.model.read(cx).updates.checking;
+        menu_button(
+            s,
+            "check-updates",
+            if checking {
+                "Checking…"
+            } else {
+                "Check for Updates…"
+            },
+            None,
+            Kind::Plain,
+            false,
+            checking || config::DEV,
+        )
+        .on_click(|_, _, cx| Shell::check_for_updates(cx))
+        .into_any_element()
     }
 }
 
@@ -1305,6 +1550,55 @@ fn mono(s: Surface, text: &str) -> impl IntoElement {
         .child(text.to_string())
 }
 
+/// A pane: a title, its list scrolling under it, and an optional foot.
+fn pane(
+    id: &'static str,
+    title: &str,
+    trailing: Option<AnyElement>,
+    rows: Vec<AnyElement>,
+    foot: Option<AnyElement>,
+) -> impl IntoElement {
+    div()
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(8.))
+                .h(px(26.))
+                .mt(px(10.))
+                .px(px(14.))
+                .child(
+                    div()
+                        .flex_1()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title.to_string()),
+                )
+                .children(trailing),
+        )
+        .child(
+            div().id(id).flex_1().min_h_0().overflow_y_scroll().child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .px(px(14.))
+                    .py(px(6.))
+                    .children(rows),
+            ),
+        )
+        .children(foot.map(|foot| div().flex_none().px(px(14.)).pb(px(8.)).child(foot)))
+}
+
+fn hairline(s: Surface) -> impl IntoElement {
+    div().h(px(1.)).w_full().flex_none().bg(s.separator)
+}
+
 fn card(s: Surface) -> gpui::Div {
     div()
         .w_full()
@@ -1320,7 +1614,7 @@ fn card(s: Surface) -> gpui::Div {
 }
 
 /// A person: a circle in their color with their initial in its ink.
-fn avatar(name: &str, color: shouldertap_core::PersonColor) -> impl IntoElement {
+fn avatar(name: &str, color: shouldertap_core::PersonColor, size: f32) -> impl IntoElement {
     let initial = name
         .trim()
         .chars()
@@ -1328,7 +1622,7 @@ fn avatar(name: &str, color: shouldertap_core::PersonColor) -> impl IntoElement 
         .map(|c| c.to_uppercase().to_string())
         .unwrap_or_else(|| "?".into());
     div()
-        .size(px(26.))
+        .size(px(size))
         .flex_none()
         .rounded_full()
         .bg(theme::base(color))
@@ -1337,7 +1631,7 @@ fn avatar(name: &str, color: shouldertap_core::PersonColor) -> impl IntoElement 
         .justify_center()
         .font_family(BRICOLAGE)
         .font_weight(FontWeight::BOLD)
-        .text_size(px(12.))
+        .text_size(px(size * 0.46))
         .text_color(theme::ink(color))
         .child(initial)
 }

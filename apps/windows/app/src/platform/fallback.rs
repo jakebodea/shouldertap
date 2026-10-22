@@ -94,8 +94,8 @@ pub fn prepare_menu(_: &mut Window, _: Option<TrayAnchor>, _: &mut App) {}
 
 pub fn focus_menu(_: &mut Window) {}
 
-pub fn resize_menu(window: &mut Window, height: f32, _: Option<TrayAnchor>, _: &mut App) {
-    window.resize(size(px(MENU_WIDTH), px(height)));
+pub fn resize_menu(window: &mut Window, width: f32, height: f32, _: Option<TrayAnchor>, _: &mut App) {
+    window.resize(size(px(width), px(height)));
 }
 
 pub fn clean_up_after_update() {}

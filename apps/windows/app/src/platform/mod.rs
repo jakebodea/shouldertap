@@ -39,5 +39,8 @@ pub struct TrayAnchor {
     pub bottom: i32,
 }
 
-/// The menu's width, in logical pixels.
+/// The menu's width before setup, in logical pixels; it grows with its content.
 pub const MENU_WIDTH: f32 = 380.;
+/// The signed-in menu, Send and Received side by side: a fixed size, like
+/// apps/macos's MenuView.
+pub const HOME_SIZE: (f32, f32) = (640., 480.);

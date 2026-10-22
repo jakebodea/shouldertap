@@ -1,10 +1,10 @@
 //! The welcome: account-first onboarding (docs/onboarding.md, "The flow"),
-//! like apps/macos's Welcome.swift. Welcome → email → six-digit code → you
-//! (name and color, only when the account has none) → the menu. Instead of
-//! an email, a signed-in iPhone can scan this PC's QR code ("Sign in with
-//! your phone"). A Frame (docs/design.md): Cobalt, then the color you pick,
-//! around a paper page, with the wordmark on the frame's top edge. Windows
-//! asks for nothing else.
+//! like apps/macos's Welcome.swift, step for step. Welcome → email → six-digit
+//! code → you (name and color, only when the account has none) → ready.
+//! Instead of an email, a signed-in iPhone can scan this PC's QR code ("Sign
+//! in with your phone"). A Frame (docs/design.md): Cobalt, then the color you
+//! pick, around a paper page, with the wordmark on the frame's top edge.
+//! Windows asks for nothing else.
 
 use std::time::Duration;
 
@@ -32,6 +32,8 @@ pub enum WelcomeStep {
     /// "Sign in with your phone": a QR code a signed-in iPhone approves.
     Phone,
     You,
+    /// Set up: where Shouldertap lives, then the menu.
+    Ready,
 }
 
 const WELCOME_COLOR: PersonColor = PersonColor::Cobalt;
@@ -86,17 +88,17 @@ impl WelcomeView {
                     this.error = None;
                     cx.notify()
                 }
-                TextFieldEvent::Cancel => {}
+                TextFieldEvent::Cancel => later(cx),
             }),
             cx.subscribe(&code, |this, _, event, cx| match event {
                 TextFieldEvent::Submit => this.verify(cx),
                 TextFieldEvent::Changed => this.code_changed(cx),
-                TextFieldEvent::Cancel => {}
+                TextFieldEvent::Cancel => later(cx),
             }),
             cx.subscribe(&name, |this, _, event, cx| match event {
                 TextFieldEvent::Submit => this.save_profile(cx),
                 TextFieldEvent::Changed => cx.notify(),
-                TextFieldEvent::Cancel => {}
+                TextFieldEvent::Cancel => later(cx),
             }),
         ];
         let mut view = Self {
@@ -138,6 +140,12 @@ impl WelcomeView {
             self.start_phone(cx);
         }
         self.prefill(cx);
+        // Ready is framed in the color they picked, or the one the account had.
+        if step == WelcomeStep::Ready
+            && let Some(profile) = self.model.read(cx).account_state.profile()
+        {
+            self.color = profile.color;
+        }
         cx.notify();
     }
 
@@ -201,7 +209,7 @@ impl WelcomeView {
             cx,
             move |account| account.send_code(&email),
             move |this, result, cx| match result {
-                Ok(()) if again => this.notice = Some("We sent a new code.".into()),
+                Ok(()) if again => this.notice = Some("Sent a new code.".into()),
                 Ok(()) => {
                     this.code.update(cx, |field, cx| field.clear(cx));
                     this.go(WelcomeStep::Code, cx);
@@ -255,7 +263,7 @@ impl WelcomeView {
             self.go(WelcomeStep::You, cx);
         } else {
             // Back on a new PC: sync already brought everything.
-            finish(cx);
+            self.go(WelcomeStep::Ready, cx);
         }
     }
 
@@ -345,7 +353,7 @@ impl WelcomeView {
             cx,
             move |account| account.set_profile(&name, color),
             |this, result, cx| match result {
-                Ok(()) => finish(cx),
+                Ok(()) => this.go(WelcomeStep::Ready, cx),
                 Err(error) => this.error = Some(error.to_string()),
             },
         );
@@ -358,6 +366,11 @@ fn finish(cx: &mut App) {
         Shell::close_welcome(cx);
         Shell::open_menu(cx);
     });
+}
+
+/// Later: the welcome closes; the menu's Get started brings it back.
+fn later(cx: &mut App) {
+    cx.defer(Shell::close_welcome);
 }
 
 impl Focusable for WelcomeView {
@@ -374,13 +387,14 @@ impl Render for WelcomeView {
                 WelcomeStep::Email => Some(&self.email),
                 WelcomeStep::Code => Some(&self.code),
                 WelcomeStep::You => Some(&self.name),
+                WelcomeStep::Ready => None,
             };
             match field {
                 Some(field) => window.focus(&field.focus_handle(cx)),
                 None => window.focus(&self.focus),
             }
         }
-        let frame = if self.step == WelcomeStep::You {
+        let frame = if matches!(self.step, WelcomeStep::You | WelcomeStep::Ready) {
             self.color
         } else {
             WELCOME_COLOR
@@ -391,10 +405,17 @@ impl Render for WelcomeView {
             WelcomeStep::Code => self.code_page(cx),
             WelcomeStep::Phone => self.phone_page(frame, cx),
             WelcomeStep::You => self.you_page(cx),
+            WelcomeStep::Ready => self.ready_page(cx),
         };
         div()
             .id("welcome")
             .track_focus(&self.focus)
+            // Esc is Later, like the Mac's; set up, there's nothing to skip.
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" && this.step != WelcomeStep::Ready {
+                    later(cx);
+                }
+            }))
             .size_full()
             .flex()
             .flex_col()
@@ -420,7 +441,8 @@ impl Render for WelcomeView {
 // Pages
 
 impl WelcomeView {
-    /// The wordmark on the frame's top edge, and Back while signing in.
+    /// The wordmark on the frame's top edge, Back while signing in, and Later
+    /// until you're set up.
     fn band(&mut self, frame: PersonColor, cx: &mut Context<Self>) -> impl IntoElement {
         let ink: Hsla = theme::ink(frame).into();
         let back = match self.step {
@@ -444,6 +466,25 @@ impl WelcomeView {
                     .child("Shouldertap"),
             )
             .child(div().flex_1())
+            .when(
+                matches!(
+                    self.step,
+                    WelcomeStep::Email | WelcomeStep::Code | WelcomeStep::Phone | WelcomeStep::You
+                ),
+                |band| {
+                    band.child(
+                        div()
+                            .id("later")
+                            .px(px(8.))
+                            .cursor_pointer()
+                            .font_weight(FontWeight::BOLD)
+                            .text_size(px(13.))
+                            .hover(|style| style.opacity(0.8))
+                            .on_click(|_, _, cx| later(cx))
+                            .child("Later"),
+                    )
+                },
+            )
             .when_some(back.filter(|_| !self.busy), |band, step| {
                 band.child(
                     div()
@@ -476,7 +517,7 @@ impl WelcomeView {
                 .child("Welcome to Shouldertap.")
                 .into_any_element(),
             tone_text(
-                "When someone you trust taps you on the shoulder, their message covers your screen, just like this, until you answer. They see your reply right away.",
+                "When someone you trust taps you on the shoulder, their message covers your screen, just like this, until you answer.",
             )
             .text_size(px(16.))
             .into_any_element(),
@@ -491,9 +532,19 @@ impl WelcomeView {
                         .on_click(cx.listener(|this, _, _, cx| this.go(WelcomeStep::Email, cx))),
                 )
                 .child(
-                    pill("have-account", "I have an account", None, None, false)
+                    pill("later", "Later", None, None, false)
                         .w_full()
-                        .on_click(cx.listener(|this, _, _, cx| this.go(WelcomeStep::Email, cx))),
+                        .on_click(|_, _, cx| later(cx)),
+                )
+                .child(
+                    div()
+                        .id("have-account")
+                        .pt(px(4.))
+                        .text_color(paper::tone())
+                        .underline()
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _, _, cx| this.go(WelcomeStep::Email, cx)))
+                        .child("I have an account"),
                 )
                 .into_any_element(),
         ]
@@ -504,7 +555,7 @@ impl WelcomeView {
         let mut page = vec![
             page_heading(
                 "What's your email?",
-                "We'll send you a six-digit code to sign in. No password.",
+                "We'll send you a code to sign in. No password to remember.",
             ),
             labeled("Email", input(&self.email, cx)),
         ];
@@ -544,7 +595,7 @@ impl WelcomeView {
     /// under it, until the phone approves.
     fn phone_page(&mut self, frame: PersonColor, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut page = vec![page_heading(
-            "Sign in with your phone",
+            "Sign in with your phone.",
             "Open Shouldertap on your iPhone → Account → Sign in on a computer, and scan this.",
         )];
         let side = px(220.);
@@ -565,7 +616,7 @@ impl WelcomeView {
                             .line_height(px(36.))
                             .child(code.user_code.clone()),
                     )
-                    .child(tone_text("Waiting for your phone…"))
+                    .child(tone_text("Waiting for your iPhone…"))
                     .into_any_element(),
             ),
             (_, Some(ended)) => page.push(
@@ -613,7 +664,7 @@ impl WelcomeView {
         }
         page.extend(self.messages());
         page.push(
-            pill("with-email", "Use email instead", None, None, self.busy)
+            pill("with-email", "Use your email instead", None, None, self.busy)
                 .w_full()
                 .when(!self.busy, |pill| {
                     pill.on_click(cx.listener(|this, _, _, cx| this.go(WelcomeStep::Email, cx)))
@@ -627,8 +678,8 @@ impl WelcomeView {
         let email = self.email.read(cx).text().trim().to_string();
         let mut page = vec![
             page_heading(
-                "Check your email",
-                &format!("Enter the six-digit code we sent to {email}."),
+                "Check your email.",
+                &format!("Enter the six digits we sent to {email}."),
             ),
             labeled("Code", input(&self.code, cx)),
         ];
@@ -660,7 +711,7 @@ impl WelcomeView {
         let mut page = vec![
             page_heading(
                 "What should people call you?",
-                "Your name and color frame every tap you send, so people know it's you from across the room.",
+                "Your name and color frame every tap you send, so they know it's you from across the room.",
             ),
             labeled("Your name", input(&self.name, cx)),
             labeled("Your color", self.swatches(cx)),
@@ -670,7 +721,7 @@ impl WelcomeView {
         page.push(
             pill(
                 "continue",
-                if self.busy { "Setting up…" } else { "Continue" },
+                if self.busy { "Saving…" } else { "Continue" },
                 None,
                 Some(self.color),
                 !ready,
@@ -682,6 +733,26 @@ impl WelcomeView {
             .into_any_element(),
         );
         page
+    }
+
+    fn ready_page(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let name = self
+            .model
+            .read(cx)
+            .account_state
+            .profile()
+            .map(|profile| profile.name.clone())
+            .unwrap_or_else(|| self.name.read(cx).text().trim().to_string());
+        vec![
+            page_heading(
+                &format!("You're all set, {name}."),
+                "Shouldertap lives in the system tray, by the clock. Invite someone from it; when they tap, it covers this screen until you answer.",
+            ),
+            pill("open-menu", "Open the menu", None, Some(self.color), false)
+                .w_full()
+                .on_click(|_, _, cx| finish(cx))
+                .into_any_element(),
+        ]
     }
 
     fn messages(&self) -> Vec<AnyElement> {
