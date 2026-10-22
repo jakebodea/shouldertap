@@ -63,6 +63,7 @@
       Task { @MainActor in
         for item in queue { await capture(item, into: directory) }
         await appearanceWindow(into: directory)
+        if only == nil || "welcome".contains(only!) { await welcomeSteps(into: directory) }
         NSApp.terminate(nil)
       }
     }
@@ -92,7 +93,7 @@
     private static func appearanceWindow(into directory: String) async {
       let store = ReceiverStore(
         endpoints: Endpoints(server: URL(string: "http://127.0.0.1:9")!, web: URL(string: "http://127.0.0.1:9")!),
-        persistence: NoPersistence(), deviceName: { "Snapshot" })
+        persistence: NoPersistence())
       let window = NSWindow(
         contentRect: NSRect(x: 40, y: 40, width: 760, height: 760), styleMask: [.titled], backing: .buffered,
         defer: false)
@@ -104,12 +105,47 @@
       window.orderOut(nil)
     }
 
+    /// Each first-run step at 1440×900, with no server: the account points
+    /// nowhere and forgets nothing.
+    private static func welcomeSteps(into directory: String) async {
+      let account = AccountStore(server: URL(string: "http://127.0.0.1:9")!, vault: NoVault())
+      let steps: [(String, WelcomeModel.Step)] = [
+        ("welcome", .welcome), ("email", .email), ("code", .code), ("you", .you), ("ready", .ready),
+      ]
+      for (name, step) in steps {
+        let model = WelcomeModel(pointerX: 1240, menuBarHeight: 0, account: account, sync: {}, dismiss: { _ in })
+        model.step = step
+        model.email = "jake@example.com"
+        model.code = step == .code ? "1234" : ""
+        model.name = "Jake"
+        model.color = .moss
+        let window = NSWindow(
+          contentRect: NSRect(x: 40, y: 40, width: 1440, height: 900), styleMask: [.borderless], backing: .buffered,
+          defer: false)
+        window.contentView = NSHostingView(rootView: WelcomeView(model: model))
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .seconds(1.5))
+        // Drawn from the view itself: needs no Screen Recording permission.
+        if let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+          view.cacheDisplay(in: view.bounds, to: rep)
+          try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(directory)/mac-\(name).png"))
+        }
+        window.orderOut(nil)
+      }
+    }
+
     private static func shoot(_ window: NSWindow, _ path: String, wait: Bool) {
       let process = Process()
       process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
       process.arguments = ["-x", "-o", "-l", "\(window.windowNumber)", path]
       try? process.run()
       if wait { process.waitUntilExit() }
+    }
+
+    private struct NoVault: CredentialVault {
+      func read() -> String? { nil }
+      func write(_ token: String) throws {}
+      func delete() {}
     }
 
     private final class NoPersistence: ReceiverPersistence, @unchecked Sendable {
