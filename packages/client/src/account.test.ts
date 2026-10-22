@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AccountClient } from "./account";
+import { AccountClient, deviceSignInCode, qrSignInToken } from "./account";
 
 const json = (status: number, body: unknown) => Response.json(body, { status });
 
@@ -164,5 +164,59 @@ describe("sync", () => {
     });
     expect(result.removed).toHaveLength(50);
     expect(result.removed.at(-1)).toBe("t49");
+  });
+});
+
+describe("sign-in QR codes", () => {
+  it("reads the token from a scanned computer QR code", () => {
+    expect(
+      qrSignInToken(
+        "https://shouldertap.app/qr#Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56"
+      )
+    ).toBe("Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56");
+    expect(qrSignInToken("shouldertap://qr#Ab12Cd34Ef56Gh78")).toBe(
+      "Ab12Cd34Ef56Gh78"
+    );
+    expect(qrSignInToken("https://shouldertap.app/join#in/1#a")).toBeNull();
+  });
+
+  it("reads the code from a scanned device sign-in QR code", () => {
+    expect(
+      deviceSignInCode(
+        "https://api.shouldertap.app/account/device?user_code=ABCD1234"
+      )
+    ).toBe("ABCD1234");
+    expect(
+      deviceSignInCode("http://api.shouldertap.app/account/device?user_code=X")
+    ).toBeNull();
+  });
+
+  it("keeps polling a device sign-in, slower when asked", async () => {
+    const replies = [
+      json(400, { error: "authorization_pending" }),
+      json(400, { error: "slow_down" }),
+      json(200, { access_token: "mac-session" }),
+    ];
+    const client = new AccountClient({
+      baseUrl: "https://api.example",
+      fetch: () => Promise.resolve(replies.shift() ?? json(500, {})),
+    });
+    const started = {
+      deviceCode: "device",
+      userCode: "ABCD1234",
+      url: "https://api.example/account/device?user_code=ABCD1234",
+      interval: 5,
+      expiresAt: 0,
+    };
+    const polls = [
+      await client.pollDeviceSignIn("shouldertap-mac", started),
+      await client.pollDeviceSignIn("shouldertap-mac", started),
+      await client.pollDeviceSignIn("shouldertap-mac", started, 10),
+    ];
+    expect(polls).toStrictEqual([
+      { kind: "pending", interval: 5 },
+      { kind: "pending", interval: 10 },
+      { kind: "signed-in", token: "mac-session" },
+    ]);
   });
 });
