@@ -16,6 +16,8 @@ Start with [README.md](README.md) (layout, develop, deploy). Product UI rules: [
 | Change | Touch |
 | --- | --- |
 | HTTP / WebSocket protocol | `packages/domain`, `apps/server`, `ShouldertapCore` (`apps/macos`), `apps/windows/core` — `bun run check` runs `scripts/check-protocol-sync.mjs` |
+| Desktop UI (menu, onboarding, settings) | Both `apps/macos` and `apps/windows`, same features — `bun run check` runs `scripts/check-desktop-parity.ts`; list new labels there |
+| Desktop UI (menu, onboarding, settings) | Both `apps/macos` and `apps/windows`, same features — `bun run check` runs `scripts/check-desktop-parity.ts`; list new labels there |
 | Safari framed pages | `apps/web/src/components/frame.tsx`, `safari-edge-strips.tsx`, `index.css` — not Playwright tint tests (`apps/web/e2e/README.md`) |
 | iOS sheets from frame UI | Apply `.sheetOnPaper()` on sheet content (`apps/ios/Shouldertap/Theme.swift`) |
 | PR preview lifecycle | `scripts/cloudflare/previews.ts` + tests — not ad hoc worker-name parsing in YAML |
