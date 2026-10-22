@@ -123,11 +123,12 @@ struct SampleTapView: View {
             Text(message).font(Bricolage.bold(27))
             Text("On a real Mac, this appears over every connected display until Jamie answers.")
               .font(.footnote).foregroundStyle(.secondary)
-            HStack {
+            HStack(spacing: 8) {
               Button("On it") { response = .onIt }
+                .buttonStyle(PillStyle(color: .cobalt, small: true))
               Button("In 10 min") { response = .in10 }
+                .buttonStyle(PillStyle(small: true))
             }
-            .buttonStyle(.bordered)
           }
           .padding(20).background(Paper.faint, in: .rect(cornerRadius: 20))
           if let response {

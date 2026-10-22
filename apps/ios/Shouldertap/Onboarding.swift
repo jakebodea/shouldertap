@@ -382,15 +382,15 @@ private struct CodeStep: View {
       if account.busy {
         ProgressView().frame(minHeight: 52)
       }
-      HStack(spacing: 0) {
+      HStack(spacing: 8) {
         Button("Resend") {
           code = ""
           Task { resent = await account.sendCode(email: account.pendingEmail ?? "") }
         }
-        .buttonStyle(QuietStyle())
+        .buttonStyle(PillStyle())
         .accessibilityIdentifier("resend-code")
         Button("Change email") { withAnimation(.outExpo(0.55)) { account.changeEmail() } }
-          .buttonStyle(QuietStyle())
+          .buttonStyle(PillStyle())
           .accessibilityIdentifier("change-email")
       }
       .disabled(account.busy)
