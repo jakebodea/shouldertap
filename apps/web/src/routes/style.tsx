@@ -10,7 +10,6 @@ import { Frame } from "@/components/frame";
 import { TapPreview } from "@/components/tap-preview/tap-preview";
 import type { PreviewTap } from "@/components/tap-preview/themes";
 import { styleOffer } from "@/lib/account-flow";
-import { isStandalone } from "@/lib/install";
 import { loadPairing } from "@/lib/pairing";
 import { loadDraft, loadStyle, saveStyle } from "@/lib/sender-style";
 import { THEME_NAMES } from "@/lib/theme-names";
@@ -388,7 +387,7 @@ const PatronSection = ({
 export const Route = createFileRoute("/style")({
   beforeLoad: () => {
     if (!loadPairing()) {
-      throw redirect({ to: isStandalone() ? "/join" : "/", replace: true });
+      throw redirect({ to: "/tap", replace: true });
     }
   },
   component: StyleComponent,

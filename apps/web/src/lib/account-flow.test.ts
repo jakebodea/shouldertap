@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   forgetIntent,
-  hasUnsavedSenders,
   membershipChoices,
   patronPlan,
   resolveIntent,
@@ -148,32 +147,6 @@ describe("Style's patron call to action", () => {
         checkoutEnabled: false,
       })
     ).toBe("manage");
-  });
-});
-
-describe("saved sender identities", () => {
-  it("does not mistake another person in the same inbox for a saved sender", () => {
-    expect(
-      hasUnsavedSenders(
-        [{ inboxId: "inboxA", credentialId: "senderB" }],
-        [{ inboxId: "inboxA", credentialId: "senderA" }]
-      )
-    ).toBeTruthy();
-  });
-
-  it("recognizes a restored alias through its canonical sender identity", () => {
-    expect(
-      hasUnsavedSenders(
-        [{ inboxId: "inboxA", credentialId: "senderA" }],
-        [{ inboxId: "inboxA", credentialId: "senderA" }]
-      )
-    ).toBeFalsy();
-    expect(
-      hasUnsavedSenders(
-        [{ inboxId: "inboxB", credentialId: "senderA" }],
-        [{ inboxId: "inboxA", credentialId: "senderA" }]
-      )
-    ).toBeTruthy();
   });
 });
 

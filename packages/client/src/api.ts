@@ -54,6 +54,7 @@ export type ShouldertapClient = Effect.Success<
 export type ApiErrorCode =
   | "invalid_request"
   | "unauthorized"
+  | "forbidden"
   | "not_found"
   | "conflict"
   | "expired"

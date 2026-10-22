@@ -2,9 +2,11 @@ import {
   ArrowRight01Icon,
   BubbleChatIcon,
   Clock01Icon,
+  Link01Icon,
   SentIcon,
   Tick02Icon,
   UnfoldMoreIcon,
+  UserAdd01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { LiveStatus } from "@shouldertap/client";
@@ -13,7 +15,12 @@ import {
   fallbackColor,
   MAX_TAP_LENGTH,
 } from "@shouldertap/domain";
-import type { Tap, TapResponse, TapTheme } from "@shouldertap/domain";
+import type {
+  PersonColor,
+  Tap,
+  TapResponse,
+  TapTheme,
+} from "@shouldertap/domain";
 import {
   createFileRoute,
   Link,
@@ -21,12 +28,21 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Frame } from "@/components/frame";
-import { revokePairing } from "@/lib/api";
-import { isStandalone } from "@/lib/install";
+import { InvitePanel } from "@/components/invite-panel";
+import { Mark } from "@/components/mark";
+import { MiniTap } from "@/components/mini-tap";
+import { StepHeading } from "@/components/sign-in";
+import {
+  isSignedOutError,
+  loadSession,
+  needsSignIn,
+  syncThisBrowser,
+} from "@/lib/account";
+import { removePerson } from "@/lib/api";
 import {
   loadPairing,
   loadPairings,
@@ -48,47 +64,154 @@ import type { OutgoingTap } from "@/lib/use-sender";
 
 const TapComponent = () => {
   const navigate = useNavigate();
+  const { session } = Route.useRouteContext();
+  const me = session.kind === "signed-in" ? session.me : null;
+  const [pairings, setPairings] = useState(loadPairings);
   const [pairing, setPairing] = useState(loadPairing);
-  const select = useCallback((credentialId: string) => {
-    selectPairing(credentialId);
+  const [inviting, setInviting] = useState(false);
+  const reload = useCallback(() => {
+    setPairings(loadPairings());
     setPairing(loadPairing());
   }, []);
+  const select = useCallback(
+    (credentialId: string) => {
+      selectPairing(credentialId);
+      reload();
+    },
+    [reload]
+  );
   const unpair = useCallback(
     (credentialId: string) => {
       removePairing(credentialId);
-      const next = loadPairing();
-      if (next) {
-        setPairing(next);
-      } else {
-        navigate({ to: "/", replace: true });
-      }
+      reload();
     },
-    [navigate]
+    [reload]
   );
+
+  // Keys for everyone the account can tap arrive here; gone ones drop out.
+  useEffect(() => {
+    const sync = async () => {
+      try {
+        await syncThisBrowser();
+        reload();
+      } catch (error) {
+        if (isSignedOutError(error)) {
+          navigate({ to: "/signin", search: { redirect: "/tap" } });
+        }
+      }
+    };
+    sync();
+    const wake = () => {
+      if (document.visibilityState === "visible") {
+        sync();
+      }
+    };
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [navigate, reload]);
+
+  const ownColor = me?.profile?.color ?? pairing?.color ?? "cobalt";
+  if (inviting) {
+    return (
+      <Frame color={ownColor}>
+        <InvitePanel
+          onDone={() => {
+            setInviting(false);
+          }}
+        />
+      </Frame>
+    );
+  }
   if (!pairing) {
-    return null;
+    return (
+      <Home
+        color={ownColor}
+        name={me?.profile?.name ?? null}
+        onInvite={() => {
+          setInviting(true);
+        }}
+      />
+    );
   }
   // Keyed so each person gets their own outbox, socket and draft.
   return (
     <Composer
       key={pairing.credentialId}
+      onInvite={() => {
+        setInviting(true);
+      }}
       onSelect={select}
       onUnpair={() => {
         unpair(pairing.credentialId);
       }}
       pairing={pairing}
+      pairings={pairings}
     />
   );
 };
 
+/** "Add your people": nobody to tap yet. */
+const Home = ({
+  color,
+  name,
+  onInvite,
+}: {
+  color: PersonColor;
+  name: string | null;
+  onInvite: () => void;
+}) => (
+  <Frame color={color}>
+    <Mark className="size-9" />
+    <StepHeading title="Add your people">
+      Invite someone to tap you and be tapped back, or open a link someone sent
+      you.
+    </StepHeading>
+    <MiniTap color={color} name={name ?? "You"} />
+    <div className="mt-auto flex flex-col gap-3">
+      <button
+        className="pill pill-frame w-full"
+        onClick={onInvite}
+        type="button"
+      >
+        <HugeiconsIcon className="size-5" icon={UserAdd01Icon} />
+        Invite someone
+      </button>
+      <Link className="pill w-full" to="/join">
+        <HugeiconsIcon className="size-5" icon={Link01Icon} />
+        Got a link? Paste or scan
+      </Link>
+    </div>
+    <Footer />
+  </Frame>
+);
+
+const Footer = ({ children }: { children?: ReactNode }) => (
+  <footer className="text-tone mt-auto pt-2 text-center text-[0.8125rem]">
+    {children}
+    <a className="text-ink underline underline-offset-[3px]" href="/account">
+      Account
+    </a>{" "}
+    ·{" "}
+    <a className="text-ink underline underline-offset-[3px]" href="/support">
+      Help
+    </a>
+  </footer>
+);
+
 const Composer = ({
   pairing,
+  pairings,
   onSelect,
   onUnpair,
+  onInvite,
 }: {
   pairing: Pairing;
+  pairings: readonly Pairing[];
   onSelect: (credentialId: string) => void;
   onUnpair: () => void;
+  onInvite: () => void;
 }) => {
   const handleRevoked = useCallback(() => {
     // Unpairing here revokes too; that's not the recipient removing us.
@@ -153,18 +276,23 @@ const Composer = ({
     if (
       // oxlint-disable-next-line no-alert -- a native confirm is right for this rare action
       window.confirm(
-        `Stop sending taps to ${pairing.recipientName} from this phone?`
+        `Stop tapping ${pairing.recipientName}? This removes them from all your devices.`
       )
     ) {
       onUnpair();
-      revokePairing(pairing);
+      removePerson(pairing);
     }
   };
 
   return (
     <Frame color={color}>
       <header className="flex items-start justify-between gap-4">
-        <RecipientPicker onSelect={onSelect} pairing={pairing} />
+        <RecipientPicker
+          onInvite={onInvite}
+          onSelect={onSelect}
+          pairing={pairing}
+          pairings={pairings}
+        />
         <StatusLabel status={status} />
       </header>
 
@@ -246,8 +374,8 @@ const Composer = ({
         ) : null}
       </section>
 
-      <footer className="text-tone mt-auto pt-2 text-center text-[0.8125rem]">
-        Paired as {pairing.senderName} ·{" "}
+      <Footer>
+        Tapping as {pairing.senderName} ·{" "}
         <button
           className="text-ink underline underline-offset-[3px]"
           onClick={unpair}
@@ -256,20 +384,7 @@ const Composer = ({
           Unpair
         </button>{" "}
         ·{" "}
-        <a
-          className="text-ink underline underline-offset-[3px]"
-          href="/account"
-        >
-          Account
-        </a>{" "}
-        ·{" "}
-        <a
-          className="text-ink underline underline-offset-[3px]"
-          href="/support"
-        >
-          Help
-        </a>
-      </footer>
+      </Footer>
     </Frame>
   );
 };
@@ -291,20 +406,24 @@ const usePersistedDraft = (credentialId: string) => {
 };
 
 const ADD_SOMEONE = "add";
+const INVITE_SOMEONE = "invite";
 
 /**
- * The heading doubles as a native picker: everyone this phone can tap, plus
- * a way to pair with someone new.
+ * The heading doubles as a native picker: everyone this browser can tap,
+ * plus ways to add someone new.
  */
 const RecipientPicker = ({
   pairing,
+  pairings,
   onSelect,
+  onInvite,
 }: {
   pairing: Pairing;
+  pairings: readonly Pairing[];
   onSelect: (credentialId: string) => void;
+  onInvite: () => void;
 }) => {
   const navigate = useNavigate();
-  const pairings = useMemo(() => loadPairings(), []);
   return (
     <div className="relative min-w-0">
       <h1 className="text-[2.125rem] leading-none font-extrabold tracking-[-0.035em] text-balance">
@@ -323,6 +442,8 @@ const RecipientPicker = ({
           const { value } = event.target;
           if (value === ADD_SOMEONE) {
             navigate({ to: "/join" });
+          } else if (value === INVITE_SOMEONE) {
+            onInvite();
           } else {
             onSelect(value);
           }
@@ -334,6 +455,7 @@ const RecipientPicker = ({
             {p.recipientName}
           </option>
         ))}
+        <option value={INVITE_SOMEONE}>Invite someone…</option>
         <option value={ADD_SOMEONE}>Add someone…</option>
       </select>
     </div>
@@ -534,14 +656,19 @@ const Answer = ({
   </div>
 );
 
-// The composer only means something on a paired phone. Anyone else gets the
-// landing page, which explains how to get an invite; a Home Screen app has no
-// landing page to show, so it asks for an invite link.
+// Tapping needs an account: signed out (or without a name yet) goes to
+// sign-in. Offline, the keys already on this browser still work.
 export const Route = createFileRoute("/tap")({
-  beforeLoad: () => {
-    if (!loadPairing()) {
-      throw redirect({ to: isStandalone() ? "/join" : "/", replace: true });
+  beforeLoad: async () => {
+    const session = await loadSession();
+    if (needsSignIn(session)) {
+      throw redirect({
+        to: "/signin",
+        search: { redirect: "/tap" },
+        replace: true,
+      });
     }
+    return { session };
   },
   component: TapComponent,
 });
