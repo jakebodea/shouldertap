@@ -540,6 +540,88 @@ impl<'de> Deserialize<'de> for ServerEvent {
     }
 }
 
+// Accounts (docs/onboarding.md, "Protocol")
+
+/// The name and color a person picked once, used for every new connection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Profile {
+    pub name: String,
+    pub color: PersonColor,
+}
+
+/// `GET /account/me`: who the signed-in account is.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Me {
+    pub email: String,
+    /// None until the You step: then ask for a name and color.
+    #[serde(default)]
+    pub profile: Option<Profile>,
+    /// An inbox name this person already had, to prefill the You step.
+    #[serde(default)]
+    pub suggested_name: Option<String>,
+    /// The person's inbox, once the profile exists.
+    #[serde(default)]
+    pub inbox_id: Option<String>,
+}
+
+/// A new sender key for one of your people, from `/account/sync` or
+/// `/account/accept`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SyncedSender {
+    /// `${inboxId}:${credentialId}`.
+    pub id: String,
+    /// Kind `sender`; `credentialId` is the person-level id, `token` this
+    /// device's own key.
+    pub grant: CredentialGrant,
+    /// Your name as they see it.
+    pub name: String,
+    pub color: PersonColor,
+}
+
+/// `POST /account/sync`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SyncResult {
+    pub me: Me,
+    /// A new device credential for your inbox, when this device holds none.
+    #[serde(default)]
+    pub inbox: Option<CredentialGrant>,
+    #[serde(default)]
+    pub senders: Vec<SyncedSender>,
+    /// Tokens this device sent whose connection is gone: drop them.
+    #[serde(default)]
+    pub removed: Vec<String>,
+}
+
+/// The person behind an invite.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct InvitePerson {
+    pub name: String,
+    #[serde(default)]
+    pub color: Option<PersonColor>,
+}
+
+/// `GET /v1/invites/preview`: who invited you, before accepting.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvitePreview {
+    pub name: String,
+    #[serde(default)]
+    pub color: Option<PersonColor>,
+    pub expires_at: Timestamp,
+}
+
+/// `POST /account/accept`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Accepted {
+    pub person: InvitePerson,
+    /// You → them; None when you were already connected.
+    #[serde(default)]
+    pub sender: Option<SyncedSender>,
+    /// They can tap you too.
+    pub mutual: bool,
+}
+
 /// A value shaped differently by a newer server falls back to its default.
 fn lenient_value<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned + Default>(
     deserializer: D,

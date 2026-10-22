@@ -24,6 +24,7 @@ pub enum ErrorCode {
     InvalidRequest,
     Unauthorized,
     PaymentRequired,
+    Forbidden,
     NotFound,
     Conflict,
     Expired,
@@ -57,17 +58,21 @@ impl ApiError {
     }
 
     pub fn from_response(status: u16, body: &[u8]) -> Self {
+        // Inbox routes answer `{ _tag, message }`; account routes
+        // (docs/onboarding.md) answer `{ error }`.
         #[derive(Deserialize)]
         struct ErrorBody {
             #[serde(rename = "_tag")]
             tag: Option<String>,
-            message: String,
+            message: Option<String>,
+            error: Option<String>,
         }
         let decoded = serde_json::from_slice::<ErrorBody>(body).ok();
         let code = match status {
             400 => ErrorCode::InvalidRequest,
             401 => ErrorCode::Unauthorized,
             402 => ErrorCode::PaymentRequired,
+            403 => ErrorCode::Forbidden,
             404 => ErrorCode::NotFound,
             409 => ErrorCode::Conflict,
             410 => ErrorCode::Expired,
@@ -80,7 +85,7 @@ impl ApiError {
             _ => ErrorCode::Network,
         };
         let message = decoded
-            .map(|body| body.message)
+            .and_then(|body| body.message.or(body.error))
             .unwrap_or_else(|| format!("Request failed ({status})"));
         Self { code, message, status }
     }
@@ -165,6 +170,18 @@ fn with_auth<B>(request: ureq::RequestBuilder<B>, authorization: &Option<String>
     }
 }
 
+/// `POST /api/auth/sign-in/email-otp`: the session token and who it's for.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SignedIn {
+    pub token: String,
+    pub user: SignedInUser,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SignedInUser {
+    pub email: String,
+}
+
 #[derive(Clone)]
 pub struct ApiClient {
     pub base_url: String,
@@ -184,72 +201,6 @@ impl ApiClient {
 
     pub fn with_token(&self, token: Option<String>) -> Self {
         Self { token, ..self.clone() }
-    }
-
-    // Pairing
-
-    /// `machine` is this computer's trial fingerprint, so setting up again
-    /// keeps its original trial; None when it couldn't be read.
-    pub fn create_inbox(
-        &self,
-        recipient_name: &str,
-        device_name: &str,
-        platform: DevicePlatform,
-        machine: Option<&str>,
-    ) -> Result<CredentialGrant, ApiError> {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Body<'a> {
-            recipient_name: &'a str,
-            device_name: &'a str,
-            // Omitted for a Mac, like the Mac app (servers before Windows
-            // assume one); older servers ignore it.
-            #[serde(skip_serializing_if = "Option::is_none")]
-            platform: Option<DevicePlatform>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            machine: Option<&'a str>,
-        }
-        let platform = (platform != DevicePlatform::Mac).then_some(platform);
-        self.send(
-            "POST",
-            "/v1/inboxes",
-            Some(&Body {
-                recipient_name,
-                device_name,
-                platform,
-                machine,
-            }),
-        )
-    }
-
-    /// `color` is a sender's frame color and `platform` a joining device's;
-    /// the server ignores whichever doesn't apply to the invite.
-    pub fn redeem_invite(
-        &self,
-        code: &str,
-        name: &str,
-        color: Option<PersonColor>,
-        platform: Option<DevicePlatform>,
-    ) -> Result<CredentialGrant, ApiError> {
-        #[derive(Serialize)]
-        struct Body<'a> {
-            code: &'a str,
-            name: &'a str,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            color: Option<PersonColor>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            platform: Option<DevicePlatform>,
-        }
-        self.send(
-            "POST",
-            "/v1/invites/redeem",
-            Some(&Body {
-                code,
-                name,
-                color,
-                platform,
-            }),
-        )
     }
 
     // Inbox (authorized)
@@ -351,6 +302,105 @@ impl ApiClient {
         url.set_path(&path);
         url.query_pairs_mut().clear().append_pair("ticket", ticket);
         Some(url.into())
+    }
+
+    // Account (docs/onboarding.md): `token` is the account session.
+
+    /// Emails a six-digit sign-in code.
+    pub fn send_sign_in_code(&self, email: &str) -> Result<(), ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            email: &'a str,
+            #[serde(rename = "type")]
+            kind: &'a str,
+        }
+        self.send::<_, serde::de::IgnoredAny>(
+            "POST",
+            "/api/auth/email-otp/send-verification-otp",
+            Some(&Body { email, kind: "sign-in" }),
+        )
+        .map(|_| ())
+    }
+
+    /// Trades the emailed code for a session token.
+    pub fn sign_in(&self, email: &str, otp: &str) -> Result<SignedIn, ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            email: &'a str,
+            otp: &'a str,
+        }
+        self.send("POST", "/api/auth/sign-in/email-otp", Some(&Body { email, otp }))
+    }
+
+    pub fn sign_out(&self) -> Result<(), ApiError> {
+        self.send::<_, serde::de::IgnoredAny>("POST", "/api/auth/sign-out", Some(&serde_json::json!({})))
+            .map(|_| ())
+    }
+
+    /// Deletes the account and its sessions; messaging credentials stay.
+    pub fn delete_account(&self) -> Result<(), ApiError> {
+        self.send::<_, serde::de::IgnoredAny>("POST", "/api/auth/delete-user", Some(&serde_json::json!({})))
+            .map(|_| ())
+    }
+
+    pub fn account_me(&self) -> Result<Me, ApiError> {
+        self.send::<(), _>("GET", "/account/me", None)
+    }
+
+    pub fn set_profile(&self, profile: &Profile) -> Result<Me, ApiError> {
+        self.send("POST", "/account/profile", Some(profile))
+    }
+
+    pub fn sync(
+        &self,
+        platform: DevicePlatform,
+        device_name: &str,
+        receive: bool,
+        tokens: &[String],
+    ) -> Result<SyncResult, ApiError> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body<'a> {
+            platform: DevicePlatform,
+            device_name: &'a str,
+            receive: bool,
+            tokens: &'a [String],
+        }
+        self.send(
+            "POST",
+            "/account/sync",
+            Some(&Body {
+                platform,
+                device_name,
+                receive,
+                tokens,
+            }),
+        )
+    }
+
+    pub fn accept_invite(&self, code: &str, platform: DevicePlatform, device_name: &str) -> Result<Accepted, ApiError> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body<'a> {
+            code: &'a str,
+            platform: DevicePlatform,
+            device_name: &'a str,
+        }
+        self.send(
+            "POST",
+            "/account/accept",
+            Some(&Body {
+                code,
+                platform,
+                device_name,
+            }),
+        )
+    }
+
+    /// No auth: anyone holding the link may see who sent it.
+    pub fn invite_preview(&self, code: &str) -> Result<InvitePreview, ApiError> {
+        self.with_token(None)
+            .send::<(), _>("GET", &format!("/v1/invites/preview?code={}", escape(code)), None)
     }
 
     // Transport

@@ -4,7 +4,7 @@
 //! credential on that recipient's inbox, with its own taps, outbox and live
 //! socket. A PC can be sender-only, so none of this needs the receiver.
 //!
-//! Commands the UI waits on (`pair`, `delete_data`, `delete_tap`) block; call
+//! Commands the UI waits on (`delete_data`, `delete_tap`) block; call
 //! them off the UI thread. Sending, retries and syncing run on their own
 //! threads and report through `on_change`.
 
@@ -27,9 +27,8 @@ pub fn new_request_id() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// What the receiver shows when a device code is pasted as an invite.
-const DEVICE_CODE_MESSAGE: &str =
-    "That code links one of your own devices, not someone to tap. Paste it where you set up this device.";
+/// When the account hands over something that isn't a sender key.
+const DEVICE_CODE_MESSAGE: &str = "That isn't a key to tap someone.";
 
 /// One recipient this PC can tap. `token` is the secret: `LocalSenderPersistence`
 /// keeps it in Credential Manager. Mirrors `Pairing` in apps/web/src/lib/pairing.ts.
@@ -292,30 +291,31 @@ impl SenderStore {
         Ok(())
     }
 
-    // Pairing
+    // Connections (the account hands them out: `AccountStore`)
 
-    /// Redeems a sender invite (a code or a link carrying one) and returns the
-    /// new pairing's id. Pairing again with the same recipient replaces that
-    /// pairing, like the web.
-    pub fn pair(&self, invite: &str, name: &str, color: PersonColor) -> Result<String, ApiError> {
-        let code = invite_code(invite)
-            .ok_or_else(|| ApiError::invalid("That doesn't look like a Shouldertap invite link."))?;
-        let name = name.trim();
-        if !(1..=MAX_NAME_LENGTH).contains(&name.chars().count()) {
-            return Err(ApiError::invalid(format!(
-                "Enter your name (up to {MAX_NAME_LENGTH} characters)."
-            )));
-        }
-        let grant = self.inner.api(None).redeem_invite(&code, name, Some(color), None)?;
+    /// Every token this PC taps with, for the account's sync.
+    pub fn tokens(&self) -> Vec<String> {
+        self.state()
+            .sessions
+            .iter()
+            .map(|session| session.pairing.token.clone())
+            .collect()
+    }
+
+    /// Keeps and connects a sender key from the account (sync or accepting
+    /// an invite) and returns its pairing's id. A key for the same person
+    /// replaces the one this PC had.
+    pub fn add(&self, sender: &SyncedSender) -> Result<String, ApiError> {
+        let grant = &sender.grant;
         if grant.kind != CredentialKind::Sender {
             return Err(ApiError::invalid(DEVICE_CODE_MESSAGE));
         }
         let pairing = SenderPairing {
-            token: grant.token,
-            credential_id: grant.credential_id,
-            recipient_name: grant.recipient_name,
-            sender_name: name.into(),
-            color: Some(color),
+            token: grant.token.clone(),
+            credential_id: grant.credential_id.clone(),
+            recipient_name: grant.recipient_name.clone(),
+            sender_name: sender.name.clone(),
+            color: Some(sender.color),
             paired_at: now_ms(),
         };
         self.inner
@@ -327,23 +327,39 @@ impl SenderStore {
                 message,
                 status: 0,
             })?;
-        let replaced: Vec<String> = self
-            .state()
-            .sessions
-            .iter()
-            .filter(|session| session.pairing.inbox_id() == pairing.inbox_id() && session.id() != pairing.credential_id)
-            .map(|session| session.id().to_string())
-            .collect();
-        for id in replaced {
-            self.unpair(&id);
-        }
         let id = pairing.credential_id.clone();
+        self.inner.stop(&id);
+        let outbox = self.inner.config.persistence.load_outbox(&id);
         self.inner.update(|state| {
             state.sessions.retain(|session| session.id() != id);
-            state.sessions.push(new_session(pairing, Vec::new()));
+            state.sessions.push(new_session(pairing, outbox));
         });
         self.inner.connect(&id);
         Ok(id)
+    }
+
+    /// Forgets these tokens' pairings here without telling the server: the
+    /// account said their connections are gone.
+    pub fn forget_tokens(&self, tokens: &[String]) {
+        let ids: Vec<String> = self
+            .state()
+            .sessions
+            .iter()
+            .filter(|session| tokens.contains(&session.pairing.token))
+            .map(|session| session.id().to_string())
+            .collect();
+        for id in ids {
+            self.inner.forget(&id);
+        }
+    }
+
+    /// The pairing that taps this inbox, if any.
+    pub fn session_for_inbox(&self, inbox_id: &str) -> Option<String> {
+        self.state()
+            .sessions
+            .iter()
+            .find(|session| session.pairing.inbox_id() == Some(inbox_id))
+            .map(|session| session.id().to_string())
     }
 
     /// Revokes this PC's key so the recipient stops listing the sender, then

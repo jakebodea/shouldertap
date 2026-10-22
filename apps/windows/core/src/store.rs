@@ -3,7 +3,10 @@
 //! which tap the overlay shows, and acknowledgements that must survive being
 //! offline. The UI only draws what this decides.
 //!
-//! Commands that the UI waits on (`create_inbox`, `join`, `revoke`, …) block;
+//! The account (`AccountStore`) hands this PC its inbox credential; this
+//! store only keeps and uses it.
+//!
+//! Commands that the UI waits on (`revoke`, `delete_tap`, …) block;
 //! call them off the UI thread. Everything else runs on its own threads and
 //! reports through `on_change`.
 
@@ -118,11 +121,6 @@ impl StoreState {
 pub struct StoreConfig {
     pub endpoints: Endpoints,
     pub persistence: Box<dyn ReceiverPersistence>,
-    /// This computer's name, as the inbox lists it.
-    pub device_name: Box<dyn Fn() -> String + Send + Sync>,
-    pub platform: DevicePlatform,
-    /// The trial fingerprint (`MachineFingerprint`), when it can be read.
-    pub machine: Box<dyn Fn() -> Option<String> + Send + Sync>,
     pub transport: Arc<dyn Transport>,
     pub ack_retry_delay: Duration,
 }
@@ -143,6 +141,7 @@ struct Inner {
     ack_flush: AtomicU64,
     reported_displayed: Mutex<HashSet<String>>,
     on_change: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    on_credentials: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl ReceiverStore {
@@ -157,6 +156,7 @@ impl ReceiverStore {
                 ack_flush: AtomicU64::new(0),
                 reported_displayed: Mutex::new(HashSet::new()),
                 on_change: Mutex::new(None),
+                on_credentials: Mutex::new(None),
             }),
         }
     }
@@ -166,12 +166,18 @@ impl ReceiverStore {
         *self.inner.on_change.lock().unwrap() = Some(Arc::new(callback));
     }
 
+    /// Called (on the socket's thread) when the inbox socket sends
+    /// `credentials`: the account syncs then.
+    pub fn on_credentials(&self, callback: impl Fn() + Send + Sync + 'static) {
+        *self.inner.on_credentials.lock().unwrap() = Some(Arc::new(callback));
+    }
+
     pub fn state(&self) -> StoreState {
         self.inner.state.lock().unwrap().clone()
     }
 
-    /// Loads saved state and connects. Returns false when this computer still
-    /// needs setting up, so the app can open the menu.
+    /// Loads saved state and connects. Returns false when this computer has
+    /// no inbox credential yet (the account's sync hands it one).
     pub fn start(&self) -> bool {
         let acks = self.inner.config.persistence.load_pending_acks();
         self.inner.update(|state| state.pending_acks = acks);
@@ -244,40 +250,25 @@ impl ReceiverStore {
         });
     }
 
-    // Setup
+    // The inbox credential
 
-    /// Sends this computer's fingerprint so its free trial carries over a
-    /// fresh setup. Joining an existing inbox (`join`) doesn't: that inbox's
-    /// plan already applies.
-    pub fn create_inbox(&self, recipient_name: &str) -> Result<(), ApiError> {
-        let config = &self.inner.config;
-        let machine = (config.machine)();
-        let grant = self.inner.api().create_inbox(
-            recipient_name,
-            &self.inner.safe_device_name(),
-            config.platform,
-            machine.as_deref(),
-        )?;
-        self.inner.adopt(grant.token)
+    /// The credential this PC receives with, for the account's sync.
+    pub fn token(&self) -> Option<String> {
+        self.inner.token()
     }
 
-    /// `code` is the bare code, or a link carrying it.
-    pub fn join(&self, code: &str) -> Result<(), ApiError> {
-        let code = invite_code(code).unwrap_or_else(|| code.trim().to_string());
-        let platform = self.inner.config.platform;
-        let grant = self
-            .inner
-            .api()
-            .redeem_invite(&code, &self.inner.safe_device_name(), None, Some(platform))?;
+    /// Keeps and connects with the device credential the account handed this PC.
+    pub fn adopt(&self, grant: &CredentialGrant) -> Result<(), ApiError> {
         if grant.kind != CredentialKind::Device {
-            // A computer can tap people too: that's the other field.
-            return Err(ApiError::invalid(if platform.shows_desktop_overlay() {
-                "That's an invite to tap someone. Add it under “You can tap” instead."
-            } else {
-                "That's an invite to tap someone. To link your computer, use the code under Your devices."
-            }));
+            return Err(ApiError::invalid("That isn't a credential for this PC's inbox."));
         }
-        self.inner.adopt(grant.token)
+        self.inner.adopt(grant.token.clone())
+    }
+
+    /// Forgets the credential here without telling the server: the account
+    /// said its connection is gone.
+    pub fn forget(&self) {
+        self.inner.forget();
     }
 
     // Responding
@@ -305,10 +296,6 @@ impl ReceiverStore {
             url: url.into(),
             expires_at: invite.expires_at,
         })
-    }
-
-    pub fn create_device_code(&self) -> Result<Invite, ApiError> {
-        self.inner.api().create_invite(CredentialKind::Device)
     }
 
     /// Deletes a tap for everyone: from history, and from every screen if
@@ -363,16 +350,6 @@ impl Inner {
 
     fn api(&self) -> ApiClient {
         ApiClient::new(&self.config.endpoints.server, self.config.transport.clone()).with_token(self.token())
-    }
-
-    fn safe_device_name(&self) -> String {
-        let name: String = (self.config.device_name)().chars().take(MAX_NAME_LENGTH).collect();
-        let name = name.trim();
-        if name.is_empty() {
-            self.config.platform.label().into()
-        } else {
-            name.into()
-        }
     }
 
     fn adopt(self: &Arc<Self>, token: String) -> Result<(), ApiError> {
@@ -532,6 +509,16 @@ impl LiveHandlers for Handlers {
     fn on_resync(&self) {
         if let Some(inner) = self.current() {
             inner.resync();
+        }
+    }
+
+    fn on_credentials(&self) {
+        if let Some(inner) = self.current() {
+            inner.resync();
+            let callback = inner.on_credentials.lock().unwrap().clone();
+            if let Some(callback) = callback {
+                callback();
+            }
         }
     }
 

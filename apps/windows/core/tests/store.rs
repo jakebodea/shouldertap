@@ -7,63 +7,19 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::{Stub, eventually};
+use common::{MemoryPersistence, Stub, eventually};
 use shouldertap_core::*;
 
 const SNAPSHOT: &str = include_str!("../../../macos/Tests/ShouldertapCoreTests/Fixtures/snapshot.json");
 const ACKED_TAP: &str = r#"{"id":"t1","senderId":"s1","senderName":"Rosa","senderColor":"rose","body":"Hi","createdAt":1,"state":"acknowledged","displayedAt":1,"acknowledgedAt":2,"acknowledgedBy":"Test","response":{"kind":"on_it"},"sequence":2}"#;
 
-/// Clones share their contents, so a test keeps a handle on what the store saved.
-#[derive(Clone, Default)]
-struct MemoryPersistence {
-    credential: Arc<Mutex<Option<String>>>,
-    acks: Arc<Mutex<BTreeMap<String, TapResponse>>>,
-}
-
-impl MemoryPersistence {
-    fn with(credential: &str) -> Self {
-        Self {
-            credential: Arc::new(Mutex::new(Some(credential.into()))),
-            ..Default::default()
-        }
-    }
-}
-
-impl ReceiverPersistence for MemoryPersistence {
-    fn load_credential(&self) -> Option<String> {
-        self.credential.lock().unwrap().clone()
-    }
-    fn save_credential(&self, token: &str) -> Result<(), String> {
-        *self.credential.lock().unwrap() = Some(token.into());
-        Ok(())
-    }
-    fn delete_credential(&self) {
-        *self.credential.lock().unwrap() = None;
-    }
-    fn load_pending_acks(&self) -> BTreeMap<String, TapResponse> {
-        self.acks.lock().unwrap().clone()
-    }
-    fn save_pending_acks(&self, acks: &BTreeMap<String, TapResponse>) {
-        *self.acks.lock().unwrap() = acks.clone();
-    }
-}
-
-fn make_store(
-    persistence: &MemoryPersistence,
-    platform: DevicePlatform,
-    machine: Option<&str>,
-    stub: &Arc<Stub>,
-) -> ReceiverStore {
-    let machine = machine.map(String::from);
+fn make_store(persistence: &MemoryPersistence, stub: &Arc<Stub>) -> ReceiverStore {
     ReceiverStore::new(StoreConfig {
         endpoints: Endpoints {
             server: "https://api.test".into(),
             web: "https://web.test".into(),
         },
         persistence: Box::new(persistence.clone()),
-        device_name: Box::new(move || platform.label().replace("Windows PC", "Test PC")),
-        platform,
-        machine: Box::new(move || machine.clone()),
         transport: stub.clone(),
         ack_retry_delay: Duration::from_millis(50),
     })
@@ -72,7 +28,7 @@ fn make_store(
 #[test]
 fn setup_when_unpaired() {
     let stub = Stub::new(|_| (500, String::new()));
-    let store = make_store(&Default::default(), DevicePlatform::Windows, None, &stub);
+    let store = make_store(&Default::default(), &stub);
     assert!(!store.start());
     assert_eq!(store.state().phase, Phase::Setup);
 }
@@ -87,7 +43,7 @@ fn answering_is_saved_then_sent() {
         }
         (503, String::new()) // Keep the live socket offline.
     });
-    let store = make_store(&persistence, DevicePlatform::Windows, None, &stub);
+    let store = make_store(&persistence, &stub);
     store.start();
     store.respond("t1", TapResponse::on_it());
     assert!(eventually(|| store.state().pending_acks.is_empty()));
@@ -116,7 +72,7 @@ fn offline_answers_retry_until_accepted() {
             (200, ACKED_TAP.into())
         }
     });
-    let store = make_store(&persistence, DevicePlatform::Windows, None, &stub);
+    let store = make_store(&persistence, &stub);
     store.start();
     store.respond("t1", TapResponse::in_10());
     // Survives a restart while still unsent.
@@ -137,7 +93,7 @@ fn rejected_answers_are_dropped() {
             (503, String::new())
         }
     });
-    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
+    let store = make_store(&MemoryPersistence::with("a.b.c"), &stub);
     store.start();
     store.respond("gone", TapResponse::on_it());
     assert!(eventually(|| store.state().pending_acks.is_empty()));
@@ -153,7 +109,7 @@ fn revoked_credential_returns_to_setup() {
             (503, String::new())
         }
     });
-    let store = make_store(&persistence, DevicePlatform::Windows, None, &stub);
+    let store = make_store(&persistence, &stub);
     store.start();
     assert!(eventually(|| store.state().phase == Phase::Setup));
     assert_eq!(persistence.load_credential(), None);
@@ -168,7 +124,7 @@ fn refresh_picks_up_the_plan() {
             (503, String::new())
         }
     });
-    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
+    let store = make_store(&MemoryPersistence::with("a.b.c"), &stub);
     store.start();
     store.refresh();
     assert!(eventually(
@@ -187,7 +143,7 @@ fn the_overlay_shows_the_oldest_waiting_tap() {
             (503, String::new())
         }
     });
-    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
+    let store = make_store(&MemoryPersistence::with("a.b.c"), &stub);
     store.start();
     store.refresh();
     assert!(eventually(|| store.state().taps.len() == 2));
@@ -211,7 +167,7 @@ fn sender_invite_link_carries_the_code_in_the_fragment() {
             (503, String::new())
         }
     });
-    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
+    let store = make_store(&MemoryPersistence::with("a.b.c"), &stub);
     store.start();
     assert_eq!(
         store.create_sender_invite().unwrap().url,
@@ -224,82 +180,6 @@ fn sender_invite_link_carries_the_code_in_the_fragment() {
 }
 
 #[test]
-fn getting_started_sends_the_platform_and_machine_fingerprint() {
-    let grant = r#"{"kind":"device","credentialId":"c1","token":"inbox.c1.secret","recipientName":"Jake"}"#;
-    for machine in [Some("ab".repeat(32)), None] {
-        let stub = Stub::new(move |seen| {
-            if seen.path == "/v1/inboxes" {
-                (201, grant.into())
-            } else {
-                (503, String::new())
-            }
-        });
-        let persistence = MemoryPersistence::default();
-        let store = make_store(&persistence, DevicePlatform::Windows, machine.as_deref(), &stub);
-        store.start();
-        store.create_inbox("Jake").unwrap();
-        // Without a fingerprint the key is left out entirely, like older apps.
-        let mut expected = serde_json::json!({"recipientName": "Jake", "deviceName": "Test PC", "platform": "windows"});
-        if let Some(machine) = &machine {
-            expected["machine"] = machine.clone().into();
-        }
-        assert_eq!(stub.body_for("/v1/inboxes").unwrap(), expected);
-        assert_eq!(persistence.load_credential().as_deref(), Some("inbox.c1.secret"));
-        assert_eq!(store.state().phase, Phase::Ready);
-    }
-}
-
-#[test]
-fn a_pc_joins_as_a_pc() {
-    let stub = Stub::new(|seen| {
-        if seen.path == "/v1/invites/redeem" {
-            (
-                201,
-                r#"{"kind":"device","credentialId":"c2","token":"inbox.c2.secret","recipientName":"Jake"}"#.into(),
-            )
-        } else {
-            (503, String::new())
-        }
-    });
-    let persistence = MemoryPersistence::default();
-    let store = make_store(&persistence, DevicePlatform::Windows, None, &stub);
-    store.start();
-    store.join(" inbox.code1234.secret12 ").unwrap();
-    assert_eq!(
-        stub.body_for("/v1/invites/redeem").unwrap(),
-        serde_json::json!({"code": "inbox.code1234.secret12", "name": "Test PC", "platform": "windows"})
-    );
-    assert_eq!(persistence.load_credential().as_deref(), Some("inbox.c2.secret"));
-}
-
-#[test]
-fn a_sender_invite_is_refused() {
-    let stub = Stub::new(|seen| {
-        if seen.path == "/v1/invites/redeem" {
-            (
-                201,
-                r#"{"kind":"sender","credentialId":"c2","token":"inbox.c2.secret","recipientName":"Jake"}"#.into(),
-            )
-        } else {
-            (503, String::new())
-        }
-    });
-    let persistence = MemoryPersistence::default();
-    let store = make_store(&persistence, DevicePlatform::Windows, None, &stub);
-    store.start();
-    let error = store
-        .join("https://shouldertap.app/join#inbox123.invite12.secret1234")
-        .unwrap_err();
-    assert_eq!(
-        error.message,
-        "That's an invite to tap someone. Add it under “You can tap” instead."
-    );
-    assert_eq!(persistence.load_credential(), None);
-    assert_eq!(store.state().phase, Phase::Setup);
-}
-
-/// The server keeps the last computer while an iPhone is linked; so does the PC.
-#[test]
 fn refused_self_removal_keeps_the_pairing() {
     let persistence = MemoryPersistence::with("inbox.dev1.secret");
     let stub = Stub::new(|seen| match seen.path.as_str() {
@@ -310,7 +190,7 @@ fn refused_self_removal_keeps_the_pairing() {
         ),
         _ => (503, String::new()),
     });
-    let store = make_store(&persistence, DevicePlatform::Windows, None, &stub);
+    let store = make_store(&persistence, &stub);
     store.start();
     store.refresh();
     assert!(eventually(|| store.state().credential_id.as_deref() == Some("dev1")));
@@ -329,7 +209,7 @@ fn removing_this_pc_forgets_it_even_offline() {
             (503, String::new())
         }
     });
-    let store = make_store(&persistence, DevicePlatform::Windows, None, &stub);
+    let store = make_store(&persistence, &stub);
     store.start();
     store.refresh();
     assert!(eventually(|| store.state().credential_id.as_deref() == Some("dev1")));
@@ -346,7 +226,7 @@ fn display_is_reported_once() {
         "/v1/taps/t1/displayed" => (503, String::new()),
         _ => (503, String::new()),
     });
-    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
+    let store = make_store(&MemoryPersistence::with("a.b.c"), &stub);
     store.start();
     store.refresh();
     assert!(eventually(|| store.state().taps.len() == 2));
@@ -372,7 +252,7 @@ fn each_tap_keeps_its_senders_theme_with_legacy_plain_preferences() {
         ("PUT", "/v1/appearance") => (200, r#"{"motion":"reduced","senderThemes":"plain"}"#.into()),
         _ => (503, String::new()),
     });
-    let store = make_store(&MemoryPersistence::with("a.b.c"), DevicePlatform::Windows, None, &stub);
+    let store = make_store(&MemoryPersistence::with("a.b.c"), &stub);
     store.start();
     store.refresh();
     assert!(eventually(|| store.state().taps.len() == 3));
