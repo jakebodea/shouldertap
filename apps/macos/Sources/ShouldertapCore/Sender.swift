@@ -62,6 +62,9 @@ public struct SenderPairing: Sendable, Codable, Hashable, Identifiable {
 
   public var id: String { credentialId }
   public var inboxId: String? { tokenInboxId(token) }
+  /// The connection's id on the account (`${inboxId}:${credentialId}`), the
+  /// sender `id` sync and accept return; `credentialId` is the person-level id.
+  public var accountId: String? { inboxId.map { "\($0):\(credentialId)" } }
   public var swatchColor: PersonColor { color ?? .fallback(for: credentialId) }
 
   public init(
@@ -327,51 +330,35 @@ public final class SenderStore {
     sessions.forEach { $0.nudge() }
   }
 
-  /// Redeem a sender invite. Pairing again with the same recipient replaces
-  /// that pairing, like the web.
+  /// Keep a sender key the account issued (`/account/sync` or
+  /// `/account/accept`): no redeem call, the grant carries everything. A new
+  /// key for someone this device already taps replaces the old one.
   @discardableResult
-  public func pair(invite: String, name: String, color: PersonColor) async throws -> SenderSession {
-    guard let code = inviteCode(from: invite) else {
-      throw APIError(
-        code: .invalidRequest, message: "That doesn't look like a Shouldertap invite link.", status: 400)
+  public func add(_ sender: SenderGrant) throws -> SenderSession {
+    let grant = sender.grant
+    guard grant.kind == .sender, let inboxId = tokenInboxId(grant.token) else {
+      throw APIError(code: .invalidRequest, message: "That isn’t a key to tap someone.", status: 400)
     }
-    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard (1...maxNameLength).contains(name.count) else {
-      throw APIError(
-        code: .invalidRequest, message: "Enter your name (up to \(maxNameLength) characters).", status: 400)
-    }
-    let grant = try await APIClient(baseURL: server, session: session)
-      .redeemInvite(code: code, name: name, color: color)
-    guard grant.kind == .sender else {
-      throw APIError(
-        code: .invalidRequest,
-        message: "That code links one of your own devices, not someone to tap. Paste it where you set up this device.", status: 400)
-    }
+    if let existing = sessions.first(where: { $0.pairing.token == grant.token }) { return existing }
     let pairing = SenderPairing(
       token: grant.token, credentialId: grant.credentialId, recipientName: grant.recipientName,
-      senderName: name, color: color, pairedAt: Date.now.timeIntervalSince1970 * 1000)
-    try persistence.savePairing(pairing)
-    for existing in sessions where existing.pairing.inboxId == pairing.inboxId {
-      unpair(id: existing.id)
+      senderName: sender.name, color: sender.color, pairedAt: Date.now.timeIntervalSince1970 * 1000)
+    for existing in sessions where existing.pairing.inboxId == inboxId {
+      forget(id: existing.id)
     }
+    try persistence.savePairing(pairing)
     let session = makeSession(pairing)
     sessions.append(session)
     session.start()
     return session
   }
 
-  public func restoreAccountSender(_ grant: CredentialGrant) async throws {
-    guard grant.kind == .sender else { return }
-    guard !sessions.contains(where: { $0.pairing.inboxId == tokenInboxId(grant.token) }) else { return }
-    guard case let .sender(snapshot) = try await APIClient(baseURL: server, token: grant.token, session: session).me() else { return }
-    guard !sessions.contains(where: { $0.pairing.inboxId == tokenInboxId(grant.token) }) else { return }
-    let pairing = SenderPairing(token: grant.token, credentialId: grant.credentialId,
-      recipientName: snapshot.recipientName, senderName: snapshot.senderName, color: snapshot.senderColor,
-      pairedAt: Date.now.timeIntervalSince1970 * 1000)
-    try persistence.savePairing(pairing)
-    let session = makeSession(pairing)
-    sessions.append(session)
-    session.start()
+  /// The account says these connections are gone (`removed`): forget them
+  /// here without revoking anything.
+  public func drop(tokens: Set<String>) {
+    for session in sessions where tokens.contains(session.pairing.token) {
+      forget(id: session.id)
+    }
   }
 
   /// Unpair this phone: revoke the credential so the recipient's Mac stops

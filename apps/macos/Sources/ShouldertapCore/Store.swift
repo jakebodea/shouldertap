@@ -39,9 +39,9 @@ public struct SenderInvite: Sendable {
 
 /// All Mac client behavior in one place: the device credential, the live
 /// connection, which tap the overlay shows, and acknowledgements that must
-/// survive being offline. The UI only draws what this decides. A linked
-/// iPhone uses it too, to manage the inbox (`platform: .iphone`); it never
-/// reports taps as displayed.
+/// survive being offline. The UI only draws what this decides. The iPhone
+/// uses it too, to receive and manage the inbox. Credentials come from the
+/// account (`AccountStore.sync`).
 @MainActor @Observable
 public final class ReceiverStore {
   public enum Phase: Sendable { case loading, setup, ready }
@@ -67,9 +67,8 @@ public final class ReceiverStore {
 
   @ObservationIgnored private let endpoints: Endpoints
   @ObservationIgnored private let persistence: any ReceiverPersistence
-  @ObservationIgnored private let deviceName: @MainActor () -> String
-  @ObservationIgnored private let platform: DevicePlatform
-  @ObservationIgnored private let machine: @MainActor () -> String?
+  /// The inbox socket said connections changed: run `AccountStore.sync`.
+  @ObservationIgnored public var onCredentialsChanged: (@MainActor () -> Void)?
   @ObservationIgnored private var api: APIClient
   @ObservationIgnored private var live: LiveConnection?
   @ObservationIgnored private var ackRetry: Task<Void, Never>?
@@ -80,17 +79,11 @@ public final class ReceiverStore {
   public init(
     endpoints: Endpoints,
     persistence: any ReceiverPersistence,
-    deviceName: @escaping @MainActor () -> String,
-    platform: DevicePlatform = .mac,
-    machine: @escaping @MainActor () -> String? = { nil },
     session: URLSession = .shared,
     ackRetryDelay: Duration = .seconds(10)
   ) {
     self.endpoints = endpoints
     self.persistence = persistence
-    self.deviceName = deviceName
-    self.platform = platform
-    self.machine = machine
     self.session = session
     self.ackRetryDelay = ackRetryDelay
     api = APIClient(baseURL: endpoints.server, session: session)
@@ -175,41 +168,18 @@ public final class ReceiverStore {
     }
   }
 
-  // MARK: Setup
-
-  /// Sends this Mac's fingerprint so its free trial carries over a fresh
-  /// setup. Joining an existing inbox (`join`) doesn't: that inbox's plan
-  /// already applies.
-  public func createInbox(recipientName: String) async throws {
-    let grant = try await api.createInbox(
-      recipientName: recipientName, deviceName: safeDeviceName(), machine: machine(), platform: platform)
-    try persistence.saveCredential(grant.token)
-    connect(grant.token)
-  }
-
-  /// `code` is the bare code, or the link an iPhone scans
-  /// (`shouldertap://link#<code>`).
-  public func join(code: String) async throws {
-    let code = inviteCode(from: code) ?? code.trimmingCharacters(in: .whitespacesAndNewlines)
-    let grant = try await api.redeemInvite(code: code, name: safeDeviceName(), platform: platform)
-    guard grant.kind == .device else {
-      throw APIError(
-        code: .invalidRequest,
-        message: platform == .iphone
-          ? "That's an invite to tap someone. To link your Mac, use the code under Your devices."
-          : "That's an invite to tap someone. Add it under “You can tap” instead.",
-        status: 400)
-    }
-    try persistence.saveCredential(grant.token)
-    connect(grant.token)
-  }
+  // MARK: Credentials from the account
 
   public var accountCredential: String? { persistence.loadCredential() }
 
-  func restoreAccountInbox(_ grant: CredentialGrant) throws {
+  /// Receive with a device credential the account issued (`/account/sync`).
+  /// Replaces any credential this device held; refused while replies to the
+  /// current inbox are still waiting to send.
+  public func receive(_ grant: CredentialGrant) throws {
     guard grant.kind == .device else {
       throw APIError(code: .conflict, message: "An inbox requires a receiver credential.", status: 409)
     }
+    guard grant.token != persistence.loadCredential() else { return }
     guard pendingAcks.isEmpty else {
       throw APIError(code: .conflict, message: "Wait for your pending replies to send before switching inboxes.", status: 409)
     }
@@ -227,9 +197,10 @@ public final class ReceiverStore {
     connect(grant.token)
   }
 
-  private func safeDeviceName() -> String {
-    String(deviceName().prefix(maxNameLength)).trimmingCharacters(in: .whitespaces).nilIfEmpty
-      ?? (platform == .mac ? "Mac" : "iPhone")
+  /// The account says this device's inbox connection is gone (`removed`).
+  public func drop(tokens: Set<String>) {
+    guard let current = persistence.loadCredential(), tokens.contains(current) else { return }
+    forget()
   }
 
   // MARK: Connection
@@ -246,7 +217,8 @@ public final class ReceiverStore {
         onTap: { [weak self] tap in guard self?.api.token == token else { return }; self?.merge(tap) },
         onTapDeleted: { [weak self] tapId in guard self?.api.token == token else { return }; self?.drop(tapId) },
         onStatus: { [weak self] status in guard self?.api.token == token else { return }; self?.status = status },
-        onRevoked: { [weak self] in guard self?.api.token == token else { return }; self?.forget() }
+        onRevoked: { [weak self] in guard self?.api.token == token else { return }; self?.forget() },
+        onCredentials: { [weak self] in guard self?.api.token == token else { return }; self?.onCredentialsChanged?() }
       ), session: session)
     self.live = live
     live.start()
@@ -405,10 +377,6 @@ public final class ReceiverStore {
 
   public func saveActivityToken(tapId: String, token: String) async throws {
     try await api.saveActivityToken(tapId: tapId, token: token)
-  }
-
-  public func createDeviceCode() async throws -> Invite {
-    try await api.createInvite(kind: .device)
   }
 
   /// Removing this device forgets it here even if the server can't be

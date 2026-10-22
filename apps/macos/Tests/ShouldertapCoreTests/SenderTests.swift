@@ -26,8 +26,8 @@ final class MemorySenderPersistence: SenderPersistence, @unchecked Sendable {
 
 private let inbox = "inbox123"
 private let code = "\(inbox).invite12.secret1234"
-private let senderGrant =
-  #"{"kind":"sender","credentialId":"s1","token":"inbox123.s1s1s1s1.secret5678","recipientName":"Jamie"}"#
+private let accountSender =
+  #"{"id":"inbox123:s1","grant":{"kind":"sender","credentialId":"s1","token":"inbox123.s1s1s1s1.secret5678","recipientName":"Jamie"},"name":"Rosa","color":"plum"}"#
 
 private func pairing(_ id: String = "s1s1s1s1", color: PersonColor? = .rose) -> SenderPairing {
   SenderPairing(
@@ -105,39 +105,48 @@ private func makeStore(_ persistence: MemorySenderPersistence, handler: @escapin
 }
 
 @Suite(.serialized) @MainActor struct SenderBehavior {
-  @Test func pairingSendsNameAndColorAndKeepsTheCredential() async throws {
+  @Test func anAccountGrantBecomesAPairingWithoutRedeeming() throws {
     let persistence = MemorySenderPersistence()
-    let store = makeStore(persistence) { request in
-      guard request.url!.path == "/v1/invites/redeem" else { return (503, "") }
-      #expect(body(request) == ["code": code, "name": "Rosa", "color": "plum"])
-      return (201, senderGrant)
-    }
-    let session = try await store.pair(invite: "shouldertap://join#\(code)", name: "  Rosa ", color: .plum)
+    let calls = Calls()
+    let store = makeStore(persistence) { request in _ = calls.record(request); return (503, "") }
+    let session = try store.add(try JSONDecoder().decode(SenderGrant.self, from: Data(accountSender.utf8)))
     #expect(session.pairing.recipientName == "Jamie")
+    #expect(session.pairing.senderName == "Rosa")
     #expect(session.color == .plum)
     #expect(persistence.loadPairings().map(\.token) == ["inbox123.s1s1s1s1.secret5678"])
-    #expect(store.sessions.count == 1)
+    #expect(calls.count("/v1/invites/redeem") == 0)
   }
 
-  @Test func deviceInvitesAreRejected() async {
+  @Test func deviceGrantsAreRejected() {
     let persistence = MemorySenderPersistence()
-    let store = makeStore(persistence) { _ in
-      (201, #"{"kind":"device","credentialId":"d1","token":"inbox123.d1d1d1d1.secret5678","recipientName":"Jamie"}"#)
-    }
-    await #expect(throws: APIError.self) { try await store.pair(invite: code, name: "Rosa", color: .moss) }
+    let store = makeStore(persistence) { _ in (503, "") }
+    let device = SenderGrant(
+      id: "inbox123:d1", grant: CredentialGrant(kind: .device, credentialId: "d1", token: "inbox123.d1d1d1d1.secret5678", recipientName: "Jamie"),
+      name: "Rosa", color: .moss)
+    #expect(throws: APIError.self) { try store.add(device) }
     #expect(persistence.loadPairings().isEmpty)
   }
 
-  @Test func pairingTheSameRecipientAgainReplacesIt() async throws {
+  @Test func aNewKeyForTheSameRecipientReplacesTheOldOne() throws {
     let persistence = MemorySenderPersistence(pairings: [pairing("old0old0")])
-    let store = makeStore(persistence) { request in
-      request.url!.path == "/v1/invites/redeem" ? (201, senderGrant) : (503, "")
-    }
+    let store = makeStore(persistence) { _ in (503, "") }
     store.start()
     #expect(store.sessions.map(\.id) == ["old0old0"])
-    try await store.pair(invite: code, name: "Rosa", color: .rose)
+    try store.add(try JSONDecoder().decode(SenderGrant.self, from: Data(accountSender.utf8)))
     #expect(store.sessions.map(\.id) == ["s1"])
     #expect(persistence.loadPairings().map(\.credentialId) == ["s1"])
+  }
+
+  @Test func droppingRemovedTokensForgetsOnlyThosePairings() {
+    let kept = SenderPairing(
+      token: "inbox999.k1k1k1k1.secret5678", credentialId: "k1k1k1k1", recipientName: "Ari", senderName: "Rosa",
+      color: .sky, pairedAt: 2)
+    let persistence = MemorySenderPersistence(pairings: [pairing(), kept])
+    let store = makeStore(persistence) { _ in (503, "") }
+    store.start()
+    store.drop(tokens: ["inbox123.s1s1s1s1.secret5678", "someone.else12.secret5678"])
+    #expect(store.sessions.map(\.id) == ["k1k1k1k1"])
+    #expect(persistence.loadPairings().map(\.credentialId) == ["k1k1k1k1"])
   }
 
   @Test func sendsWithARequestIdAndMergesTheTap() async throws {
