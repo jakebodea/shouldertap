@@ -16,7 +16,7 @@ October 2026. The [Notion concept document](https://www.notion.so/3eb7155b453881
 
 **Wire protocol:** JSON over HTTPS and WebSocket events. The server and `packages/domain` are authoritative. The same shapes are mirrored manually in `ShouldertapCore` (Swift) and `shouldertap-core` (Rust). `scripts/check-protocol-sync.mjs` runs in `bun run check` to keep swatches and length limits aligned.
 
-**Auth / accounts:** Invite-link pairing with bearer credentials owned by each Inbox DO. A sender's patron membership is a separate SenderPatron DO with its own bearer keys (never a pairing credential), so one membership spans pairings. Better Auth uses D1 for email accounts, sessions, and ownership references. Inbox and SenderPatron DOs remain authoritative for messaging and membership. See [email accounts](accounts.md).
+**Auth / accounts:** Invite-link pairing with bearer credentials owned by each Inbox DO. A sender's patron membership is a separate SenderPatron DO with its own bearer keys (never a pairing credential), so one membership spans pairings. Better Auth uses D1 for email accounts (signed in with an emailed code), sessions, profiles and ownership references; the account is the person, and signing in links a device (see [onboarding](onboarding.md)). Inbox and SenderPatron DOs remain authoritative for messaging and membership. See [email accounts](accounts.md).
 
 ## Runtime topology
 

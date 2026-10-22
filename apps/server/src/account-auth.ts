@@ -1,8 +1,13 @@
 import { betterAuth } from "better-auth";
 import type { BetterAuthOptions } from "better-auth";
-import { bearer, deviceAuthorization, magicLink } from "better-auth/plugins";
+import {
+  bearer,
+  deviceAuthorization,
+  emailOTP,
+  magicLink,
+} from "better-auth/plugins";
 
-import { accountEmailSender } from "./account-email";
+import { accountCodeSender, accountEmailSender } from "./account-email";
 import type { AccountEmailBinding } from "./account-email";
 
 export interface AccountAuthOptions {
@@ -35,6 +40,22 @@ export const accountAuthOptions = ({
     rateLimit: { enabled: true, storage: "database", window: 60, max: 60 },
     user: { deleteUser: { enabled: true } },
     plugins: [
+      // Every current client signs in with a code typed (or autofilled) in
+      // the app itself. Links and device authorization remain for older builds.
+      emailOTP({
+        otpLength: 6,
+        expiresIn: 600,
+        allowedAttempts: 3,
+        storeOTP: "hashed",
+        resendStrategy: "rotate",
+        rateLimit: { window: 60, max: 3 },
+        sendVerificationOTP: async ({ email: recipient, otp, type }) => {
+          if (type !== "sign-in") {
+            return;
+          }
+          await accountCodeSender(email)({ email: recipient, code: otp });
+        },
+      }),
       magicLink({
         expiresIn: 600,
         storeToken: "hashed",

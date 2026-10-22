@@ -21,6 +21,7 @@ import {
   PatronKeyGrant,
   PatronLinkCode,
   PatronStatus,
+  InvitePreview,
   RedeemInviteRequest,
   RedeemPatronLinkRequest,
   RegisterPushRequest,
@@ -92,6 +93,11 @@ export class PairingGroup extends HttpApiGroup.make("pairing")
       success: CredentialGrant.pipe(created),
       // Conflict: the inbox already has the maximum pairings of that kind.
       error: [NotFound, Expired, Conflict],
+    }),
+    HttpApiEndpoint.get("previewInvite", "/invites/preview", {
+      query: { code: Schema.String },
+      success: InvitePreview,
+      error: [NotFound, Expired],
     })
   )
   .prefix("/v1") {}

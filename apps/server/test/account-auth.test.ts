@@ -12,6 +12,7 @@ const origin = "https://api.shouldertap.app";
 const webOrigin = "https://shouldertap.app";
 let db: DatabaseSync;
 let sent: string[];
+let subjects: string[];
 let auth: ReturnType<typeof createAccountAuth>;
 const request = (path: string, body?: object, cookie?: string, from = origin) =>
   handleAccountHttp(
@@ -87,6 +88,26 @@ const issueDevice = async () => {
     },
   };
 };
+/** A native app: no Origin, bearer session instead of cookies. */
+const native = (path: string, body?: object, bearer?: string) =>
+  handleAccountHttp(
+    new Request(origin + path, {
+      method: body ? "POST" : "GET",
+      headers: {
+        "content-type": "application/json",
+        "cf-connecting-ip": "192.0.2.1",
+        ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+    { auth, origin, webOrigin, page: (url) => accountPage(url, webOrigin) }
+  );
+const emailedCode = () => sent.at(-1)?.match(/\b\d{6}\b/u)?.[0] ?? "";
+const sendCode = (email = "reader@example.com") =>
+  native("/api/auth/email-otp/send-verification-otp", {
+    email,
+    type: "sign-in",
+  });
 describe("email account HTTP flow", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -101,6 +122,7 @@ describe("email account HTTP flow", () => {
       )
     );
     sent = [];
+    subjects = [];
     auth = createAccountAuth({
       database: db,
       secret: "local-test-only-secret-with-at-least-32-characters",
@@ -109,6 +131,7 @@ describe("email account HTTP flow", () => {
       email: {
         send: (message) => {
           sent.push(message.text);
+          subjects.push(message.subject);
           return Promise.resolve({ messageId: "example" });
         },
       },
@@ -287,5 +310,63 @@ describe("email account HTTP flow", () => {
     const replay = await json("/api/auth/device/token", payload);
     expect(first.access_token).toStrictEqual(expect.any(String));
     expect(replay.error).toBe("invalid_grant");
+  });
+
+  it("signs a native app in with the emailed six-digit code", async () => {
+    const requested = await sendCode();
+    const code = emailedCode();
+    const signedIn = await native("/api/auth/sign-in/email-otp", {
+      email: "Reader@Example.com",
+      otp: code,
+    });
+    const { token } = (await signedIn.json()) as { token: string };
+    const session = await native("/api/auth/get-session", undefined, token);
+    expect(requested.status).toBe(200);
+    expect(code).toMatch(/^\d{6}$/u);
+    expect(signedIn.status).toBe(200);
+    await expect(session.json()).resolves.toMatchObject({
+      user: { email: "reader@example.com", emailVerified: true },
+    });
+  });
+
+  it("puts the code in the email subject and stores only its hash", async () => {
+    await sendCode();
+    const code = emailedCode();
+    const stored = db.prepare("SELECT value FROM verification").get() as {
+      value: string;
+    };
+    expect(subjects.at(-1)).toBe(`${code} is your Shouldertap code`);
+    expect(stored.value).not.toContain(code);
+  });
+
+  it("refuses a code after three wrong tries", async () => {
+    await sendCode();
+    const code = emailedCode();
+    const wrong = code === "000000" ? "111111" : "000000";
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      // oxlint-disable-next-line no-await-in-loop -- attempts must land in order
+      await native("/api/auth/sign-in/email-otp", {
+        email: "reader@example.com",
+        otp: wrong,
+      });
+    }
+    // Past the sign-in rate limit, so only the attempt count can refuse it.
+    vi.setSystemTime(new Date("2026-10-21T12:01:30Z"));
+    const late = await native("/api/auth/sign-in/email-otp", {
+      email: "reader@example.com",
+      otp: code,
+    });
+    expect(late.status).toBe(403);
+  });
+
+  it("expires a code after ten minutes", async () => {
+    await sendCode();
+    const code = emailedCode();
+    vi.setSystemTime(new Date("2026-10-21T12:11:00Z"));
+    const expired = await native("/api/auth/sign-in/email-otp", {
+      email: "reader@example.com",
+      otp: code,
+    });
+    expect(expired.status).toBe(400);
   });
 });
