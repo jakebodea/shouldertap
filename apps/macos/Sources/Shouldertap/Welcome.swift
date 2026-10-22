@@ -2,9 +2,10 @@ import AppKit
 import ShouldertapCore
 import SwiftUI
 
-/// The first launch: a full-screen Frame in Cobalt, under the menu bar so the
-/// real icon stays visible (and knocks), with a pointer at it and how to
-/// start. Shown once, on the display that has the icon.
+/// The first run (docs/onboarding.md, "The flow"): a full-screen Frame in
+/// Cobalt, under the menu bar so the real icon stays visible (and knocks).
+/// Welcome → email → code → you (name and color, once) → ready. Shown on
+/// first launch, and again from the menu until this Mac is signed in.
 @MainActor
 final class WelcomeController {
   private static let seenKey = "welcomeSeen"
@@ -25,7 +26,10 @@ final class WelcomeController {
 
   /// `item` is the status item's window. `finished` runs once the welcome
   /// is dismissed, `setUp` true when the menu should open next.
-  func show(on screen: NSScreen, item: NSWindow, finished: @escaping (_ setUp: Bool) -> Void) {
+  func show(
+    on screen: NSScreen, item: NSWindow, account: AccountStore, sync: @escaping @MainActor () async -> Void,
+    finished: @escaping (_ setUp: Bool) -> Void
+  ) {
     guard window == nil else { return }
     self.finished = finished
     let window = OverlayWindow(screen: screen)
@@ -35,6 +39,7 @@ final class WelcomeController {
     let model = WelcomeModel(
       pointerX: Self.pointerX(item.frame, on: screen),
       menuBarHeight: menuBar > 0 ? menuBar : NSStatusBar.system.thickness,
+      account: account, sync: sync,
       dismiss: { [weak self] setUp in self?.dismiss(setUp: setUp) })
     let host = NSHostingView(rootView: WelcomeView(model: model))
     host.frame = NSRect(origin: .zero, size: screen.frame.size)
@@ -91,22 +96,107 @@ final class WelcomeController {
 
 @MainActor @Observable
 final class WelcomeModel {
+  enum Step { case welcome, email, code, you, ready }
+
   /// Where the menu bar icon is, in the window's coordinates; nil if hidden.
   var pointerX: CGFloat?
   let menuBarHeight: CGFloat
   let needsMove = Install.needsMove
   let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
   var moveError: String?
+  var step: Step
+  var email = ""
+  var code = ""
+  var name = ""
+  var color = PersonColor.cobalt
+  /// A new code went out: say so once.
+  var resent = false
+  let account: AccountStore
+  @ObservationIgnored let sync: @MainActor () async -> Void
   @ObservationIgnored let dismiss: (_ setUp: Bool) -> Void
 
-  init(pointerX: CGFloat?, menuBarHeight: CGFloat, dismiss: @escaping (_ setUp: Bool) -> Void) {
+  init(
+    pointerX: CGFloat?, menuBarHeight: CGFloat, account: AccountStore, sync: @escaping @MainActor () async -> Void,
+    dismiss: @escaping (_ setUp: Bool) -> Void
+  ) {
     self.pointerX = pointerX
     self.menuBarHeight = menuBarHeight
+    self.account = account
+    self.sync = sync
     self.dismiss = dismiss
+    // Signed in without a name and color yet: straight to You.
+    if account.signedIn, let me = account.me, me.profile == nil {
+      step = .you
+      name = me.suggestedName ?? ""
+    } else {
+      step = .welcome
+    }
+    account.error = nil
+  }
+
+  /// The frame takes the person's color once they pick one.
+  var frameColor: PersonColor { step == .you || step == .ready ? color : .cobalt }
+
+  func go(_ next: Step) {
+    account.error = nil
+    withAnimation(.easeOutExpo(0.5)) { step = next }
   }
 
   func moveToApplications() {
     do { try Install.moveToApplications() } catch { moveError = error.localizedDescription }
+  }
+
+  func sendCode() {
+    Task {
+      guard await account.sendCode(email: email) else { return }
+      code = ""
+      resent = false
+      go(.code)
+    }
+  }
+
+  func resend() {
+    Task { resent = await account.sendCode(email: account.pendingEmail ?? email) }
+  }
+
+  func changeEmail() {
+    account.changeEmail()
+    code = ""
+    go(.email)
+  }
+
+  func verify() {
+    guard code.count == 6, !account.busy else { return }
+    Task {
+      if await account.verify(code: code) {
+        await afterSignIn()
+      } else {
+        code = ""
+      }
+    }
+  }
+
+  /// You when there's no profile yet; otherwise sync and done.
+  func afterSignIn() async {
+    if account.me == nil { await account.refresh() }
+    guard let me = account.me else { return }
+    if let profile = me.profile {
+      name = profile.name
+      color = profile.color
+      await sync()
+      go(.ready)
+    } else {
+      name = me.suggestedName ?? ""
+      go(.you)
+    }
+  }
+
+  func saveProfile() {
+    Task {
+      guard await account.saveProfile(name: name, color: color) else { return }
+      await sync()
+      go(.ready)
+    }
   }
 }
 
@@ -140,8 +230,6 @@ enum Install {
 
 // MARK: - Views
 
-private let welcomeColor = PersonColor.cobalt
-
 struct WelcomeView: View {
   let model: WelcomeModel
   @State private var arrived = false
@@ -155,11 +243,12 @@ struct WelcomeView: View {
         page(scale: scale)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(welcomeColor.base)
+      .background(model.frameColor.base)
+      .animation(.easeOutExpo(0.7), value: model.frameColor)
       .overlay(alignment: .topLeading) {
-        if let x = model.pointerX {
+        if let x = model.pointerX, model.step == .welcome || model.step == .ready {
           // Trailing edge half an arrow past the icon's center, so the arrow sits under it.
-          MenuBarPointer(reduceMotion: model.reduceMotion)
+          MenuBarPointer(color: model.frameColor, reduceMotion: model.reduceMotion)
             .frame(width: x + MenuBarPointer.arrowWidth / 2, alignment: .trailing)
             .padding(.top, model.menuBarHeight + 6)
             .rise(arrived, delay: 0.5, reduceMotion: model.reduceMotion)
@@ -180,45 +269,32 @@ struct WelcomeView: View {
       Text("Shouldertap")
         .font(.custom(Bricolage.extraBoldName, fixedSize: 32))
         .tracking(-0.035 * 32)
+      Spacer(minLength: 0)
+      if model.step != .welcome, model.step != .ready {
+        Button("Later") { model.dismiss(false) }
+          .buttonStyle(.plain)
+          .font(Bricolage.bold(17))
+          .keyboardShortcut(.cancelAction)
+      }
     }
-    .foregroundStyle(welcomeColor.ink)
+    .foregroundStyle(model.frameColor.ink)
     .padding(.top, 26)
     .padding(.horizontal, 72)
     .frame(height: 96, alignment: .topLeading)
   }
 
   private func page(scale: CGFloat) -> some View {
-    VStack(alignment: .leading, spacing: 0) {
-      MessageText(text: "Welcome to Shouldertap.", size: (128 * scale).rounded())
-        .rise(arrived, delay: 0.08, reduceMotion: model.reduceMotion)
-      Text(
-        "When someone you trust taps you on the shoulder, their message covers your screen, just like this, until you answer."
-      )
-      .font(Bricolage.medium(26))
-      .foregroundStyle(Paper.tone)
-      .lineSpacing(4)
-      .frame(maxWidth: 820, alignment: .leading)
-      .padding(.top, 28)
-      .rise(arrived, delay: 0.16, reduceMotion: model.reduceMotion)
-
-      Spacer(minLength: 40)
-
-      HStack(alignment: .top, spacing: 14) {
-        Step(
-          number: 1, title: "Find the mark in your menu bar",
-          detail: model.pointerX == nil
-            ? "Shouldertap lives up there, not in the Dock. If you can't see it, make room in your menu bar."
-            : "Shouldertap lives up there, not in the Dock.")
-        Step(number: 2, title: "Set up this Mac", detail: "Add your name, so people know who they're tapping.")
-        Step(number: 3, title: "Invite someone", detail: "Send them a link. When they tap, you'll know.")
+    Group {
+      switch model.step {
+      case .welcome: WelcomeStep(model: model, scale: scale, arrived: arrived)
+      case .email: EmailStep(model: model, scale: scale)
+      case .code: CodeStep(model: model, scale: scale)
+      case .you: YouStep(model: model, scale: scale)
+      case .ready: ReadyStep(model: model, scale: scale)
       }
-      .frame(maxWidth: 1100, alignment: .leading)
-      .rise(arrived, delay: 0.26, reduceMotion: model.reduceMotion)
-
-      actions
-        .padding(.top, 40)
-        .rise(arrived, delay: 0.34, reduceMotion: model.reduceMotion)
     }
+    .transition(.opacity.combined(with: .offset(y: model.reduceMotion ? 0 : 18)))
+    .id(model.step)
     .padding(.vertical, 64)
     .padding(.horizontal, 72)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -226,63 +302,299 @@ struct WelcomeView: View {
     .padding(.horizontal, 40)
     .padding(.bottom, 40)
   }
+}
 
-  @ViewBuilder private var actions: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      if model.needsMove {
-        Text("Shouldertap is running from the disk image. Move it to Applications so it can open at login and stay up to date.")
-          .font(Bricolage.medium(19))
-          .foregroundStyle(Paper.ink)
-      }
-      if let error = model.moveError {
-        Text("Couldn't move it: \(error) Drag it into Applications from the disk image instead.")
-          .font(Bricolage.medium(17))
-          .foregroundStyle(Color(nsColor: .systemRed))
-      }
-      HStack(spacing: 14) {
-        if model.needsMove, model.moveError == nil {
-          Pill(icon: .mac, label: "Move to Applications", hint: "↩", fill: welcomeColor) {
-            model.moveToApplications()
-          }
-          .keyboardShortcut(.defaultAction)
-        } else {
-          Pill(icon: .mac, label: "Set up this Mac", hint: "↩", fill: welcomeColor) { model.dismiss(true) }
-            .keyboardShortcut(.defaultAction)
+// MARK: Steps
+
+/// One promise, and the frame around it is the live preview: this is how a
+/// tap looks.
+private struct WelcomeStep: View {
+  let model: WelcomeModel
+  let scale: CGFloat
+  let arrived: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      MessageText(text: "Welcome to Shouldertap.", size: (128 * scale).rounded())
+        .rise(arrived, delay: 0.08, reduceMotion: model.reduceMotion)
+      Lede("When someone you trust taps you on the shoulder, their message covers your screen, just like this, until you answer.")
+        .rise(arrived, delay: 0.16, reduceMotion: model.reduceMotion)
+      Spacer(minLength: 40)
+      VStack(alignment: .leading, spacing: 18) {
+        if model.needsMove {
+          Text("Shouldertap is running from the disk image. Move it to Applications so it can open at login and stay up to date.")
+            .font(Bricolage.medium(19))
+            .foregroundStyle(Paper.ink)
         }
-        Pill(label: "Later", hint: "esc") { model.dismiss(false) }
-          .keyboardShortcut(.cancelAction)
+        if let error = model.moveError {
+          Text("Couldn't move it: \(error) Drag it into Applications from the disk image instead.")
+            .font(Bricolage.medium(17))
+            .foregroundStyle(Color(nsColor: .systemRed))
+        }
+        HStack(spacing: 14) {
+          if model.needsMove, model.moveError == nil {
+            Pill(icon: .mac, label: "Move to Applications", hint: "↩", fill: .cobalt) { model.moveToApplications() }
+              .keyboardShortcut(.defaultAction)
+          } else {
+            Pill(label: "Get started", hint: "↩", fill: .cobalt) { model.go(.email) }
+              .keyboardShortcut(.defaultAction)
+          }
+          Pill(label: "Later", hint: "esc") { model.dismiss(false) }
+            .keyboardShortcut(.cancelAction)
+        }
+        if !model.needsMove || model.moveError != nil {
+          Quiet("I have an account") { model.go(.email) }
+        }
+      }
+      .rise(arrived, delay: 0.3, reduceMotion: model.reduceMotion)
+    }
+  }
+}
+
+private struct EmailStep: View {
+  @Bindable var model: WelcomeModel
+  let scale: CGFloat
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      MessageText(text: "What's your email?", size: (104 * scale).rounded())
+      Lede("We'll send you a code to sign in. No password to remember.")
+      PaperField(placeholder: "you@example.com", text: $model.email)
+        .focused($focused)
+        .onSubmit(model.sendCode)
+        .frame(maxWidth: 560)
+        .padding(.top, 40)
+      ErrorLine(model.account.error)
+      Spacer(minLength: 40)
+      HStack(spacing: 14) {
+        Pill(label: model.account.busy ? "Sending…" : "Send code", hint: "↩", fill: .cobalt, action: model.sendCode)
+          .keyboardShortcut(.defaultAction)
+          .disabled(model.account.busy || model.email.trimmingCharacters(in: .whitespaces).isEmpty)
+        Pill(icon: .back, label: "Back") { model.go(.welcome) }
+      }
+    }
+    .onAppear { focused = true }
+  }
+}
+
+private struct CodeStep: View {
+  @Bindable var model: WelcomeModel
+  let scale: CGFloat
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      MessageText(text: "Check your email.", size: (104 * scale).rounded())
+      Lede("Enter the six digits we sent to \(model.account.pendingEmail ?? model.email).")
+      CodeBoxes(code: $model.code, color: .cobalt, onComplete: model.verify)
+        .disabled(model.account.busy)
+        .padding(.top, 40)
+      ErrorLine(model.account.error)
+      if model.resent, model.account.error == nil {
+        Text("Sent a new code.").font(Bricolage.medium(17)).foregroundStyle(Paper.tone).padding(.top, 14)
+      }
+      Spacer(minLength: 40)
+      HStack(spacing: 14) {
+        if model.account.signedIn {
+          // Signed in, but loading the account failed: try that again.
+          Pill(label: "Try again", hint: "↩", fill: .cobalt) { Task { await model.afterSignIn() } }
+            .keyboardShortcut(.defaultAction)
+        } else {
+          Pill(label: "Resend") { model.resend() }.disabled(model.account.busy)
+          Pill(icon: .back, label: "Change email") { model.changeEmail() }
+          if model.account.busy { ProgressView().controlSize(.small) }
+        }
       }
     }
   }
 }
 
-/// One of the three steps: an answer card with a numbered avatar.
-private struct Step: View {
-  let number: Int
-  let title: String
-  let detail: String
+private struct YouStep: View {
+  @Bindable var model: WelcomeModel
+  let scale: CGFloat
+  @FocusState private var focused: Bool
+
+  private var preview: String {
+    let name = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return name.isEmpty ? "You" : name
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("\(number)")
-        .font(Bricolage.bold(18))
-        .foregroundStyle(welcomeColor.ink)
-        .frame(width: 36, height: 36)
-        .background(Circle().fill(welcomeColor.base))
-        .padding(.bottom, 6)
-      Text(title)
-        .font(Bricolage.bold(22))
-        .tracking(-0.44)
-        .foregroundStyle(Paper.ink)
-        .fixedSize(horizontal: false, vertical: true)
-      Text(detail)
-        .font(Bricolage.medium(17))
-        .foregroundStyle(Paper.tone)
-        .fixedSize(horizontal: false, vertical: true)
+    VStack(alignment: .leading, spacing: 0) {
+      MessageText(text: "What should people call you?", size: (88 * scale).rounded())
+      Lede("Your name and color frame every tap you send, so they know it's you from across the room.")
+      HStack(alignment: .top, spacing: 48) {
+        VStack(alignment: .leading, spacing: 28) {
+          PaperField(placeholder: "Your first name", text: $model.name)
+            .focused($focused)
+            .onSubmit(model.saveProfile)
+            .onChange(of: model.name) { _, value in
+              if value.count > maxNameLength { model.name = String(value.prefix(maxNameLength)) }
+            }
+          ColorGrid(selection: $model.color)
+        }
+        .frame(maxWidth: 480)
+        SenderPreview(name: preview, color: model.color, large: true)
+          .frame(maxWidth: 440)
+      }
+      .padding(.top, 40)
+      ErrorLine(model.account.error)
+      Spacer(minLength: 40)
+      Pill(label: model.account.busy ? "Saving…" : "Continue", hint: "↩", fill: model.color, action: model.saveProfile)
+        .keyboardShortcut(.defaultAction)
+        .disabled(model.account.busy || model.name.trimmingCharacters(in: .whitespaces).isEmpty)
     }
-    .padding(24)
-    .frame(maxWidth: .infinity, alignment: .topLeading)
-    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Paper.faint))
+    .onAppear { focused = true }
+  }
+}
+
+private struct ReadyStep: View {
+  let model: WelcomeModel
+  let scale: CGFloat
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      MessageText(text: "You're all set, \(model.name).", size: (112 * scale).rounded())
+      Lede("Shouldertap lives in your menu bar. Invite someone from there; when they tap, it covers this screen until you answer.")
+      Spacer(minLength: 40)
+      Pill(label: "Open the menu", hint: "↩", fill: model.color) { model.dismiss(true) }
+        .keyboardShortcut(.defaultAction)
+    }
+  }
+}
+
+// MARK: Pieces
+
+private struct Lede: View {
+  let text: String
+  init(_ text: String) { self.text = text }
+
+  var body: some View {
+    Text(text)
+      .font(Bricolage.medium(26))
+      .foregroundStyle(Paper.tone)
+      .lineSpacing(4)
+      .frame(maxWidth: 820, alignment: .leading)
+      .fixedSize(horizontal: false, vertical: true)
+      .padding(.top, 28)
+  }
+}
+
+/// A quiet text link under the pills.
+private struct Quiet: View {
+  let label: String
+  let action: () -> Void
+  init(_ label: String, action: @escaping () -> Void) {
+    self.label = label
+    self.action = action
+  }
+
+  var body: some View {
+    Button(action: action) {
+      Text(label).font(Bricolage.medium(19)).underline().foregroundStyle(Paper.tone)
+    }
+    .buttonStyle(.plain)
+    .focusable(false)
+  }
+}
+
+private struct ErrorLine: View {
+  let text: String?
+  init(_ text: String?) { self.text = text }
+
+  var body: some View {
+    if let text {
+      Text(text).font(Bricolage.medium(17)).foregroundStyle(Color(nsColor: .systemRed)).padding(.top, 14)
+    }
+  }
+}
+
+/// Fields: `faint` fill, radius 18, no border (docs/design.md).
+private struct PaperField: View {
+  let placeholder: String
+  @Binding var text: String
+
+  var body: some View {
+    TextField("", text: $text, prompt: Text(placeholder).foregroundStyle(Paper.tone))
+      .textFieldStyle(.plain)
+      .font(Bricolage.medium(26))
+      .foregroundStyle(Paper.ink)
+      .padding(.horizontal, 22)
+      .frame(height: 68)
+      .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Paper.faint))
+  }
+}
+
+/// Six boxes over one field: typing, pasting or the system's code autofill
+/// all land in it, and six digits submit on their own.
+struct CodeBoxes: View {
+  @Binding var code: String
+  let color: PersonColor
+  let onComplete: () -> Void
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    ZStack(alignment: .leading) {
+      TextField("", text: $code)
+        .textFieldStyle(.plain)
+        .textContentType(.oneTimeCode)
+        .focused($focused)
+        .opacity(0.001)
+        .frame(width: 6 * 72 + 5 * 12, height: 84)
+        .onChange(of: code) { _, value in
+          let digits = String(value.filter(\.isNumber).prefix(6))
+          if digits != value { code = digits }
+          if digits.count == 6 { onComplete() }
+        }
+      HStack(spacing: 12) {
+        ForEach(0..<6, id: \.self) { index in
+          Text(index < code.count ? String(Array(code)[index]) : "")
+            .font(Bricolage.bold(44))
+            .monospacedDigit()
+            .foregroundStyle(Paper.ink)
+            .frame(width: 72, height: 84)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Paper.faint))
+            .overlay(
+              RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(color.base, lineWidth: focused && index == min(code.count, 5) ? 3 : 0))
+        }
+      }
+      .allowsHitTesting(false)
+    }
+    .contentShape(Rectangle())
+    .onTapGesture { focused = true }
+    .onAppear { focused = true }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Six-digit code, \(code.count) of 6 entered")
+  }
+}
+
+/// The eight person colors; the selected one carries a tick in its ink.
+struct ColorGrid: View {
+  @Binding var selection: PersonColor
+
+  var body: some View {
+    LazyVGrid(
+      columns: Array(repeating: GridItem(.fixed(52), spacing: 14), count: 4), alignment: .leading, spacing: 14
+    ) {
+      ForEach(PersonColor.allCases, id: \.self) { option in
+        Button {
+          selection = option
+        } label: {
+          Circle()
+            .fill(option.base)
+            .overlay { if option == selection { IconView(icon: .onIt, size: 22).foregroundStyle(option.ink) } }
+            .overlay(
+              Circle().strokeBorder(Paper.ink.opacity(option == selection ? 0.85 : 0), lineWidth: 2.5).padding(-5))
+            .frame(width: 52, height: 52)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .accessibilityLabel(option.swatch.label)
+        .accessibilityAddTraits(option == selection ? .isSelected : [])
+      }
+    }
   }
 }
 
@@ -290,6 +602,7 @@ private struct Step: View {
 /// gently unless Reduce Motion is on.
 private struct MenuBarPointer: View {
   nonisolated static let arrowWidth: CGFloat = 28
+  let color: PersonColor
   let reduceMotion: Bool
   @State private var up = false
 
@@ -303,7 +616,7 @@ private struct MenuBarPointer: View {
         .stroke(style: StrokeStyle(lineWidth: 3.5, lineCap: .round, lineJoin: .round))
         .frame(width: Self.arrowWidth, height: 52)
     }
-    .foregroundStyle(welcomeColor.ink)
+    .foregroundStyle(color.ink)
     .offset(y: up ? -5 : 2)
     .onAppear {
       guard !reduceMotion else { return }

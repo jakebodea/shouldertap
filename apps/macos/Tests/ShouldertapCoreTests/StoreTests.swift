@@ -71,15 +71,12 @@ private let ackedTap = #"{"id":"t1","senderId":"s1","senderName":"Rosa","senderC
 
 @MainActor
 private func makeStore(
-  persistence: MemoryPersistence, platform: DevicePlatform = .mac, machine: String? = nil,
+  persistence: MemoryPersistence,
   handler: @escaping StubProtocol.Handler
 ) -> ReceiverStore {
   ReceiverStore(
     endpoints: Endpoints(server: URL(string: "https://api.test")!, web: URL(string: "https://web.test")!),
     persistence: persistence,
-    deviceName: { platform == .mac ? "Test Mac" : "iPhone" },
-    platform: platform,
-    machine: { machine },
     session: StubProtocol.session(handler),
     ackRetryDelay: .milliseconds(50))
 }
@@ -210,55 +207,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(invite.url.absoluteString == "https://web.test/join#inbox.id.secret")
   }
 
-  @Test(arguments: [String(repeating: "ab", count: 32), nil])
-  func gettingStartedSendsTheMachineFingerprint(machine: String?) async throws {
-    let sent = Sent()
-    let store = makeStore(persistence: MemoryPersistence(), machine: machine) { request in
-      guard request.url!.path == "/v1/inboxes" else { return (503, "") }
-      sent.body = jsonBody(request)
-      return (201, #"{"kind":"device","credentialId":"c1","token":"inbox.c1.secret","recipientName":"Jake"}"#)
-    }
-    store.start()
-    try await store.createInbox(recipientName: "Jake")
-    // Without a fingerprint the key is left out entirely, like older apps.
-    var expected = ["recipientName": "Jake", "deviceName": "Test Mac"]
-    expected["machine"] = machine
-    #expect(sent.body == expected)
-  }
-
-  @Test func anIPhoneCreatesItsOwnInboxAndPersistsIt() async throws {
-    let sent = Sent()
-    let persistence = MemoryPersistence()
-    let store = makeStore(persistence: persistence, platform: .iphone) { request in
-      guard request.url!.path == "/v1/inboxes" else { return (503, "") }
-      sent.body = jsonBody(request)
-      return (201, #"{"kind":"device","credentialId":"p1","token":"inbox.p1.secret","recipientName":"Ari"}"#)
-    }
-    store.start()
-    try await store.createInbox(recipientName: "Ari")
-    #expect(sent.body == ["recipientName": "Ari", "deviceName": "iPhone", "platform": "iphone"])
-    #expect(persistence.loadCredential() == "inbox.p1.secret")
-    #expect(store.phase == .ready)
-  }
-
-  @Test func anIPhoneLinksAsAnIPhone() async throws {
-    let sent = Sent()
-    let persistence = MemoryPersistence()
-    let store = makeStore(persistence: persistence, platform: .iphone) { request in
-      guard request.url!.path == "/v1/invites/redeem" else { return (503, "") }
-      sent.body = jsonBody(request)
-      return (201, #"{"kind":"device","credentialId":"c2","token":"inbox.c2.secret","recipientName":"Jake"}"#)
-    }
-    store.start()
-    try await store.join(code: " inbox.code1234.secret12 ")
-    #expect(sent.body == ["code": "inbox.code1234.secret12", "name": "iPhone", "platform": "iphone"])
-    #expect(persistence.loadCredential() == "inbox.c2.secret")
-    #expect(store.phase == .ready)
-  }
-
   @Test func registeringPushPutsEveryKey() async throws {
     let raw = SentRaw()
-    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c"), platform: .iphone) { request in
+    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
       guard request.url!.path == "/v1/push" else { return (503, "") }
       raw.value = "\(request.httpMethod ?? "") \(rawBody(request))"
       return (200, #"{"registered":true}"#)

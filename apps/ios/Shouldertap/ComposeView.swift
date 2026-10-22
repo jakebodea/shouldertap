@@ -43,10 +43,21 @@ struct ComposeView: View {
       titleVisibility: .visible,
       presenting: unpairing
     ) { person in
-      Button("Unpair", role: .destructive) { store.unpair(id: person.id) }
+      Button("Remove", role: .destructive) { remove(person) }
     } message: { person in
       Text(
-        "Your taps stop reaching \(person.pairing.recipientName)'s devices. To pair again, you'll need a new invite.")
+        "Your taps stop reaching \(person.pairing.recipientName), from all your devices. To tap them again, you'll need a new invite.")
+    }
+  }
+
+  /// Ends the connection on the account, so another sync doesn't bring it back.
+  private func remove(_ person: SenderSession) {
+    Task {
+      do {
+        try await Stores.account.remove(person.id, senders: store)
+      } catch {
+        store.notice = error.localizedDescription
+      }
     }
   }
 
@@ -59,7 +70,7 @@ struct ComposeView: View {
             // The selected person: details and unpair.
             Menu {
               Section("You're \(person.pairing.senderName) on \(person.pairing.recipientName)'s devices") {
-                Button("Unpair \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
+                Button("Remove \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
                   unpairing = person
                 }
               }
@@ -70,7 +81,7 @@ struct ComposeView: View {
             Button { onSelect(person.id) } label: { PersonChip(person: person, selected: false) }
               .buttonStyle(.plain)
               .contextMenu {
-                Button("Unpair \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
+                Button("Remove \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
                   unpairing = person
                 }
               }

@@ -81,22 +81,17 @@ enum Config {
 /// overlays when a tap arrives.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-  private let store = ReceiverStore(
-    endpoints: Config.endpoints,
-    persistence: Config.persistence,
-    deviceName: { Host.current().localizedName ?? "Mac" },
-    machine: HardwareID.trialFingerprint)
+  private let store = ReceiverStore(endpoints: Config.endpoints, persistence: Config.persistence)
   /// Everyone this Mac can tap; independent of its own inbox, so a Mac can
   /// send without receiving, like an iPhone.
   private let senders = SenderStore(server: Config.endpoints.server, persistence: Config.senderPersistence)
-  private lazy var sendWindow = SendController(store: senders)
+  private lazy var sendWindow = SendController(store: senders, account: account)
   private lazy var overlays = OverlayController(store: store)
   private lazy var appearance = AppearanceController(store: store)
-  /// Owned by the app, not the popover: sign-in keeps waiting for the
-  /// browser after the popover closes and frees its views.
-  private let account = AccountStore(server: Config.endpoints.server, clientID: "shouldertap-mac",
+  /// Owned by the app, not the popover or the welcome: the person this Mac
+  /// belongs to (docs/onboarding.md).
+  private let account = AccountStore(server: Config.endpoints.server,
     vault: KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".account"))
-  private lazy var accountWindow = AccountController(account: account, inbox: store, senders: senders)
   private let welcome = WelcomeController()
   private let updates = Updates()
   private let popover = NSPopover()
@@ -121,23 +116,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     observeStore()
     observeWake()
     observeNetwork()
-    Task { await account.refresh() }
+    // The inbox socket says connections changed: new keys wait on the account.
+    store.onCredentialsChanged = { [weak self] in Task { await self?.sync() } }
+    // Receiving runs on whatever this Mac already holds, signed in or not.
+    store.start()
     senders.start()
 
-    if !store.start() {
-      // Not set up yet: welcome them the first time, then open the menu so
+    if !account.signedIn {
+      // Not signed in: welcome them the first time, then open the menu so
       // there's somewhere to start.
       DispatchQueue.main.async { self.welcomeOrOpenPopover() }
     }
+    Task {
+      await account.refresh()
+      await sync()
+      if account.signedIn, let me = account.me, me.profile == nil { welcomeOrOpenPopover() }
+    }
+  }
+
+  /// Brings this Mac's inbox and sender keys in step with the account.
+  private func sync() async {
+    await account.sync(platform: .mac, deviceName: Host.current().localizedName ?? "Mac", inbox: store, senders: senders)
   }
 
   private func welcomeOrOpenPopover() {
-    guard WelcomeController.shouldShow, let itemWindow = statusItem.button?.window,
+    guard WelcomeController.shouldShow else { return openPopover() }
+    showWelcome()
+  }
+
+  /// The first-run window, from launch or the menu's Get started.
+  private func showWelcome() {
+    guard !welcome.isShowing, let itemWindow = statusItem.button?.window,
       let screen = itemWindow.screen ?? NSScreen.main
-    else { return openPopover() }
+    else { return }
+    popover.performClose(nil)
     // The real icon knocks while the welcome points at it.
     knock.pending = true
-    welcome.show(on: screen, item: itemWindow) { [weak self] setUp in
+    welcome.show(on: screen, item: itemWindow, account: account, sync: { [weak self] in await self?.sync() }) {
+      [weak self] setUp in
       guard let self else { return }
       knock.pending = store.activeTap != nil
       if setUp { openPopover() }
@@ -168,19 +184,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.popover.performClose(nil)
             self?.appearance.show()
           },
-          openAccount: { [weak self] in
-            self?.popover.performClose(nil)
-            self?.accountWindow.show()
-          },
+          openOnboarding: { [weak self] in self?.showWelcome() },
           openSend: { [weak self] personId in
             self?.popover.performClose(nil)
             self?.sendWindow.show(personId: personId)
-          }))
+          },
+          sync: { [weak self] in await self?.sync() }))
       controller.sizingOptions = .preferredContentSize
       popover.contentViewController = controller
     }
     // One GET: picks up a purchase made while the live event was missed.
     store.refresh()
+    Task { await sync() }
     NSApp.activate(ignoringOtherApps: true)
     popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     popover.contentViewController?.view.window?.makeKey()
@@ -206,6 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
           self?.store.nudge()
           self?.senders.nudge()
+          Task { await self?.sync() }
         }
       }
     }
@@ -220,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if up, !self.networkWasUp {
           self.store.nudge()
           self.senders.nudge()
+          await self.sync()
         }
         self.networkWasUp = up
       }

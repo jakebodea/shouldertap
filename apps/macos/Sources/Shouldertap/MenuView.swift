@@ -11,9 +11,11 @@ struct MenuView: View {
   let updates: Updates
   let account: AccountStore
   let openAppearance: () -> Void
-  let openAccount: () -> Void
+  /// The first-run window: sign in, then name and color.
+  let openOnboarding: () -> Void
   /// nil opens the invite form.
   let openSend: (String?) -> Void
+  let sync: () async -> Void
   @State private var contentHeight: CGFloat = 0
 
   var body: some View {
@@ -22,14 +24,7 @@ struct MenuView: View {
         #if DEBUG
           DebugBanner()
         #endif
-        switch store.phase {
-        case .loading: ProgressView().frame(maxWidth: .infinity, minHeight: 120)
-        case .setup: SetupView(store: store, senders: senders, updates: updates, openAccount: openAccount, openSend: openSend)
-        case .ready:
-          ReadyView(
-            store: store, senders: senders, updates: updates, account: account, openAppearance: openAppearance,
-            openAccount: openAccount, openSend: openSend)
-        }
+        content
       }
       .padding(14)
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
@@ -37,6 +32,35 @@ struct MenuView: View {
     .scrollBounceBehavior(.basedOnSize)
     // Grow with the content, and scroll past 620pt.
     .frame(width: 380, height: min(max(contentHeight, 120), 620))
+  }
+
+  /// The account decides: signed in with a profile, this Mac is yours.
+  @ViewBuilder private var content: some View {
+    if !account.signedIn {
+      StartView(updates: updates, title: "Welcome", openOnboarding: openOnboarding,
+        message: "People you trust can tap you on the shoulder. Their message covers your screens until you answer.",
+        action: "Get started")
+    } else if account.me == nil {
+      if let error = account.error {
+        WaitingView(updates: updates, message: error, retry: { Task { await account.refresh(); await sync() } })
+      } else {
+        ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+      }
+    } else if account.me?.profile == nil {
+      StartView(updates: updates, title: account.email ?? "Welcome", openOnboarding: openOnboarding,
+        message: "Choose your name and color so people know who's tapping.", action: "Finish setting up")
+    } else {
+      switch store.phase {
+      case .ready:
+        ReadyView(
+          store: store, senders: senders, updates: updates, account: account, openAppearance: openAppearance,
+          openSend: openSend)
+      case .loading, .setup:
+        WaitingView(
+          updates: updates, message: account.error ?? "Setting up this Mac…",
+          retry: account.error == nil ? nil : { Task { await sync() } })
+      }
+    }
   }
 }
 
@@ -57,68 +81,39 @@ struct MenuView: View {
 
 // MARK: Screens
 
-private struct SetupView: View {
-  let store: ReceiverStore
-  let senders: SenderStore
+/// Not signed in, or no name and color yet: one way forward, the first-run window.
+private struct StartView: View {
   let updates: Updates
-  let openAccount: () -> Void
-  let openSend: (String?) -> Void
-  @State private var name = ""
-  @State private var code = ""
-  @State private var busy = false
-  @State private var error: String?
+  let title: String
+  let openOnboarding: () -> Void
+  let message: String
+  let action: String
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Brand(subtitle: "Welcome")
-      Muted(
-        "People you trust can tap you on the shoulder. Their message covers your screens until you answer, and they see your reply right away."
-      )
-
-      Section(title: "Set up this Mac") {
-        TextField("Your first name, as senders will see it", text: $name)
-          .textFieldStyle(.roundedBorder)
-          .onSubmit(createInbox)
-          .onChange(of: name) { _, value in
-            if value.count > maxNameLength { name = String(value.prefix(maxNameLength)) }
-          }
-        MenuButton(title: "Get started", kind: .primary, action: createInbox)
-          .disabled(busy || trimmed(name).isEmpty)
-      }
-
-      Section(title: "Already set up on another computer?") {
-        TextField("Paste the pairing code from your other computer", text: $code)
-          .textFieldStyle(.roundedBorder)
-        MenuButton(title: "Pair this Mac", icon: .addMac, action: join)
-          .disabled(busy || trimmed(code).isEmpty)
-      }
-
-      YouCanTap(senders: senders, openSend: openSend)
-
-      MenuButton(title: "Restore with email", kind: .plain, action: openAccount)
-
-      if let error { ErrorText(error) }
-      if busy { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
+      Brand(subtitle: title)
+      Muted(message)
+      MenuButton(title: action, kind: .primary, fullWidth: true, action: openOnboarding)
       Footer(updates: updates)
     }
   }
+}
 
-  private func createInbox() {
-    let value = trimmed(name)
-    guard !value.isEmpty else { return }
-    run { try await store.createInbox(recipientName: value) }
-  }
+/// Signed in; this Mac's inbox credential is on its way from the account.
+private struct WaitingView: View {
+  let updates: Updates
+  let message: String
+  let retry: (() -> Void)?
 
-  private func join() {
-    run { try await store.join(code: code) }
-  }
-
-  private func run(_ action: @escaping @MainActor () async throws -> Void) {
-    busy = true
-    error = nil
-    Task {
-      do { try await action() } catch { self.error = error.localizedDescription }
-      busy = false
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Brand(subtitle: " ")
+      HStack(spacing: 8) {
+        if retry == nil { ProgressView().controlSize(.small) }
+        Muted(message)
+      }
+      if let retry { MenuButton(title: "Try again", kind: .secondary, action: retry) }
+      Footer(updates: updates)
     }
   }
 }
@@ -129,7 +124,6 @@ private struct ReadyView: View {
   let updates: Updates
   let account: AccountStore
   let openAppearance: () -> Void
-  let openAccount: () -> Void
   let openSend: (String?) -> Void
 
   var body: some View {
@@ -144,7 +138,7 @@ private struct ReadyView: View {
 
       Section(title: "Can tap you") {
         if senders.isEmpty {
-          Muted("No one yet. Invite someone above.")
+          Muted("No one yet. Invite someone above, and they can tap you once they accept.")
         } else {
           ForEach(senders) { PairingRow(store: store, credential: $0, isSelf: false) }
         }
@@ -154,7 +148,6 @@ private struct ReadyView: View {
 
       Section(title: "Your devices") {
         ForEach(devices) { PairingRow(store: store, credential: $0, isSelf: $0.id == store.credentialId) }
-        AddDevice(store: store)
       }
 
       Section(title: "Accessibility") {
@@ -167,15 +160,7 @@ private struct ReadyView: View {
         .accessibilityLabel("Tap motion, \(appearanceLabel)")
       }
 
-      Section(title: "Account") {
-        Row(action: openAccount) { _ in
-          Text("Account and recovery").font(.system(size: 13, weight: .medium))
-          Spacer(minLength: 0)
-          Text(accountLabel).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-          Text("›").font(.system(size: 13)).foregroundStyle(.tertiary)
-        }
-        .accessibilityLabel("Account and recovery, \(accountLabel)")
-      }
+      AccountSection(account: account)
 
       Section(title: "Recent") {
         if store.taps.isEmpty {
@@ -188,10 +173,6 @@ private struct ReadyView: View {
       PatronView(store: store)
       Footer(updates: updates)
     }
-  }
-
-  private var accountLabel: String {
-    account.signedIn ? (account.email ?? "Signed in") : "Not signed in"
   }
 
   private var appearanceLabel: String {
@@ -232,7 +213,7 @@ private struct YouCanTap: View {
       }
       Row(action: { openSend(nil) }) { _ in
         Glyph(icon: .send)
-        Text(senders.sessions.isEmpty ? "Got an invite? Tap someone" : "Add someone")
+        Text("Got a link? Paste it")
           .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
       }
     }
@@ -361,54 +342,33 @@ private struct InviteSender: View {
   }
 }
 
-/// Another Mac or PC pastes the code; an iPhone scans the QR code, which opens
-/// Shouldertap on it (`shouldertap://link#<code>`, the code in the fragment
-/// like invite links).
-private struct AddDevice: View {
-  let store: ReceiverStore
-  @State private var code: String?
-  @State private var copied = false
-  @State private var error: String?
+/// Your email account: sign out (this Mac stays set up) or delete it.
+private struct AccountSection: View {
+  let account: AccountStore
+  @State private var confirming = false
 
   var body: some View {
-    if let code {
-      Card {
-        if let qr = QRCode.image(for: "shouldertap://link#\(code)") {
-          Image(nsImage: qr)
-            .interpolation(.none)
-            .resizable()
-            .frame(width: 148, height: 148)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .accessibilityLabel("QR code to link your iPhone")
-        }
-        Muted(
-          "Scan with your iPhone's camera to link it, or paste the code into Shouldertap on another Mac or PC. It works once and expires in 15 minutes."
-        )
-        .multilineTextAlignment(.center)
-        Mono(code, lines: 3)
+    Section(title: "Account") {
+      Row { _ in
+        Text(account.email ?? "Signed in").font(.system(size: 13, weight: .medium)).lineLimit(1)
+        Spacer(minLength: 0)
+        MenuButton(title: "Sign out", kind: .plain) { Task { await account.signOut() } }
+      }
+      if confirming {
+        Muted("Deletes your account. Taps already on this Mac stay here. Cancel an active membership first.")
         HStack(spacing: 8) {
-          MenuButton(title: copied ? "Copied" : "Copy code", icon: .copy, kind: .primary) {
-            copyToClipboard(code)
-            copied = true
+          MenuButton(title: "Delete account", kind: .danger) {
+            Task {
+              await account.deleteAccount()
+              confirming = false
+            }
           }
-          MenuButton(title: "Done", kind: .plain) {
-            self.code = nil
-            copied = false
-          }
+          MenuButton(title: "Cancel", kind: .plain) { confirming = false }
         }
+      } else {
+        MenuButton(title: "Delete account…", kind: .plain) { confirming = true }
       }
-      .padding(.top, 4)
-    } else {
-      Row(action: {
-        error = nil
-        Task {
-          do { code = try await store.createDeviceCode().code } catch { self.error = error.localizedDescription }
-        }
-      }) { _ in
-        Glyph(icon: .addMac)
-        Text("Add a Mac, PC or iPhone").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
-      }
-      if let error { ErrorText(error) }
+      if let error = account.error { ErrorText(error) }
     }
   }
 }

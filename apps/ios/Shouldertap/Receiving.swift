@@ -58,18 +58,33 @@ final class Receiver {
 
   // MARK: Push setup
 
-  /// Called whenever the link may have changed (launch, linking, foreground).
-  /// Asks once for notification permission, then keeps the server current.
+  /// Called whenever the inbox may have changed (launch, a new credential,
+  /// foreground): keeps the server current. Never asks for permission; the
+  /// Notifications step of onboarding does (`requestNotifications`).
   func sync() {
     guard let inbox, inbox.phase == .ready else { return }
     Task {
-      let center = UNUserNotificationCenter.current()
-      let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
-      notificationsAllowed = granted
-      if !granted { log.notice("Notifications aren't allowed") }
+      let settings = await UNUserNotificationCenter.current().notificationSettings()
+      switch settings.authorizationStatus {
+      case .notDetermined: notificationsAllowed = nil
+      case .denied: notificationsAllowed = false; log.notice("Notifications aren't allowed")
+      default: notificationsAllowed = true
+      }
       UIApplication.shared.registerForRemoteNotifications()
       await upload()
     }
+  }
+
+  /// Not asked yet: the onboarding step still has something to ask.
+  func notificationsUndetermined() async -> Bool {
+    await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .notDetermined
+  }
+
+  /// The system prompt, from the Notifications step.
+  func requestNotifications() async {
+    let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+    notificationsAllowed = granted
+    sync()
   }
 
   func didRegister(deviceToken data: Data) {

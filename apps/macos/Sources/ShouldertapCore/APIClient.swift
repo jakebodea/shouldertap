@@ -70,27 +70,6 @@ public struct APIClient: Sendable {
     APIClient(baseURL: baseURL, token: token, session: session)
   }
 
-  // Pairing
-
-  /// `machine` is this Mac's `MachineFingerprint`, so setting up again keeps
-  /// the Mac's original trial; nil when it couldn't be read.
-  public func createInbox(recipientName: String, deviceName: String, machine: String? = nil, platform: DevicePlatform = .mac) async throws
-    -> CredentialGrant
-  {
-    try await send(
-      "POST", "/v1/inboxes",
-      body: CreateInbox(recipientName: recipientName, deviceName: deviceName, platform: platform == .mac ? nil : platform, machine: machine))
-  }
-
-  /// `color` is the sender's frame color and `platform` the joining
-  /// device's; the server ignores whichever doesn't apply to the invite.
-  public func redeemInvite(
-    code: String, name: String, color: PersonColor? = nil, platform: DevicePlatform? = nil
-  ) async throws -> CredentialGrant {
-    try await send(
-      "POST", "/v1/invites/redeem", body: Redeem(code: code, name: name, color: color, platform: platform))
-  }
-
   // Inbox (authorized)
 
   public func me() async throws -> Snapshot {
@@ -173,18 +152,6 @@ public struct APIClient: Sendable {
   // Transport
 
   private struct Acknowledge: Encodable { var response: TapResponse }
-  private struct CreateInbox: Encodable {
-    var recipientName: String
-    var deviceName: String
-    var platform: DevicePlatform?
-    var machine: String?  // omitted when nil, like the optional key in the contract
-  }
-  private struct Redeem: Encodable {
-    var code: String
-    var name: String
-    var color: PersonColor?  // omitted when nil, like the optional key in the contract
-    var platform: DevicePlatform?  // likewise
-  }
   private struct UpdateAppearance: Encodable {
     var motion: MotionPreference?  // omitted when nil: keep the saved value
     var senderThemes: SenderThemePreference?

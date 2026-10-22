@@ -8,10 +8,14 @@ import SwiftUI
 @MainActor
 final class SendController {
   private let store: SenderStore
+  private let account: AccountStore
   private let selection = SendSelection()
   private var window: NSWindow?
 
-  init(store: SenderStore) { self.store = store }
+  init(store: SenderStore, account: AccountStore) {
+    self.store = store
+    self.account = account
+  }
 
   /// `personId` nil opens the invite form.
   func show(personId: String?) {
@@ -29,7 +33,7 @@ final class SendController {
       window.title = "Tap someone"
       window.titlebarAppearsTransparent = true
       window.isReleasedWhenClosed = false
-      window.contentView = NSHostingView(rootView: SendView(store: store, selection: selection))
+      window.contentView = NSHostingView(rootView: SendView(store: store, account: account, selection: selection))
       window.contentMinSize = NSSize(width: 440, height: 480)
       window.center()
       self.window = window
@@ -50,6 +54,7 @@ final class SendSelection {
 /// you can tap on the frame's top edge, the composer on the page below.
 struct SendView: View {
   let store: SenderStore
+  let account: AccountStore
   let selection: SendSelection
   @State private var pairColor = PersonColor.cobalt
 
@@ -65,12 +70,12 @@ struct SendView: View {
       people(color: color)
       Group {
         if adding {
-          PairForm(store: store, color: $pairColor, canCancel: current != nil) { session in
-            selection.person = session?.id ?? selection.person
+          AcceptForm(store: store, account: account, color: $pairColor, canCancel: current != nil) { id in
+            selection.person = id ?? selection.person
             selection.adding = false
           }
         } else if let current {
-          Composer(session: current, store: store).id(current.id)
+          Composer(session: current, store: store, account: account).id(current.id)
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -141,116 +146,125 @@ struct SendView: View {
   }
 }
 
-// MARK: Pairing
+// MARK: Accepting an invite
 
-/// Redeem a sender invite: the link, your name, and the color that frames
-/// your taps on their screens. Mirrors apps/web/src/routes/join.tsx.
-private struct PairForm: View {
+/// Accept an invite link: who it's from in their color, then Accept. Your
+/// name and color come from your profile (docs/onboarding.md, "Invites").
+private struct AcceptForm: View {
   let store: SenderStore
+  let account: AccountStore
+  /// The page's frame: the inviter's color once the link is read.
   @Binding var color: PersonColor
   let canCancel: Bool
-  /// nil: cancelled.
-  let onDone: (SenderSession?) -> Void
+  /// nil: cancelled, or done without a new person to select.
+  let onDone: (String?) -> Void
 
   @State private var invite = ""
-  @State private var name = ""
+  @State private var preview: InvitePreview?
+  @State private var connected: (name: String, id: String?, mutual: Bool)?
   @State private var pending = false
   @State private var error: String?
 
-  private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+  private var code: String? { inviteCode(from: invite) }
 
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Tap someone").font(Bricolage.extraBold(28)).tracking(-0.9)
-          Text("Paste the invite link they sent you. Taps from this Mac reach their screens.")
-            .font(.system(size: 13)).foregroundStyle(.secondary)
-        }
-
-        field("Invite link") {
-          TextField("https://shouldertap.app/join#…", text: $invite)
-            .textFieldStyle(.roundedBorder)
-        }
-
-        field("Your name") {
-          TextField("e.g. Sam", text: $name)
-            .textFieldStyle(.roundedBorder)
-            .onChange(of: name) { _, value in
-              if value.count > maxNameLength { name = String(value.prefix(maxNameLength)) }
-            }
-            .onSubmit(pair)
-        }
-
-        field("Your color") {
-          HStack(spacing: 10) {
-            ForEach(PersonColor.allCases, id: \.self) { option in
-              Button {
-                color = option
-              } label: {
-                Circle()
-                  .fill(option.base)
-                  .overlay { if option == color { IconView(icon: .onIt, size: 16).foregroundStyle(option.ink) } }
-                  .overlay(Circle().strokeBorder(Color.primary.opacity(option == color ? 0.85 : 0), lineWidth: 2).padding(-4))
-                  .frame(width: 32, height: 32)
-                  .contentShape(Circle())
-              }
-              .buttonStyle(.plain)
-              .accessibilityLabel(option.swatch.label)
-              .accessibilityAddTraits(option == color ? .isSelected : [])
-            }
+        if let connected {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("You and \(connected.name) are connected").font(Bricolage.extraBold(28)).tracking(-0.9)
+            Text(connected.mutual
+              ? "Taps from this Mac reach their screens, and they can tap you too."
+              : "Taps from this Mac reach their screens.")
+              .font(.system(size: 13)).foregroundStyle(.secondary)
           }
-          .padding(.vertical, 4)
-          Text("Frames your taps on their screen, so they know it's you from across the room.")
-            .font(.system(size: 12)).foregroundStyle(.secondary)
-        }
-
-        Preview(name: trimmedName.isEmpty ? "You" : trimmedName, color: color)
-
-        if let error { Text(error).font(.system(size: 12)).foregroundStyle(.red) }
-
-        HStack {
-          if canCancel { Button("Cancel") { onDone(nil) }.keyboardShortcut(.cancelAction) }
-          Spacer()
-          if pending { ProgressView().controlSize(.small) }
-          Button("Pair", action: pair)
-            .buttonStyle(SenderPill(color: color))
-            .keyboardShortcut(.defaultAction)
-            .disabled(pending || trimmedName.isEmpty || invite.trimmingCharacters(in: .whitespaces).isEmpty)
+          HStack {
+            Spacer()
+            Button("Tap \(connected.name)") { onDone(connected.id) }
+              .buttonStyle(SenderPill(color: color))
+              .keyboardShortcut(.defaultAction)
+          }
+        } else {
+          form
         }
       }
       .padding(24)
     }
     .onAppear {
-      // Pairing with another person reuses the name you gave the first.
-      if name.isEmpty { name = store.sessions.last?.pairing.senderName ?? "" }
-      if let last = store.sessions.last?.color { color = last }
       // A link just copied from a message is the usual way in.
       if invite.isEmpty, let copied = NSPasteboard.general.string(forType: .string), inviteCode(from: copied) != nil {
         invite = copied.trimmingCharacters(in: .whitespacesAndNewlines)
       }
     }
+    .task(id: code) { await lookUp() }
   }
 
-  private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+  @ViewBuilder private var form: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(preview.map { "\($0.name) invited you" } ?? "Add someone").font(Bricolage.extraBold(28)).tracking(-0.9)
+      Text(preview == nil
+        ? "Paste the invite link they sent you."
+        : "Accept to tap each other. They'll see you as \(account.me?.profile?.name ?? "you").")
+        .font(.system(size: 13)).foregroundStyle(.secondary)
+    }
+
     VStack(alignment: .leading, spacing: 6) {
-      Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-      content()
+      Text("Invite link").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+      TextField("https://shouldertap.app/join#…", text: $invite)
+        .textFieldStyle(.roundedBorder)
+        .onSubmit(accept)
+    }
+
+    if let preview {
+      SenderPreview(name: preview.name, color: preview.swatchColor)
+    }
+
+    if let error { Text(error).font(.system(size: 12)).foregroundStyle(.red) }
+
+    HStack {
+      if canCancel { Button("Cancel") { onDone(nil) }.keyboardShortcut(.cancelAction) }
+      Spacer()
+      if pending { ProgressView().controlSize(.small) }
+      Button("Accept", action: accept)
+        .buttonStyle(SenderPill(color: color))
+        .keyboardShortcut(.defaultAction)
+        .disabled(pending || code == nil)
     }
   }
 
-  private func pair() {
-    guard !pending, !trimmedName.isEmpty else { return }
+  private func lookUp() async {
+    preview = nil
+    guard let code else {
+      error = invite.trimmingCharacters(in: .whitespaces).isEmpty ? nil : "That doesn't look like a Shouldertap invite link."
+      return
+    }
+    error = nil
+    do {
+      let found = try await account.previewInvite(code: code)
+      guard code == self.code else { return }
+      preview = found
+      color = found.swatchColor
+    } catch is CancellationError {
+    } catch {
+      self.error = error.localizedDescription
+    }
+  }
+
+  private func accept() {
+    guard !pending, let code else { return }
     pending = true
     error = nil
     Task {
       defer { pending = false }
       do {
-        let session = try await store.pair(invite: invite, name: trimmedName, color: color)
+        let result = try await account.accept(
+          code: code, platform: .mac, deviceName: Host.current().localizedName ?? "Mac", senders: store)
         invite = ""
-        onDone(session)
-      } catch let failure as APIError where failure.code != .network {
-        error = failure.message
+        if let person = result.person.color { color = person }
+        let id =
+          result.sender?.grant.credentialId
+          ?? store.sessions.first { $0.pairing.recipientName == result.person.name }?.id
+        withAnimation(.easeOutExpo(0.5)) { connected = (result.person.name, id, result.mutual) }
       } catch {
         self.error = error.localizedDescription
       }
@@ -260,23 +274,25 @@ private struct PairForm: View {
 
 /// How a tap from you looks on their screen: your color on the frame, your
 /// name on its edge, the message on the page.
-private struct Preview: View {
+struct SenderPreview: View {
   let name: String
   let color: PersonColor
+  var large = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text(name).font(Bricolage.bold(13)).foregroundStyle(color.ink).padding(.horizontal, 12).padding(.vertical, 7)
+      Text(name).font(Bricolage.bold(large ? 20 : 13)).foregroundStyle(color.ink)
+        .padding(.horizontal, large ? 18 : 12).padding(.vertical, large ? 12 : 7)
       Text("Dinner's ready")
-        .font(Bricolage.extraBold(26))
-        .tracking(-0.8)
+        .font(Bricolage.extraBold(large ? 44 : 26))
+        .tracking(large ? -1.6 : -0.8)
         .foregroundStyle(Color(hex: 0x1d1d1f))
-        .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
-        .padding(.horizontal, 14)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0xfbfaf6)))
-        .padding([.horizontal, .bottom], 6)
+        .frame(maxWidth: .infinity, minHeight: large ? 150 : 70, alignment: .leading)
+        .padding(.horizontal, large ? 22 : 14)
+        .background(RoundedRectangle(cornerRadius: large ? 16 : 8).fill(Color(hex: 0xfbfaf6)))
+        .padding([.horizontal, .bottom], large ? 10 : 6)
     }
-    .background(RoundedRectangle(cornerRadius: 12).fill(color.base))
+    .background(RoundedRectangle(cornerRadius: large ? 22 : 12).fill(color.base))
     .animation(.easeOutExpo(0.4), value: color)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Preview of a tap from \(name)")
@@ -289,6 +305,7 @@ private struct Preview: View {
 private struct Composer: View {
   let session: SenderSession
   let store: SenderStore
+  let account: AccountStore
 
   @State private var draft = ""
   @State private var confirmUnpair = false
@@ -349,9 +366,13 @@ private struct Composer: View {
     }
     .onAppear { focused = true }
     .confirmationDialog("Stop tapping \(recipient)?", isPresented: $confirmUnpair, titleVisibility: .visible) {
-      Button("Unpair", role: .destructive) { store.unpair(id: session.id) }
+      Button("Remove", role: .destructive) {
+        Task {
+          do { try await account.remove(session.id, senders: store) } catch { store.notice = error.localizedDescription }
+        }
+      }
     } message: {
-      Text("Your taps stop reaching \(recipient)'s devices. To pair again, you'll need a new invite.")
+      Text("Your taps stop reaching \(recipient), from all your devices. To tap them again, you'll need a new invite.")
     }
     .confirmationDialog("Delete your data with \(recipient)?", isPresented: $confirmDelete, titleVisibility: .visible) {
       Button("Delete everything", role: .destructive) { deleteData() }
@@ -403,7 +424,7 @@ private struct Composer: View {
       Text("You're \(session.pairing.senderName) on \(recipient)'s devices.")
       Spacer(minLength: 8)
       Menu("Options") {
-        Button("Unpair \(recipient)…") { confirmUnpair = true }
+        Button("Remove \(recipient)…") { confirmUnpair = true }
         Button("Delete my data with \(recipient)…") { confirmDelete = true }
       }
       .menuStyle(.borderlessButton)
