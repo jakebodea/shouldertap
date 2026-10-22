@@ -26,7 +26,15 @@ echo "==> Shouldertap for Windows $version"
 
 if $upload; then
   # The versioned exe is cached as immutable: never upload the live version again.
-  live="$(curl -fsS "$downloads/windows/latest.json" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+  # No feed yet (404) means nothing is live; anything else unexpected stops here.
+  feed="$(mktemp)"
+  http="$(curl -sS -o "$feed" -w '%{http_code}' "$downloads/windows/latest.json")"
+  case "$http" in
+    200) live="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$feed")" ;;
+    404) live="" ;;
+    *) echo "Couldn't read the live Windows feed (HTTP $http)." >&2; exit 1 ;;
+  esac
+  rm -f "$feed"
   if [[ "$live" == "$version" ]]; then
     echo "Windows $version is already live: bump the version first." >&2
     exit 1

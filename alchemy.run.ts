@@ -15,6 +15,7 @@ import {
   domains,
   isProduction,
   macDownloadUrl,
+  windowsDownloadUrl,
   zoneId,
 } from "./domains.ts";
 import { stageSecrets } from "./stacks/secrets.ts";
@@ -59,6 +60,7 @@ export default Alchemy.Stack(
       env: {
         VITE_SERVER_URL: server.url.as<string>(),
         VITE_MAC_DOWNLOAD_URL: macDownloadUrl,
+        VITE_WINDOWS_DOWNLOAD_URL: windowsDownloadUrl,
       },
       domain: production
         ? { name: domains.web, redirects: [`www.${domains.web}`] }

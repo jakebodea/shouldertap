@@ -4,6 +4,7 @@ const DOWNLOAD_PATH = /\/download$/u;
 const DOWNLOAD_LABEL = /Download/u;
 const RETRY_COPY = /If it didn’t/u;
 const INSTALLER_PATH = /\/Shouldertap\.dmg$/u;
+const WINDOWS_INSTALLER_PATH = /\/windows\/Shouldertap-Setup\.exe$/u;
 for (const placement of ["header", "footer"] as const) {
   test(`${placement} download starts before instructions and can be retried`, async ({
     page,
@@ -42,5 +43,8 @@ test("opening instructions directly offers a download without starting one", asy
   await expect(
     page.getByRole("link", { name: "Download for Mac" })
   ).toHaveAttribute("href", INSTALLER_PATH);
+  await expect(
+    page.getByRole("link", { name: "Download for Windows" })
+  ).toHaveAttribute("href", WINDOWS_INSTALLER_PATH);
   expect(requests).toHaveLength(0);
 });

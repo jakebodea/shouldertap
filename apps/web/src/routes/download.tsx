@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { DocLinks } from "@/components/document";
 import { SitePage } from "@/components/site-page";
-import { MAC_DOWNLOAD_URL } from "@/lib/download";
+import { MAC_DOWNLOAD_URL, WINDOWS_DOWNLOAD_URL } from "@/lib/download";
 
 const STEPS = [
   {
@@ -50,6 +50,16 @@ const DownloadComponent = () => (
             Free to use
           </span>
           macOS 14 Sonoma or later · Apple silicon and Intel
+        </p>
+        <p className="text-tone max-w-[30rem] text-[0.8125rem] leading-relaxed">
+          <span className="text-ink block text-sm font-semibold">
+            On Windows?{" "}
+            <a className="underline" download href={WINDOWS_DOWNLOAD_URL}>
+              Download for Windows
+            </a>
+          </span>
+          Windows 10 and 11. It isn&apos;t signed yet, so if Windows warns,
+          choose More info, then Run anyway. It lives in the system tray.
         </p>
       </section>
 
