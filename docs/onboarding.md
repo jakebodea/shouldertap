@@ -4,7 +4,7 @@ Every client (iPhone, Mac, Windows, browser) runs the same flow and calls the sa
 
 ## The flow
 
-1. **Welcome** — one promise, a live tap preview, "Get started". A quiet "I have an account" goes to the same sign-in.
+1. **Welcome** — one promise, a live tap preview, "Get started". A quiet "I have an account" goes to the same sign-in, which also offers a QR code (see [Sign in with a QR code](#sign-in-with-a-qr-code)).
 2. **Email** — "What's your email?" → "Send code".
 3. **Code** — six digits, typed or autofilled (iOS: `.oneTimeCode`, which offers codes from Mail). Six digits submit on their own. "Resend" and "Change email".
 4. **You** — only when `me.profile` is null: name and color, asked once. Prefilled from `me.suggestedName` (an inbox name an existing user already had).
@@ -13,7 +13,16 @@ Every client (iPhone, Mac, Windows, browser) runs the same flow and calls the sa
 
 An invite link opened before sign-in shows "{name} invited you to Shouldertap" with a tap preview in their color and "Accept", runs steps 2–5, then accepts and lands on "You and {name} are connected".
 
-Gone everywhere: device-authorization codes, "Create my inbox", "Link a device" / pairing-code QR, "Restore with email", "Save this device to my account", picking an inbox. Invite QR codes stay.
+Gone everywhere: typed device-authorization codes, "Create my inbox", "Link a device" / pairing-code QR, "Restore with email", "Save this device to my account", picking an inbox. Invite QR codes stay, and sign-in QR codes replace device linking.
+
+## Sign in with a QR code
+
+Once one device is signed in, the next one needn't wait for an email. Either way the new device gets its own session; signing out of one leaves the other signed in. After either flow the new device continues at step 4 (skipped when the profile exists), then syncs.
+
+- **Computer → phone.** A signed-in Mac, PC or browser shows "Sign in on your phone": a QR code of `https://shouldertap.app/qr#<token>`, made on demand, single use, expiring after 2 minutes. The iPhone's sign-in step has "Scan from your computer"; scanning redeems the token. The computer polls status every 2 seconds and, once used, says "Signed in on your iPhone". The iPhone app also opens `shouldertap://qr#<token>`; a phone camera that opens the web link signs that browser in or hands off to the app.
+- **Phone → computer.** A signed-out Mac, PC or browser shows "Sign in with your phone": it starts device authorization and shows `verification_uri_complete` (`https://api.shouldertap.app/account/device?user_code=…`) as a QR code with the code under it, then polls. A signed-in iPhone scans it (Account → "Sign in on a computer", or any in-app scanner) and asks "Sign in on your {Mac|PC|browser}?" with the code shown, then approves. A phone camera opens the account page, which asks the same and approves with the browser session.
+
+Never sign in from a code someone sent you: the confirmation names the kind of device and shows the code so a person can check it matches the screen in front of them.
 
 A browser never receives taps; it signs in, accepts invites and taps your people.
 
@@ -32,6 +41,32 @@ POST /api/auth/sign-in/email-otp                 { "email": string, "otp": "1234
 - Native: store `token` in the platform vault as the account session and send it as the bearer. The browser gets an HttpOnly session cookie from the same response.
 - `POST /api/auth/sign-out` signs out; local credentials stay.
 - A wrong or expired code answers 400; show "That code didn't work. Check it or send a new one."
+
+### QR sign-in: computer → phone
+
+```
+POST /api/auth/qr-sign-in/create   {}                                  (session) → { "token": string, "url": string, "expiresAt": number }
+POST /api/auth/qr-sign-in/status   { "token": string }                 (session) → { "status": "pending" | "used" | "expired", "platform": Platform | null }
+POST /api/auth/qr-sign-in/redeem   { "token": string, "platform": Platform }      → { "token": string, "user": { "email": string } }
+```
+
+- Show `url` as the QR code; scanners take the fragment after `/qr#` (or `shouldertap://qr#`). Redeem answers like the email-code sign-in, and sets the browser's cookie.
+- An expired or used token answers 400 "That code expired. Show a new one and scan again." Status shows `used` only to the account that made the code.
+
+### QR sign-in: phone → computer
+
+Better Auth device authorization, `client_id` one of `shouldertap-mac`, `shouldertap-windows`, `shouldertap-web` (and `shouldertap-ios`):
+
+```
+POST /api/auth/device/code      { "client_id": string }                                        → { device_code, user_code, verification_uri_complete, interval, expires_in }
+POST /api/auth/device/token     { client_id, device_code, "grant_type": "urn:ietf:params:oauth:grant-type:device_code" } → { access_token } | { error }
+GET  /api/auth/device?user_code=<code>   (phone session) → { user_code, client_id, status }
+POST /api/auth/device/approve   { "userCode": string }  (phone session)
+POST /api/auth/device/deny      { "userCode": string }  (phone session)
+```
+
+- The computer polls `device/token` every `interval` seconds: `authorization_pending` keeps waiting, `slow_down` adds 5 seconds, `expired_token` makes a new code, `access_denied` says so. `access_token` is the session token, kept in the vault like an emailed-code sign-in's. The browser, which keeps sessions only in its HttpOnly cookie, trades it once: `qr-sign-in/create` with the bearer, `qr-sign-in/redeem` with cookies, then `sign-out` with the bearer.
+- Codes last 10 minutes. The phone reads `user_code` from the scanned URL, shows the confirmation for `client_id`, then approves.
 
 ### Who am I
 

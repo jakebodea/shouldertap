@@ -108,6 +108,24 @@ const sendCode = (email = "reader@example.com") =>
     email,
     type: "sign-in",
   });
+/** A native app signed in with an emailed code: its session token. */
+const nativeSession = async () => {
+  await sendCode();
+  const signedIn = await native("/api/auth/sign-in/email-otp", {
+    email: "reader@example.com",
+    otp: emailedCode(),
+  });
+  return ((await signedIn.json()) as { token: string }).token;
+};
+const showQr = async (bearer: string) => {
+  const created = await native("/api/auth/qr-sign-in/create", {}, bearer);
+  return (await created.json()) as {
+    token: string;
+    url: string;
+    expiresAt: number;
+  };
+};
+
 describe("email account HTTP flow", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -368,5 +386,170 @@ describe("email account HTTP flow", () => {
       otp: code,
     });
     expect(expired.status).toBe(400);
+  });
+
+  it("signs a phone in with a QR code from a signed-in computer", async () => {
+    const mac = await nativeSession();
+    const qr = await showQr(mac);
+    const redeemed = await native("/api/auth/qr-sign-in/redeem", {
+      token: new URL(qr.url).hash.slice(1),
+      platform: "iphone",
+    });
+    const phone = (await redeemed.json()) as {
+      token: string;
+      user: { email: string };
+    };
+    const status = await native(
+      "/api/auth/qr-sign-in/status",
+      { token: qr.token },
+      mac
+    );
+    await native("/api/auth/sign-out", {}, mac);
+    const session = await native(
+      "/api/auth/get-session",
+      undefined,
+      phone.token
+    );
+    expect(qr.url).toBe(`https://shouldertap.app/qr#${qr.token}`);
+    expect(qr.expiresAt).toBe(Date.parse("2026-10-21T12:02:00Z"));
+    expect(phone.user.email).toBe("reader@example.com");
+    await expect(status.json()).resolves.toStrictEqual({
+      status: "used",
+      platform: "iphone",
+    });
+    await expect(session.json()).resolves.toMatchObject({
+      user: { email: "reader@example.com" },
+    });
+  });
+
+  it("signs a browser in with a QR code and sets its cookie", async () => {
+    const qr = await showQr(await nativeSession());
+    const redeemed = await request("/api/auth/qr-sign-in/redeem", {
+      token: qr.token,
+      platform: "web",
+    });
+    const cookie = redeemed.headers
+      .getSetCookie()
+      .map((c) => c.split(";")[0])
+      .join("; ");
+    const session = await json<{ user: { email: string } }>(
+      "/api/auth/get-session",
+      undefined,
+      cookie
+    );
+    expect(session.user.email).toBe("reader@example.com");
+  });
+
+  it("accepts a sign-in QR code only once", async () => {
+    const qr = await showQr(await nativeSession());
+    const first = await native("/api/auth/qr-sign-in/redeem", {
+      token: qr.token,
+    });
+    const replay = await native("/api/auth/qr-sign-in/redeem", {
+      token: qr.token,
+    });
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(400);
+  });
+
+  it("expires a sign-in QR code after two minutes", async () => {
+    const mac = await nativeSession();
+    const qr = await showQr(mac);
+    vi.setSystemTime(new Date("2026-10-21T12:02:01Z"));
+    const status = await native(
+      "/api/auth/qr-sign-in/status",
+      { token: qr.token },
+      mac
+    );
+    const late = await native("/api/auth/qr-sign-in/redeem", {
+      token: qr.token,
+    });
+    await expect(status.json()).resolves.toStrictEqual({
+      status: "expired",
+      platform: null,
+    });
+    expect(late.status).toBe(400);
+  });
+
+  it("shows a pending QR code only to the account that made it", async () => {
+    const mac = await nativeSession();
+    const qr = await showQr(mac);
+    const pending = await native(
+      "/api/auth/qr-sign-in/status",
+      { token: qr.token },
+      mac
+    );
+    await sendCode("other@example.com");
+    const other = await native("/api/auth/sign-in/email-otp", {
+      email: "other@example.com",
+      otp: emailedCode(),
+    });
+    const { token: otherToken } = (await other.json()) as { token: string };
+    const snooped = await native(
+      "/api/auth/qr-sign-in/status",
+      { token: qr.token },
+      otherToken
+    );
+    await expect(pending.json()).resolves.toStrictEqual({
+      status: "pending",
+      platform: null,
+    });
+    await expect(snooped.json()).resolves.toStrictEqual({
+      status: "expired",
+      platform: null,
+    });
+  });
+
+  it("makes sign-in QR codes only for a signed-in account", async () => {
+    const created = await native("/api/auth/qr-sign-in/create", {});
+    expect(created.status).toBe(401);
+  });
+
+  it("stores only the hash of a sign-in QR code", async () => {
+    const qr = await showQr(await nativeSession());
+    const rows = db
+      .prepare(
+        "SELECT identifier FROM verification WHERE identifier LIKE 'qr-%'"
+      )
+      .all() as { identifier: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.identifier).toMatch(/^qr-sign-in:[\w-]{43}$/u);
+    expect(rows[0]?.identifier).not.toContain(qr.token);
+  });
+
+  it("signs a computer in when a signed-in phone approves its QR code", async () => {
+    const phone = await nativeSession();
+    const code = await json<{
+      device_code: string;
+      verification_uri_complete: string;
+    }>("/api/auth/device/code", { client_id: "shouldertap-mac" });
+    const scanned = new URL(code.verification_uri_complete);
+    const userCode = scanned.searchParams.get("user_code") ?? "";
+    const review = await native(
+      `/api/auth/device?user_code=${encodeURIComponent(userCode)}`,
+      undefined,
+      phone
+    );
+    await native("/api/auth/device/approve", { userCode }, phone);
+    const mac = await json("/api/auth/device/token", {
+      client_id: "shouldertap-mac",
+      device_code: code.device_code,
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    });
+    const session = await native(
+      "/api/auth/get-session",
+      undefined,
+      mac.access_token
+    );
+    expect(scanned.origin + scanned.pathname).toBe(
+      "https://api.shouldertap.app/account/device"
+    );
+    await expect(review.json()).resolves.toMatchObject({
+      client_id: "shouldertap-mac",
+      status: "pending",
+    });
+    await expect(session.json()).resolves.toMatchObject({
+      user: { email: "reader@example.com" },
+    });
   });
 });
