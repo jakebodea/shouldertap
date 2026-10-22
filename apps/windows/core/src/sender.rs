@@ -43,6 +43,11 @@ pub struct SenderPairing {
     #[serde(default)]
     pub color: Option<PersonColor>,
     pub paired_at: Timestamp,
+    /// The connection's id on the account (`${inboxId}:${credentialId}`),
+    /// for removing the person everywhere. Missing on pairings made before
+    /// accounts: `account_id()` works it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
 }
 
 impl SenderPairing {
@@ -52,6 +57,14 @@ impl SenderPairing {
 
     pub fn swatch_color(&self) -> PersonColor {
         self.color.unwrap_or_else(|| PersonColor::fallback(&self.credential_id))
+    }
+
+    /// The id `/account/remove` takes: as sync or accept gave it, or
+    /// `${inboxId}:${credentialId}` for older pairings.
+    pub fn account_id(&self) -> Option<String> {
+        self.account_id
+            .clone()
+            .or_else(|| Some(format!("{}:{}", self.inbox_id()?, self.credential_id)))
     }
 
     /// The key inside the token (`<inboxId>.<keyId>.<secret>`). Revoking it
@@ -317,6 +330,7 @@ impl SenderStore {
             sender_name: sender.name.clone(),
             color: Some(sender.color),
             paired_at: now_ms(),
+            account_id: Some(sender.id.clone()),
         };
         self.inner
             .config
@@ -336,6 +350,12 @@ impl SenderStore {
         });
         self.inner.connect(&id);
         Ok(id)
+    }
+
+    /// Forgets a pairing here without telling the server: the account
+    /// already ended its connection (`AccountStore::remove`).
+    pub fn forget(&self, id: &str) {
+        self.inner.forget(id);
     }
 
     /// Forgets these tokens' pairings here without telling the server: the
@@ -364,6 +384,8 @@ impl SenderStore {
 
     /// Revokes this PC's key so the recipient stops listing the sender, then
     /// forgets the pairing here. Best effort: it's forgotten either way.
+    /// Signed in, use `AccountStore::remove` instead: the account's next
+    /// sync would hand this PC a new key.
     pub fn unpair(&self, id: &str) {
         let Some(pairing) = self.state().session(id).map(|session| session.pairing.clone()) else {
             return;

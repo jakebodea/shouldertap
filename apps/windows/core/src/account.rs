@@ -295,6 +295,30 @@ impl AccountStore {
         Ok(accepted)
     }
 
+    /// Stops tapping someone from every device on the account, then forgets
+    /// them here. Signed out, or for a connection the account doesn't hold,
+    /// this PC's own key is revoked instead (`SenderStore::unpair`).
+    pub fn remove(&self, pairing_id: &str) -> Result<(), ApiError> {
+        let senders = &self.inner.config.senders;
+        let Some(pairing) = senders
+            .state()
+            .session(pairing_id)
+            .map(|session| session.pairing.clone())
+        else {
+            return Ok(());
+        };
+        let (Ok(api), Some(id)) = (self.inner.session(), pairing.account_id()) else {
+            senders.unpair(pairing_id);
+            return Ok(());
+        };
+        match self.inner.checked(api.remove_person(&id)) {
+            Ok(()) => senders.forget(pairing_id),
+            Err(error) if error.code == ErrorCode::NotFound => senders.unpair(pairing_id),
+            Err(error) => return Err(error),
+        }
+        Ok(())
+    }
+
     // Leaving
 
     /// Ends the session; this PC keeps receiving and tapping.

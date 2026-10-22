@@ -22,6 +22,7 @@ fn pairing(id: &str, color: Option<PersonColor>) -> SenderPairing {
         sender_name: "Rosa".into(),
         color,
         paired_at: 1.0,
+        account_id: None,
     }
 }
 
@@ -74,6 +75,7 @@ fn a_key_from_the_account_is_kept_and_connected() {
     assert_eq!(pairing.recipient_name, "Jamie");
     assert_eq!(pairing.sender_name, "Rosa");
     assert_eq!(pairing.color, Some(PersonColor::Plum));
+    assert_eq!(pairing.account_id.as_deref(), Some("inbox123:s1"));
     let saved: Vec<String> = persistence.load_pairings().into_iter().map(|p| p.token).collect();
     assert_eq!(saved, ["inbox123.s1s1s1s1.secret5678"]);
     assert_eq!(store.tokens(), ["inbox123.s1s1s1s1.secret5678"]);

@@ -397,6 +397,17 @@ impl ApiClient {
         )
     }
 
+    /// Ends a connection to someone you tap, for every device on the account.
+    /// `id` is the sender id from sync or accept.
+    pub fn remove_person(&self, id: &str) -> Result<(), ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            id: &'a str,
+        }
+        self.send::<_, serde::de::IgnoredAny>("POST", "/account/remove", Some(&Body { id }))
+            .map(|_| ())
+    }
+
     /// No auth: anyone holding the link may see who sent it.
     pub fn invite_preview(&self, code: &str) -> Result<InvitePreview, ApiError> {
         self.with_token(None)

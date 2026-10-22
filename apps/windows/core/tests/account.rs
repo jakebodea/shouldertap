@@ -7,7 +7,7 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::{MemoryPersistence, MemorySenderPersistence, MemoryVault, Stub};
+use common::{MemoryPersistence, MemorySenderPersistence, MemoryVault, Stub, eventually};
 use shouldertap_core::*;
 
 const SESSION: &str = "session-token-1";
@@ -221,6 +221,7 @@ fn sync_sends_every_token_and_drops_the_removed_ones() {
             sender_name: "Jake".into(),
             color: Some(PersonColor::Moss),
             paired_at: 1.0,
+            account_id: None,
         },
         SenderPairing {
             token: OTHER_SENDER_TOKEN.into(),
@@ -229,6 +230,7 @@ fn sync_sends_every_token_and_drops_the_removed_ones() {
             sender_name: "Jake".into(),
             color: Some(PersonColor::Moss),
             paired_at: 2.0,
+            account_id: None,
         },
     ]);
     let f = fixture(
@@ -416,4 +418,85 @@ fn the_session_survives_a_restart_in_a_file_vault() {
     FileVault::new(path.clone()).delete();
     assert_eq!(FileVault::new(path).read(), None);
     let _ = std::fs::remove_dir_all(directory);
+}
+
+/// Sam (from sync, with the account's id) and Ana (paired before accounts).
+fn sam_and_ana() -> MemorySenderPersistence {
+    MemorySenderPersistence::with(vec![
+        SenderPairing {
+            token: SENDER_TOKEN.into(),
+            credential_id: "cred1".into(),
+            recipient_name: "Sam".into(),
+            sender_name: "Jake".into(),
+            color: Some(PersonColor::Moss),
+            paired_at: 1.0,
+            account_id: Some("inbox999:cred1".into()),
+        },
+        SenderPairing {
+            token: OTHER_SENDER_TOKEN.into(),
+            credential_id: "cred2".into(),
+            recipient_name: "Ana".into(),
+            sender_name: "Jake".into(),
+            color: Some(PersonColor::Moss),
+            paired_at: 2.0,
+            account_id: None,
+        },
+    ])
+}
+
+#[test]
+fn removing_someone_ends_the_connection_on_the_account() {
+    let f = fixture(
+        MemoryVault::with(SESSION),
+        MemoryPersistence::default(),
+        sam_and_ana(),
+        |seen| match seen.path.as_str() {
+            "/account/remove" => (200, r#"{"removed":true}"#.into()),
+            _ => (503, String::new()),
+        },
+    );
+    f.account.remove("cred1").unwrap();
+    assert_eq!(
+        f.stub.body_for("/account/remove").unwrap(),
+        serde_json::json!({"id": "inbox999:cred1"})
+    );
+    assert_eq!(f.stub.token_for("/account/remove").as_deref(), Some(SESSION));
+    // An older pairing's id is its inbox and credential.
+    f.account.remove("cred2").unwrap();
+    assert_eq!(
+        f.stub.body_for("/account/remove").unwrap(),
+        serde_json::json!({"id": "inbox555:cred2"})
+    );
+    assert_eq!(f.pairings.load_pairings(), []);
+    // Not this PC's key alone: the next sync would hand out another.
+    assert_eq!(f.stub.count("/v1/credentials/key1key1"), 0);
+}
+
+#[test]
+fn a_failed_removal_keeps_them_to_try_again() {
+    let f = fixture(
+        MemoryVault::with(SESSION),
+        MemoryPersistence::default(),
+        sam_and_ana(),
+        |_| (503, String::new()),
+    );
+    assert_eq!(f.account.remove("cred1").unwrap_err().code, ErrorCode::Network);
+    assert_eq!(f.senders.tokens(), [SENDER_TOKEN, OTHER_SENDER_TOKEN]);
+}
+
+#[test]
+fn signed_out_removing_someone_revokes_this_pcs_key() {
+    let f = fixture(
+        MemoryVault::default(),
+        MemoryPersistence::default(),
+        sam_and_ana(),
+        |seen| match seen.path.as_str() {
+            "/v1/credentials/key1key1" => (200, r#"{"revoked":true}"#.into()),
+            _ => (503, String::new()),
+        },
+    );
+    f.account.remove("cred1").unwrap();
+    assert_eq!(f.senders.tokens(), [OTHER_SENDER_TOKEN]);
+    assert!(eventually(|| f.stub.count("/v1/credentials/key1key1") == 1));
+    assert_eq!(f.stub.count("/account/remove"), 0);
 }
