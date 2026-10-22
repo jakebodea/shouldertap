@@ -1,0 +1,111 @@
+# Account-first onboarding
+
+Every client (iPhone, Mac, Windows, browser) runs the same flow and calls the same endpoints. The account is the person; signing in on a device links it. See [email accounts](accounts.md) for the security model underneath.
+
+## The flow
+
+1. **Welcome** — one promise, a live tap preview, "Get started". A quiet "I have an account" goes to the same sign-in.
+2. **Email** — "What's your email?" → "Send code".
+3. **Code** — six digits, typed or autofilled (iOS: `.oneTimeCode`, which offers codes from Mail). Six digits submit on their own. "Resend" and "Change email".
+4. **You** — only when `me.profile` is null: name and color, asked once. Prefilled from `me.suggestedName` (an inbox name an existing user already had).
+5. **Notifications** — only on platforms that receive (iPhone). Mac asks for Accessibility as it does today; Windows asks nothing.
+6. **Home** — "Add your people": "Invite someone" (share link + QR) and "Got a link? Paste or scan".
+
+An invite link opened before sign-in shows "{name} invited you to Shouldertap" with a tap preview in their color and "Accept", runs steps 2–5, then accepts and lands on "You and {name} are connected".
+
+Gone everywhere: device-authorization codes, "Create my inbox", "Link a device" / pairing-code QR, "Restore with email", "Save this device to my account", picking an inbox. Invite QR codes stay.
+
+A browser never receives taps; it signs in, accepts invites and taps your people.
+
+## Protocol
+
+Account endpoints live on the API origin. Native clients send `Authorization: Bearer <session token>`; the browser sends cookies (`credentials: "include"`). Errors are `{ "error": string }` with 400/401/403/409/429.
+
+### Sign in
+
+```
+POST /api/auth/email-otp/send-verification-otp   { "email": string, "type": "sign-in" }  → 200 { "success": true }
+POST /api/auth/sign-in/email-otp                 { "email": string, "otp": "123456" }     → 200 { "token": string, "user": { "email": string, ... } }
+```
+
+- The code is 6 digits, valid 10 minutes, 3 wrong tries, hashed at rest. A new request rotates it.
+- Native: store `token` in the platform vault as the account session and send it as the bearer. The browser gets an HttpOnly session cookie from the same response.
+- `POST /api/auth/sign-out` signs out; local credentials stay.
+- A wrong or expired code answers 400; show "That code didn't work. Check it or send a new one."
+
+### Who am I
+
+```
+GET /account/me → Me
+Me = {
+  "email": string,
+  "profile": { "name": string, "color": PersonColor } | null,   // null → show the You step
+  "suggestedName": string | null,
+  "inboxId": string | null                                      // the person's inbox, once the profile exists
+}
+```
+
+### Set name and color
+
+```
+POST /account/profile { "name": string (1–40), "color": PersonColor } → Me
+```
+
+Creates the person's inbox the first time (no device credential; sync issues those). Later calls update the name and color used for new connections.
+
+### Sync this device
+
+Call after sign-in, after the profile step, on launch, on foreground, and whenever the inbox socket sends `credentials`.
+
+```
+POST /account/sync {
+  "platform": "iphone" | "mac" | "windows" | "web",
+  "deviceName": string (1–80),
+  "receive": boolean,          // false for the browser
+  "tokens": string[]           // every inbox and sender token this device holds (≤ 50)
+}
+→ {
+  "me": Me,
+  "inbox": CredentialGrant | null,   // a new device credential for your inbox, only when receive is true and none of `tokens` is one
+  "senders": [{                      // a new sender key for each of your people this device has no token for
+    "id": string,                    // `${inboxId}:${credentialId}`
+    "grant": CredentialGrant,        // kind "sender"; credentialId is the person-level id, token is this device's own key
+    "name": string,                  // your name as they see it
+    "color": PersonColor
+  }],
+  "removed": string[]                // tokens from `tokens` whose connection is gone; drop them
+}
+```
+
+Tokens the device holds that aren't on the account yet are saved to it (existing users keep everything). A token that belongs to another account is left alone and not returned in `removed`. Requires a profile (409 otherwise).
+
+### Invites
+
+Creating an invite is unchanged: `POST /v1/invites { "kind": "sender" }` with the device's inbox token → `{ code, expiresAt }`, shared as `https://shouldertap.app/join#<code>` and as a QR code. The browser, which has no inbox token, uses:
+
+```
+POST /account/invite → Invite
+```
+
+Look up an invite before accepting (no auth):
+
+```
+GET /v1/invites/preview?code=<code> → { "name": string, "color": PersonColor | null, "expiresAt": number }
+```
+
+Accept (account session; requires a profile):
+
+```
+POST /account/accept { "code": string, "platform": ..., "deviceName": string }
+→ {
+  "person": { "name": string, "color": PersonColor | null },
+  "sender": { id, grant, name, color } | null,  // you → them; null if you were already connected
+  "mutual": boolean                             // they can tap you too (false only for inviters without an account)
+}
+```
+
+The server adds both directions: a sender credential for you in their inbox, and one for them in yours, each with that person's profile name and color. Their devices get a `credentials` socket event and pick up their new key with `/account/sync`. Your own invite answers 400 "That's your own invite".
+
+### Older clients
+
+`/v1/invites/redeem`, `/v1/inboxes`, device invites (`kind: "device"`), magic links and device authorization keep working for builds already installed. New clients don't call them.
