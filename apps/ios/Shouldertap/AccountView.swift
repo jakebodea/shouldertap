@@ -9,6 +9,7 @@ struct AccountView: View {
   let account: AccountStore
   @State private var usStorefront = false
   @State private var confirmDeletion = false
+  @State private var signingInComputer = false
 
   var body: some View {
     Form {
@@ -17,6 +18,18 @@ struct AccountView: View {
           .accessibilityIdentifier("account-email")
         Button("Sign out") { Task { await account.signOut() } }
           .accessibilityIdentifier("sign-out")
+      }
+      if account.signedIn {
+        Section {
+          Button {
+            signingInComputer = true
+          } label: {
+            Label("Sign in on a computer", systemImage: "qrcode.viewfinder")
+          }
+          .accessibilityIdentifier("sign-in-computer")
+        } footer: {
+          Text("On your Mac, PC or browser, choose “Sign in with your phone” and scan the code it shows.")
+        }
       }
       if usStorefront, account.checkoutEnabled {
         // Purchases happen on the web; this only opens the account page.
@@ -34,6 +47,9 @@ struct AccountView: View {
     }
     .scrollContentBackground(.hidden)
     .background(Paper.paper)
+    .fullScreenCover(isPresented: $signingInComputer) {
+      ComputerSignIn(account: account, color: account.me?.profile?.color ?? .cobalt) { signingInComputer = false }
+    }
     .task {
       await account.refresh()
       usStorefront = await Storefront.current?.countryCode == "USA"

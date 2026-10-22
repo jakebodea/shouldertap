@@ -68,6 +68,8 @@ struct RootView: View {
   @State private var flowColor = PersonColor.cobalt
   /// An invite link opened before onboarding finished; accepted at its end.
   @State private var firstInvite = ""
+  /// A sign-in QR link (shouldertap://qr#…) opened while signed out.
+  @State private var signInLink = ""
   @State private var cover: RootCover?
   @State private var showAccount = false
   @State private var receiver = Receiver.shared
@@ -79,7 +81,8 @@ struct RootView: View {
       if showsOnboarding {
         Frame(color: flowColor) {
           OnboardingFlow(
-            account: account, senders: store, invite: $firstInvite, color: $flowColor, sync: Stores.sync
+            account: account, senders: store, invite: $firstInvite, signInLink: $signInLink, color: $flowColor,
+            sync: Stores.sync
           ) { id in
             if let id {
               selectedId = id
@@ -115,9 +118,11 @@ struct RootView: View {
         case .add:
           Frame(color: myColor) {
             AddPeople(
-              inbox: inbox, senders: store, color: myColor, onInvite: { self.cover = .invite($0) },
+              inbox: inbox, senders: store, color: myColor, onInvite: { open(scanned: $0) },
               onClose: { self.cover = nil })
           }
+        case .computer(let scanned):
+          ComputerSignIn(account: account, color: myColor, scanned: scanned) { self.cover = nil }
         }
       }
       .environment(\.inboxActions, actions)
@@ -130,9 +135,15 @@ struct RootView: View {
     }
     .overlay { takeover }
     // shouldertap://join#<code> (or the web link) to connect with someone;
+    // shouldertap://qr#<token> (or the web link) to sign in from a computer;
     // shouldertap://tap/<id> from a Live Activity.
     .onOpenURL { url in
       if receiver.handle(url) { return }
+      if qrSignInToken(from: url.absoluteString) != nil {
+        // Signed in already: this iPhone has its session; nothing to do.
+        if !account.signedIn { signInLink = url.absoluteString }
+        return
+      }
       guard inviteCode(from: url.absoluteString) != nil else { return }
       if showsOnboarding {
         firstInvite = url.absoluteString
@@ -200,7 +211,7 @@ struct RootView: View {
       }
     } else {
       Frame(color: myColor) {
-        AddPeople(inbox: inbox, senders: store, color: myColor, onInvite: { cover = .invite($0) })
+        AddPeople(inbox: inbox, senders: store, color: myColor, onInvite: { open(scanned: $0) })
       }
     }
   }
@@ -245,12 +256,21 @@ struct RootView: View {
       open: { tab = .inbox },
       account: { showAccount = true })
   }
+
+  /// A link pasted or scanned in Add your people: a computer's sign-in code
+  /// asks to sign it in; anything else is an invite.
+  private func open(scanned: String) {
+    cover = deviceSignInCode(from: scanned) != nil ? .computer(scanned) : .invite(scanned)
+  }
 }
 
-/// What covers the root: accepting an invite, or adding someone.
+/// What covers the root: accepting an invite, adding someone, or signing a
+/// computer in.
 enum RootCover: Identifiable, Hashable {
   case invite(String)
   case add
+  /// A computer's scanned sign-in link; nil scans for one.
+  case computer(String?)
 
   var id: Self { self }
 }

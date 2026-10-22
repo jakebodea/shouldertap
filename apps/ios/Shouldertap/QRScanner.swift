@@ -7,6 +7,7 @@ import UIKit
 /// rejected values (some other QR code) keep the camera running.
 /// Mirrors apps/web/src/components/qr-scanner.tsx.
 struct QRScanner: View {
+  var copy = ScanCopy.invite
   let onScan: (String) -> Bool
 
   @State private var access = AVCaptureDevice.authorizationStatus(for: .video)
@@ -31,7 +32,7 @@ struct QRScanner: View {
             .padding(48)
             .allowsHitTesting(false)
         case .authorized:
-          notice("This device has no camera. Paste the invite link instead.")
+          notice(copy.noCamera)
         case .notDetermined:
           ProgressView().tint(.white)
             .task {
@@ -40,7 +41,7 @@ struct QRScanner: View {
             }
         default:
           VStack(spacing: 14) {
-            notice("Camera access is off. Turn it on in Settings, or paste the invite link instead.")
+            notice(copy.cameraOff)
             Button("Open Settings") {
               if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
             }
@@ -55,10 +56,10 @@ struct QRScanner: View {
       .aspectRatio(1, contentMode: .fit)
       .clipShape(.rect(cornerRadius: 20, style: .continuous))
       .accessibilityElement(children: .contain)
-      .accessibilityLabel("Camera view for scanning the invite QR code")
+      .accessibilityLabel(copy.cameraLabel)
 
       if live {
-        Text(rejected ? "That QR code isn't a Shouldertap invite." : "Point the camera at the QR code on their Mac.")
+        Text(rejected ? copy.rejected : copy.hint)
           .font(Bricolage.medium(14))
           .foregroundStyle(rejected ? .red : Paper.tone)
       }
@@ -72,6 +73,45 @@ struct QRScanner: View {
       .multilineTextAlignment(.center)
       .padding(24)
   }
+}
+
+/// What the scanner says, for what it's scanning.
+struct ScanCopy {
+  /// On the frame's top edge.
+  let title: String
+  let hint: String
+  /// Some other QR code.
+  let rejected: String
+  let noCamera: String
+  let cameraOff: String
+  let cameraLabel: String
+
+  /// Someone's invite, or a computer's sign-in code (routed to its confirmation).
+  static let invite = ScanCopy(
+    title: "Scan their invite",
+    hint: "Point the camera at the QR code on their Mac.",
+    rejected: "That QR code isn't a Shouldertap invite.",
+    noCamera: "This device has no camera. Paste the invite link instead.",
+    cameraOff: "Camera access is off. Turn it on in Settings, or paste the invite link instead.",
+    cameraLabel: "Camera view for scanning the invite QR code")
+
+  /// Signed out: the code a signed-in computer shows under "Sign in on your phone".
+  static let signIn = ScanCopy(
+    title: "Scan from your computer",
+    hint: "Point the camera at the QR code on your computer.",
+    rejected: "That QR code isn't a Shouldertap sign-in code.",
+    noCamera: "This device has no camera. Sign in with your email instead.",
+    cameraOff: "Camera access is off. Turn it on in Settings, or sign in with your email instead.",
+    cameraLabel: "Camera view for scanning the sign-in QR code")
+
+  /// Signed in: the code a signed-out computer shows under "Sign in with your phone".
+  static let computer = ScanCopy(
+    title: "Sign in on a computer",
+    hint: "Point the camera at the QR code on your computer.",
+    rejected: "That QR code isn't a Shouldertap sign-in code.",
+    noCamera: "This device has no camera. Sign in on the computer with your email instead.",
+    cameraOff: "Camera access is off. Turn it on in Settings, or sign in on the computer with your email instead.",
+    cameraLabel: "Camera view for scanning the computer's QR code")
 }
 
 /// The capture session behind `QRScanner`: back camera in, QR metadata out.

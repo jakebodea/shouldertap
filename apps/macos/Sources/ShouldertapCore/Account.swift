@@ -130,17 +130,131 @@ public final class AccountStore {
     do {
       let result: SignedIn = try await request(
         "POST", "/api/auth/sign-in/email-otp", body: ["email": email, "otp": code], auth: false)
-      try vault.write(result.token)
-      token = result.token
-      self.email = result.user.email
-      pendingEmail = nil
+      try keep(session: result.token, email: result.user.email)
     } catch let failure as AccountError where failure.status == 400 {
       self.error = "That code didn’t work. Check it or send a new one."
       return false
     } catch { report(error); return false }
-    // Signed in either way; a failed load shows its error and `refresh` retries.
-    if let current: Me = try? await request("GET", "/account/me") { apply(current) }
+    await loadAfterSignIn()
     return true
+  }
+
+  // MARK: Sign in with a QR code
+
+  private struct RedeemBody: Encodable { var token: String; var platform: DevicePlatform }
+
+  /// Signs this device in with a QR code scanned from a signed-in device
+  /// (whatever was scanned; see `qrSignInToken`), then loads `me`, exactly
+  /// like a correct emailed code.
+  @discardableResult
+  public func signIn(scanned: String, platform: DevicePlatform) async -> Bool {
+    guard let qr = qrSignInToken(from: scanned) else {
+      error = "That isn’t a Shouldertap sign-in code."; return false
+    }
+    guard !busy else { return false }
+    busy = true; error = nil
+    defer { busy = false }
+    do {
+      let result: SignedIn = try await request(
+        "POST", "/api/auth/qr-sign-in/redeem", body: RedeemBody(token: qr, platform: platform), auth: false)
+      try keep(session: result.token, email: result.user.email)
+    } catch { report(error); return false }
+    await loadAfterSignIn()
+    return true
+  }
+
+  /// A one-time QR code for another device to scan and sign in with; needs a session.
+  public func createQrSignIn() async throws -> QrSignIn {
+    do { return try await request("POST", "/api/auth/qr-sign-in/create", body: [String: String]()) }
+    catch { expireIfUnauthorized(error); throw error }
+  }
+
+  /// Whether the code from `createQrSignIn` was scanned, and by what.
+  public func qrSignInStatus(token qr: String) async throws -> QrSignInStatus {
+    do { return try await request("POST", "/api/auth/qr-sign-in/status", body: ["token": qr]) }
+    catch { expireIfUnauthorized(error); throw error }
+  }
+
+  private struct DeviceCode: Decodable {
+    let device_code: String
+    let user_code: String
+    let verification_uri_complete: String
+    let interval: Int
+    let expires_in: Int
+  }
+  private struct DeviceToken: Decodable { let access_token: String }
+  private struct DeviceReview: Decodable { let user_code: String; let client_id: String; let status: String }
+
+  /// Starts signing this device in by a signed-in phone scanning its QR code.
+  public func startDeviceSignIn(client: DeviceClient, now: Date = .now) async throws -> DeviceSignIn {
+    let grant: DeviceCode = try await request(
+      "POST", "/api/auth/device/code", body: ["client_id": client.rawValue], auth: false)
+    return DeviceSignIn(
+      client: client, deviceCode: grant.device_code, userCode: grant.user_code, url: grant.verification_uri_complete,
+      interval: grant.interval, expiresAt: now.addingTimeInterval(TimeInterval(grant.expires_in)))
+  }
+
+  /// One poll of a device sign-in; call again after the `pending` interval.
+  /// Approved signs this device in (session in the vault, `me` loaded), like
+  /// a correct emailed code.
+  public func pollDeviceSignIn(_ started: DeviceSignIn, interval: Int? = nil) async throws -> DeviceSignInPoll {
+    let interval = interval ?? started.interval
+    let result: DeviceToken
+    do {
+      result = try await request("POST", "/api/auth/device/token", body: [
+        "client_id": started.client.rawValue,
+        "device_code": started.deviceCode,
+        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+      ], auth: false)
+    } catch let failure as AccountError {
+      switch failure.code {
+      case "authorization_pending": return .pending(interval: interval)
+      case "slow_down": return .pending(interval: interval + 5)
+      case "access_denied": return .denied
+      case "expired_token", "invalid_grant": return .expired
+      default: throw failure
+      }
+    }
+    try keep(session: result.access_token, email: nil)
+    await loadAfterSignIn()
+    return .signedIn
+  }
+
+  /// What a scanned device sign-in code would sign in; needs a session.
+  public func reviewDeviceSignIn(userCode: String) async throws -> DeviceSignInReview {
+    do {
+      let review: DeviceReview = try await request(
+        "GET", "/api/auth/device", query: [URLQueryItem(name: "user_code", value: userCode)])
+      return DeviceSignInReview(
+        userCode: review.user_code, device: SignInDevice(client: review.client_id), pending: review.status == "pending")
+    } catch { expireIfUnauthorized(error); throw error }
+  }
+
+  /// Signs the device showing `userCode` in to this account.
+  public func approveDeviceSignIn(userCode: String) async throws {
+    do { let _: Ignored = try await request("POST", "/api/auth/device/approve", body: ["userCode": userCode]) }
+    catch { expireIfUnauthorized(error); throw error }
+  }
+
+  /// Turns the device showing `userCode` away.
+  public func denyDeviceSignIn(userCode: String) async throws {
+    do { let _: Ignored = try await request("POST", "/api/auth/device/deny", body: ["userCode": userCode]) }
+    catch { expireIfUnauthorized(error); throw error }
+  }
+
+  private struct Ignored: Decodable {}
+
+  /// Every way of signing in ends here: the session goes in the vault.
+  private func keep(session: String, email: String?) throws {
+    try vault.write(session)
+    token = session
+    self.email = email
+    pendingEmail = nil
+  }
+
+  /// Signed in either way; a failed load shows its error and `refresh` retries.
+  private func loadAfterSignIn() async {
+    if let current: Me = try? await request("GET", "/account/me") { apply(current) }
   }
 
   // MARK: The person

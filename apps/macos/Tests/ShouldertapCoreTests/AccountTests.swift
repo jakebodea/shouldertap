@@ -329,3 +329,167 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     #expect(log.value.contains(revoke))
   }
 }
+
+@Suite struct SignInCodesScanned {
+  @Test func aSignInQRCodeGivesItsToken() {
+    #expect(qrSignInToken(from: "https://shouldertap.app/qr#Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56") == "Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56")
+    #expect(qrSignInToken(from: " shouldertap://qr#Ab12Cd34Ef56Gh78\n") == "Ab12Cd34Ef56Gh78")
+    #expect(qrSignInToken(from: "https://shouldertap.app/join#in/1#a") == nil)
+    #expect(qrSignInToken(from: "https://shouldertap.app/qr#short") == nil)
+    #expect(qrSignInToken(from: "https://shouldertap.app/qr/x#Ab12Cd34Ef56Gh78") == nil)
+    #expect(qrSignInToken(from: "http://shouldertap.app/qr#Ab12Cd34Ef56Gh78") == nil)
+  }
+
+  @Test func aDeviceSignInQRCodeGivesItsUserCode() {
+    #expect(deviceSignInCode(from: "https://api.shouldertap.app/account/device?user_code=ABCD1234") == "ABCD1234")
+    #expect(deviceSignInCode(from: "http://api.shouldertap.app/account/device?user_code=X") == nil)
+    #expect(deviceSignInCode(from: "https://api.shouldertap.app/account/device") == nil)
+    #expect(deviceSignInCode(from: "https://shouldertap.app/join#inboxAAA.key11111.secret222") == nil)
+  }
+
+  @Test func devicesAreNamedTheWayPeopleSayThem() {
+    #expect(SignInDevice(client: "shouldertap-mac")?.rawValue == "Mac")
+    #expect(SignInDevice(client: "shouldertap-windows")?.rawValue == "PC")
+    #expect(SignInDevice(client: "shouldertap-web")?.rawValue == "browser")
+    #expect(SignInDevice(client: "someone-else") == nil)
+    #expect(SignInDevice(platform: "iphone")?.rawValue == "iPhone")
+  }
+}
+
+@Suite(.serialized) @MainActor struct AccountQRSignIn {
+  private let qrLink = "https://shouldertap.app/qr#Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56"
+
+  @Test func scanningAComputersCodeSignsInLikeAnEmailedCode() async {
+    let vault = MemoryVault()
+    let log = Log()
+    let bodies = Bodies()
+    let account = AccountStore(server: api, vault: vault, session: StubProtocol.session { request in
+      log.record(request); bodies.record(request)
+      switch request.url!.path {
+      case "/api/auth/qr-sign-in/redeem": return (200, #"{"token":"phone-session","user":{"email":"jake@example.com"}}"#)
+      default: return (200, newMe)
+      }
+    })
+    #expect(await account.signIn(scanned: qrLink, platform: .iphone))
+    #expect(vault.read() == "phone-session")
+    #expect(account.me?.suggestedName == "Jake B")
+    #expect(bodies["/api/auth/qr-sign-in/redeem"] == ["token": "Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56", "platform": "iphone"])
+    #expect(log.value == ["POST /api/auth/qr-sign-in/redeem -", "GET /account/me Bearer phone-session"])
+  }
+
+  @Test func anExpiredCodeSaysToShowANewOne() async {
+    let vault = MemoryVault()
+    let account = AccountStore(server: api, vault: vault, session: StubProtocol.session { _ in
+      (400, #"{"message":"That code expired. Show a new one and scan again."}"#)
+    })
+    #expect(await account.signIn(scanned: qrLink, platform: .iphone) == false)
+    #expect(account.error == "That code expired. Show a new one and scan again.")
+    #expect(vault.read() == nil)
+  }
+
+  @Test func theComputerShowsACodeAndSeesWhoUsedIt() async throws {
+    let log = Log()
+    let account = try await signedIn { request in
+      log.record(request)
+      switch request.url!.path {
+      case "/api/auth/qr-sign-in/create":
+        return (200, #"{"token":"Ab12Cd34Ef56Gh78","url":"https://shouldertap.app/qr#Ab12Cd34Ef56Gh78","expiresAt":1790000000000}"#)
+      case "/api/auth/qr-sign-in/status": return (200, #"{"status":"used","platform":"iphone"}"#)
+      default: return (200, jakeMe)
+      }
+    }
+    let qr = try await account.createQrSignIn()
+    let status = try await account.qrSignInStatus(token: qr.token)
+    #expect(qr.url == "https://shouldertap.app/qr#Ab12Cd34Ef56Gh78")
+    #expect(status.status == .used)
+    #expect(status.device == .iPhone)
+    #expect(log.value.suffix(2) == [
+      "POST /api/auth/qr-sign-in/create Bearer account-session",
+      "POST /api/auth/qr-sign-in/status Bearer account-session",
+    ])
+  }
+
+  @Test func aComputerWaitsSlowsDownThenSignsInOnceThePhoneApproves() async throws {
+    let vault = MemoryVault()
+    let bodies = Bodies()
+    let replies = Replies([
+      (400, #"{"error":"authorization_pending","error_description":"waiting"}"#),
+      (400, #"{"error":"slow_down"}"#),
+      (200, #"{"access_token":"mac-session","token_type":"Bearer"}"#),
+    ])
+    let account = AccountStore(server: api, vault: vault, session: StubProtocol.session { request in
+      bodies.record(request)
+      switch request.url!.path {
+      case "/api/auth/device/code":
+        return (200, #"{"device_code":"dev-1","user_code":"WXYZ2345","verification_uri":"https://api.test/account/device","verification_uri_complete":"https://api.test/account/device?user_code=WXYZ2345","interval":5,"expires_in":600}"#)
+      case "/api/auth/device/token": return replies.next()
+      default: return (200, jakeMe)
+      }
+    })
+    let started = try await account.startDeviceSignIn(client: .mac, now: Date(timeIntervalSince1970: 1000))
+    #expect(started.userCode == "WXYZ2345")
+    #expect(started.url == "https://api.test/account/device?user_code=WXYZ2345")
+    #expect(started.expiresAt == Date(timeIntervalSince1970: 1600))
+    #expect(bodies["/api/auth/device/code"] == ["client_id": "shouldertap-mac"])
+    #expect(try await account.pollDeviceSignIn(started) == .pending(interval: 5))
+    #expect(try await account.pollDeviceSignIn(started, interval: 5) == .pending(interval: 10))
+    #expect(try await account.pollDeviceSignIn(started, interval: 10) == .signedIn)
+    #expect(bodies["/api/auth/device/token"] == [
+      "client_id": "shouldertap-mac", "device_code": "dev-1",
+      "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+    ])
+    #expect(vault.read() == "mac-session")
+    #expect(account.email == "jake@example.com")
+    #expect(account.me?.profile?.name == "Jake")
+  }
+
+  @Test func aDeniedOrStaleCodeSaysSo() async throws {
+    let replies = Replies([
+      (400, #"{"error":"access_denied"}"#), (400, #"{"error":"expired_token"}"#), (400, #"{"error":"invalid_grant"}"#),
+    ])
+    let vault = MemoryVault()
+    let account = AccountStore(server: api, vault: vault, session: StubProtocol.session { _ in replies.next() })
+    let started = DeviceSignIn(
+      client: .windows, deviceCode: "dev-1", userCode: "WXYZ2345",
+      url: "https://api.test/account/device?user_code=WXYZ2345", interval: 5, expiresAt: .distantFuture)
+    #expect(try await account.pollDeviceSignIn(started) == .denied)
+    #expect(try await account.pollDeviceSignIn(started) == .expired)
+    #expect(try await account.pollDeviceSignIn(started) == .expired)
+    #expect(vault.read() == nil)
+  }
+
+  @Test func thePhoneReviewsThenApprovesTheCodeItScanned() async throws {
+    let log = Log()
+    let bodies = Bodies()
+    let account = try await signedIn { request in
+      log.record(request); bodies.record(request)
+      switch request.url!.path {
+      case "/api/auth/device": return (200, #"{"user_code":"WXYZ2345","client_id":"shouldertap-mac","status":"pending"}"#)
+      case "/api/auth/device/approve", "/api/auth/device/deny": return (200, #"{"success":true}"#)
+      default: return (200, jakeMe)
+      }
+    }
+    let code = try #require(deviceSignInCode(from: "https://api.test/account/device?user_code=WXYZ2345"))
+    let review = try await account.reviewDeviceSignIn(userCode: code)
+    try await account.approveDeviceSignIn(userCode: code)
+    try await account.denyDeviceSignIn(userCode: code)
+    #expect(review == DeviceSignInReview(userCode: "WXYZ2345", device: .Mac, pending: true))
+    #expect(bodies["/api/auth/device/approve"] == ["userCode": "WXYZ2345"])
+    #expect(bodies["/api/auth/device/deny"] == ["userCode": "WXYZ2345"])
+    #expect(log.value.suffix(3) == [
+      "GET /api/auth/device?user_code=WXYZ2345 Bearer account-session",
+      "POST /api/auth/device/approve Bearer account-session",
+      "POST /api/auth/device/deny Bearer account-session",
+    ])
+  }
+}
+
+/// A fake server's answers, one per request, in order.
+private final class Replies: @unchecked Sendable {
+  private let lock = NSLock()
+  private var queue: [(Int, String)]
+  init(_ queue: [(Int, String)]) { self.queue = queue }
+  func next() -> (status: Int, body: String) {
+    lock.withLock { queue.isEmpty ? (500, "{}") : queue.removeFirst() }
+  }
+}
