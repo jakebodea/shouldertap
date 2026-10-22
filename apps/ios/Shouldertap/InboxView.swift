@@ -51,7 +51,7 @@ struct InboxScreen: View {
             Button("Notification settings") {
               if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
             }
-            .buttonStyle(QuietStyle())
+            .buttonStyle(PillStyle(small: true))
           }
         }
         InviteCard(inbox: inbox, color: inboxColor)
@@ -262,7 +262,7 @@ struct InviteCard: View {
             withAnimation(.outExpo(0.4)) { self.invite = nil }
             copied = false
           }
-          .buttonStyle(QuietStyle())
+          .buttonStyle(PillStyle())
         }
         .padding(18)
         .frame(maxWidth: .infinity)

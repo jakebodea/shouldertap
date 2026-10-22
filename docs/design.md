@@ -38,7 +38,7 @@ The Mac menu bar popover uses the system font (it is a native surface); Bricolag
 ## Shape and components
 
 - **Frame:** person-colored ground with a paper page inset. Overlay: 40px frame, page radius 28px, sender name + time sit on the frame's top edge (96px band). Phone: 9px sides, page radius ~44px under the status bar.
-- **Pills:** every action is a pill (`border-radius: 999px`). Primary = person color fill with its ink; secondary = 1.5px `line` outline, ink text, outline darkens to ink on hover.
+- **Pills:** every action is a pill (`border-radius: 999px`). Primary = person color fill with its ink; secondary = 1.5px `line` outline, ink text, outline darkens to ink on hover. The one exception is a decline directly under a primary ("Not now", "Back"): ink text, no fill, sized to its label, never full width.
 - **Fields:** `faint` fill, radius 18px, 17px text, no border.
 - **Answer card:** `faint` fill, radius 16px, icon + answer + tabular meta.
 - **Progress track:** three 5px segments (Sent, On screen, Answered) in the person color; the current step pulses.

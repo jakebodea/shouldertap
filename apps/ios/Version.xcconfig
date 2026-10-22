@@ -1,5 +1,5 @@
 // Shared by the app and widget, in Debug and Release.
 // Increment the build integer before each upload.
 MARKETING_VERSION = 0.2.0
-CURRENT_PROJECT_VERSION = 4
+CURRENT_PROJECT_VERSION = 5
 SHOULDERTAP_SOURCE_REVISION = working-copy

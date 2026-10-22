@@ -348,7 +348,8 @@ extension Page where Actions == EmptyView {
   }
 }
 
-/// Primary pill: the person's color with its ink. Secondary: a line outline.
+/// Every action is a pill. Primary: the person's color with its ink. Secondary:
+/// a line outline. Only a decline under a primary (`QuietStyle`) goes without one.
 struct PillStyle: ButtonStyle {
   var color: PersonColor?
   var small = false
@@ -379,7 +380,9 @@ struct PillStyle: ButtonStyle {
   }
 }
 
-/// A quiet text action under a primary pill: ink, no fill, full tap height.
+/// The decline under a primary pill ("Not now", "Back"): ink text, no fill.
+/// It hugs its label so it never reads as a wide control with no edge; peer
+/// actions are outline pills instead.
 struct QuietStyle: ButtonStyle {
   @Environment(\.isEnabled) private var isEnabled
 
@@ -387,8 +390,9 @@ struct QuietStyle: ButtonStyle {
     configuration.label
       .font(Bricolage.bold(15))
       .foregroundStyle(Paper.ink)
-      .frame(maxWidth: .infinity, minHeight: 44)
-      .contentShape(Rectangle())
+      .padding(.horizontal, 16)
+      .frame(minHeight: 44)
+      .contentShape(Capsule())
       .opacity(isEnabled ? (configuration.isPressed ? 0.5 : 1) : 0.45)
   }
 }
