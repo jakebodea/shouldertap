@@ -1,3 +1,5 @@
+import { MAX_SYNC_TOKENS } from "@shouldertap/client";
+import type { SenderGrant, SyncResult } from "@shouldertap/client";
 import { parseToken } from "@shouldertap/domain";
 import type { PersonColor } from "@shouldertap/domain";
 
@@ -133,4 +135,69 @@ export const removePairing = (credentialId: string) => {
   } catch {
     // Nothing stored.
   }
+};
+
+/** A sender key from `/account/sync` or `/account/accept`, as a pairing. */
+export const pairingFromSender = (
+  sender: SenderGrant,
+  recipientName: string = sender.grant.recipientName
+): Pairing => ({
+  token: sender.grant.token,
+  credentialId: sender.grant.credentialId,
+  recipientName,
+  senderName: sender.name,
+  color: sender.color,
+});
+
+/**
+ * The pairings left after a sync: connections that are gone drop out, and
+ * each new key joins, taking the place of any older one for the same person.
+ */
+export const mergeSync = (
+  pairings: readonly Pairing[],
+  { senders, removed }: Pick<SyncResult, "senders" | "removed">
+): Pairing[] => {
+  const gone = new Set(removed);
+  let next = pairings.filter((p) => !gone.has(p.token));
+  for (const sender of senders) {
+    const added = pairingFromSender(sender);
+    const inboxId = inboxOf(added.token);
+    next = [
+      ...next.filter(
+        (p) =>
+          p.credentialId !== added.credentialId &&
+          (inboxId === null || inboxOf(p.token) !== inboxId)
+      ),
+      added,
+    ];
+  }
+  return next;
+};
+
+/** Every token this browser holds, for `/account/sync`. */
+export const syncTokens = (): string[] =>
+  loadPairings()
+    .map((p) => p.token)
+    .slice(0, MAX_SYNC_TOKENS);
+
+/** Stores a sync's result; the composer keeps showing whoever it showed. */
+export const applySync = (result: Pick<SyncResult, "senders" | "removed">) => {
+  const stored = load();
+  const pairings = mergeSync(stored.pairings, result);
+  const kept = new Set(pairings.map((p) => p.credentialId));
+  store({
+    pairings,
+    selected:
+      stored.selected && kept.has(stored.selected) ? stored.selected : null,
+  });
+  for (const old of stored.pairings) {
+    if (!kept.has(old.credentialId)) {
+      try {
+        localStorage.removeItem(outboxKey(old.credentialId));
+      } catch {
+        // Nothing stored.
+      }
+    }
+  }
+  return pairings;
 };
