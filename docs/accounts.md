@@ -13,13 +13,15 @@ The installed Alchemy Cloudflare Email APIs are the infrastructure source of tru
 
 ## Sign-in and recovery
 
-Better Auth stores hashed, single-use sign-in tokens, ten-minute expiry, database rate limits, and sessions in D1. Email links put the token in the fragment; the account page clears it and requires explicit confirmation before exchanging it. The public GET verification route is disabled.
+Every client signs in the same way: the person enters their email, gets a six-digit code (Better Auth `emailOTP`: 10-minute expiry, three wrong tries, hashed at rest, rotated on resend, code in the subject so iOS can offer it from Mail), and types it into the app. Native apps keep the returned session token in their vault and send it as a bearer; the browser gets an HttpOnly cookie from the same response. The flow and endpoints are in [onboarding](onboarding.md).
 
-Native apps use device authorization: the user approves the matching code in the browser, and the app stores its resulting session in Keychain. The app shows the code before the person opens the browser, and `AccountStore` owns the polling task, so closing the Mac popover or iPhone sheet doesn't cancel sign-in. A device request opens a portal page with only the code check. Browser sessions use cookies with exact-origin credentialed CORS. Signing out leaves local messaging credentials intact.
+The account is the person. Its profile (name and color, `account_profile`) is asked once; saving it creates the person's inbox with no device. `/account/sync` links a device: it saves the tokens the device already holds to the account, issues a device credential for the person's inbox when the device receives, and issues the device its own sender key for each connection it lacks. Accepting an invite (`/account/accept`) connects both people: a sender in the inviter's inbox for the person accepting and one in theirs for the inviter, each with that person's profile. The two Inbox objects share no transaction, so the reverse half is created first and revoked if redeeming the invite fails.
 
-Existing Inbox and SenderPatron credentials remain valid. Signing in does not prove ownership of an existing inbox or purchase. Saving this device requires both a verified email session and its valid credentials; another account's resources cannot be adopted.
+Magic links (token in the fragment, explicit confirmation, no public GET verification) and device authorization remain for builds already installed; current clients don't use them.
 
-Multiple inboxes remain separate. Owners can select a default and switch without deleting or silently merging them. Native switching preserves the old inbox credential and reuses valid saved credentials. Restoration issues independently revocable device keys. Unlinking a sender device preserves the other devices and account recovery; recipient removal revokes the entire sender connection.
+Existing Inbox and SenderPatron credentials remain valid. Signing in does not prove ownership of an existing inbox or purchase. Saving a device's credentials requires both a verified email session and the valid credentials; another account's resources cannot be adopted (sync skips them).
+
+Accounts that adopted several inboxes keep them separate; the default (else the first) is the person's inbox. Restoration issues independently revocable device keys. Unlinking a sender device preserves the other devices and account recovery; recipient removal revokes the entire sender connection.
 
 ## Patron funnel and deletion
 

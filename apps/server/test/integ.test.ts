@@ -127,6 +127,36 @@ test(
 );
 
 test(
+  "previews who an invite is from without using it up",
+  Effect.gen(function* previewsInvite() {
+    const url = (yield* stack).server;
+    const anon = yield* client(url);
+    const mac = yield* anon.pairing.createInbox({
+      payload: { recipientName: "Ari", deviceName: "Ari's Mac" },
+    });
+    const invite = yield* (yield* client(url, mac.token)).inbox.createInvite({
+      payload: { kind: "sender" },
+    });
+    const preview = yield* anon.pairing.previewInvite({
+      query: { code: invite.code },
+    });
+    const redeemed = yield* anon.pairing.redeemInvite({
+      payload: { code: invite.code, name: "Sam", color: "tomato" },
+    });
+    const used = yield* anon.pairing
+      .previewInvite({ query: { code: invite.code } })
+      .pipe(Effect.flip);
+    expect(preview).toStrictEqual({
+      name: "Ari",
+      color: null,
+      expiresAt: invite.expiresAt,
+    });
+    expect(redeemed.recipientName).toBe("Ari");
+    expect(used._tag).toBe("Expired");
+  })
+);
+
+test(
   "pairs devices and senders with one-time invites, and links iPhones",
   Effect.gen(function* pairingFlow() {
     const url = (yield* stack).server;
