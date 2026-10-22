@@ -112,11 +112,13 @@ export class AccountClient {
    * it sends `Authorization: Bearer` (native apps).
    */
   constructor(options: {
-    readonly baseUrl: string;
+    /** Unset in builds without a server (the download e2e build). Pages
+     * that never call the account must still load, so it isn't required. */
+    readonly baseUrl: string | undefined;
     readonly sessionToken?: string | null;
     readonly fetch?: Fetch;
   }) {
-    this.baseUrl = options.baseUrl.replace(TRAILING_SLASH, "");
+    this.baseUrl = (options.baseUrl ?? "").replace(TRAILING_SLASH, "");
     this.sessionToken = options.sessionToken ?? null;
     this.fetch = options.fetch ?? ((input, init) => fetch(input, init));
   }
