@@ -29,6 +29,11 @@ pub trait LiveHandlers: Send + Sync + 'static {
     /// Refetch the authoritative snapshot. Called after every (re)connect and
     /// whenever the server says pairings changed, so a missed event is never lost.
     fn on_resync(&self);
+    /// The server says this inbox's connections changed (`credentials`).
+    /// Resyncs unless a handler needs to know more.
+    fn on_credentials(&self) {
+        self.on_resync();
+    }
     fn on_tap(&self, tap: Tap);
     fn on_tap_deleted(&self, tap_id: String);
     fn on_status(&self, status: LiveStatus);
@@ -252,7 +257,8 @@ impl Shared {
                 self.closed.store(true, Ordering::SeqCst);
                 self.handlers.on_revoked();
             }
-            Ok(ServerEvent::CredentialsChanged | ServerEvent::Unknown) | Err(_) => self.handlers.on_resync(),
+            Ok(ServerEvent::CredentialsChanged) => self.handlers.on_credentials(),
+            Ok(ServerEvent::Unknown) | Err(_) => self.handlers.on_resync(),
         }
     }
 }

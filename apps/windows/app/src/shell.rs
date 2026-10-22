@@ -1,7 +1,8 @@
 //! The app around the stores, like AppDelegate in apps/macos's App.swift: a
-//! tray icon with a menu, full-screen overlays when a tap arrives, the Send
-//! window for people this PC can tap, and the system events (wake, network,
-//! displays) that should reconnect or redraw.
+//! tray icon with a menu, the welcome that signs a new person in, full-screen
+//! overlays when a tap arrives, the Send window for people this PC can tap,
+//! and the system events (wake, network, displays) that should reconnect or
+//! redraw.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -13,10 +14,9 @@ use gpui::{
     AnyWindowHandle, App, AppContext, BorrowAppContext, Bounds, Entity, Global, Task, WindowBackgroundAppearance,
     WindowBounds, WindowHandle, WindowKind, WindowOptions, point, px, size,
 };
-use shouldertap_core::fingerprint::{DEBUG_SALT, RELEASE_SALT, machine_fingerprint};
 use shouldertap_core::{
-    ActiveTap, DevicePlatform, LocalPersistence, LocalSenderPersistence, NetworkTransport, ReceiverStore, SenderConfig,
-    SenderState, SenderStore, StoreConfig, StoreState, TapResponse,
+    AccountConfig, AccountState, AccountStore, ActiveTap, DevicePlatform, LocalPersistence, LocalSenderPersistence,
+    NetworkTransport, ReceiverStore, SenderConfig, SenderState, SenderStore, StoreConfig, StoreState, TapResponse,
 };
 
 use crate::mark::{self, KNOCK_DURATION};
@@ -24,6 +24,7 @@ use crate::menu::MenuView;
 use crate::overlay::{Overlays, Respond};
 use crate::platform::{self, PlatformEvent};
 use crate::updates::Updates;
+use crate::welcome::{WelcomeStep, WelcomeView};
 use crate::{config, updates};
 
 /// What every view reads: the stores and their latest state.
@@ -33,6 +34,9 @@ pub struct Model {
     /// The people this PC can tap; independent of the receiver.
     pub senders: SenderStore,
     pub sender_state: SenderState,
+    /// The person: signs this PC in and hands both stores their credentials.
+    pub account: AccountStore,
+    pub account_state: AccountState,
     pub updates: updates::Status,
     pub launch_at_login: bool,
 }
@@ -44,6 +48,9 @@ pub struct Shell {
     menu: Option<WindowHandle<MenuView>>,
     pub(crate) appearance: Option<WindowHandle<crate::appearance::AppearanceView>>,
     pub(crate) send: Option<WindowHandle<crate::send::SendView>>,
+    pub(crate) welcome: Option<WindowHandle<WelcomeView>>,
+    /// The You step opened by itself once this launch; the menu offers it after.
+    profile_prompted: bool,
     /// GPUI quits on Windows when its last window closes; this one is never
     /// shown, so the tray app lives on with no menu or overlay open.
     _anchor: AnyWindowHandle,
@@ -66,12 +73,6 @@ impl Shell {
         let store = ReceiverStore::new(StoreConfig {
             endpoints: config::endpoints(),
             persistence: Box::new(LocalPersistence::new(config::data_dir(), platform::vault())),
-            device_name: Box::new(platform::device_name),
-            platform: DevicePlatform::Windows,
-            machine: Box::new(|| {
-                let salt = if config::DEV { DEBUG_SALT } else { RELEASE_SALT };
-                platform::hardware_id().and_then(|id| machine_fingerprint(&id, salt))
-            }),
             transport: transport.clone(),
             ack_retry_delay: Duration::from_secs(10),
         });
@@ -81,7 +82,16 @@ impl Shell {
                 config::data_dir(),
                 platform::sender_vaults(),
             )),
+            transport: transport.clone(),
+        });
+        let account = AccountStore::new(AccountConfig {
+            server: config::endpoints().server,
+            vault: platform::account_vault(),
             transport,
+            platform: DevicePlatform::Windows,
+            device_name: Box::new(platform::device_name),
+            receiver: store.clone(),
+            senders: senders.clone(),
         });
 
         // Store changes arrive on its threads; redraw on this one.
@@ -94,11 +104,18 @@ impl Shell {
             let _ = sender_changes_tx.unbounded_send(());
         });
 
+        let (account_changes_tx, mut account_changes) = mpsc::unbounded::<()>();
+        account.on_change(move || {
+            let _ = account_changes_tx.unbounded_send(());
+        });
+
         let model = cx.new(|_| Model {
             store: store.clone(),
             state: store.state(),
             senders: senders.clone(),
             sender_state: senders.state(),
+            account: account.clone(),
+            account_state: account.state(),
             updates: updates::Status::default(),
             launch_at_login: platform::launch_at_login(),
         });
@@ -137,6 +154,8 @@ impl Shell {
             menu: None,
             appearance: None,
             send: None,
+            welcome: None,
+            profile_prompted: false,
             _anchor: anchor,
             tray,
             knocking: None,
@@ -165,6 +184,16 @@ impl Shell {
         })
         .detach();
 
+        cx.spawn(async move |cx| {
+            while account_changes.next().await.is_some() {
+                while let Ok(()) = account_changes.try_recv() {}
+                if cx.update(Shell::account_changed).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         let mut events = events;
         cx.spawn(async move |cx| {
             while let Some(event) = events.next().await {
@@ -177,12 +206,19 @@ impl Shell {
         platform::watch_system(events_tx);
         cx.on_app_quit(|_| async { platform::on_quit() }).detach();
 
-        // Not set up yet (neither receiving nor tapping anyone): open the menu
-        // so there's somewhere to start. Without a tray (developing on a
-        // Mac), it's the only way in.
+        // A new PC (not signed in, neither receiving nor tapping anyone)
+        // starts with the welcome; one already set up syncs with its account
+        // and waits in the tray. Without a tray (developing on a Mac), the
+        // menu is the only way in.
         senders.start();
         let receiving = store.start();
-        if (!receiving && senders.state().sessions.is_empty()) || cfg!(not(windows)) {
+        let signed_in = account.start();
+        if signed_in {
+            account.sync_in_background();
+        }
+        if !signed_in && !receiving && senders.state().sessions.is_empty() {
+            Shell::open_welcome(WelcomeStep::Welcome, cx);
+        } else if cfg!(not(windows)) {
             Shell::open_menu(cx);
         }
         Shell::store_changed(cx);
@@ -217,6 +253,27 @@ impl Shell {
             model.sender_state = model.senders.state();
             cx.notify();
         });
+    }
+
+    fn account_changed(cx: &mut App) {
+        let model = cx.global::<Shell>().model.clone();
+        let state = model.read(cx).account.state();
+        let needs_profile = state.needs_profile();
+        model.update(cx, |model, cx| {
+            model.account_state = state;
+            cx.notify();
+        });
+        // Signed in on an earlier launch but never picked a name and color:
+        // ask once, unless the welcome is already asking.
+        let (welcome, prompted) = {
+            let shell = cx.global::<Shell>();
+            (shell.welcome, shell.profile_prompted)
+        };
+        let welcome_open = welcome.is_some_and(|welcome| welcome.update(cx, |_, _, _| ()).is_ok());
+        if needs_profile && !prompted && !welcome_open {
+            cx.global_mut::<Shell>().profile_prompted = true;
+            Shell::open_welcome(WelcomeStep::You, cx);
+        }
     }
 
     fn nudge(cx: &mut App) {
@@ -283,6 +340,8 @@ impl Shell {
         let model = cx.global::<Shell>().model.clone();
         // One GET: picks up a purchase made while the live event was missed.
         model.read(cx).store.refresh();
+        // Opening the menu is this tray app's foreground: sync with the account.
+        model.read(cx).account.sync_in_background();
         let anchor = cx.global::<Shell>().tray.as_ref().and_then(|tray| tray.anchor());
         let menu = cx.open_window(
             WindowOptions {

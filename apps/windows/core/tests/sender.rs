@@ -7,61 +7,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::{Stub, eventually};
+use common::{MemorySenderPersistence, Stub, eventually};
 use shouldertap_core::*;
 
 const SENDER_SNAPSHOT: &str = include_str!("../../../macos/Tests/ShouldertapCoreTests/Fixtures/sender_snapshot.json");
-const CODE: &str = "inbox123.invite12.secret1234";
 const SENDER_GRANT: &str =
     r#"{"kind":"sender","credentialId":"s1","token":"inbox123.s1s1s1s1.secret5678","recipientName":"Jamie"}"#;
-
-/// Clones share their contents, so a test keeps a handle on what the store saved.
-#[derive(Clone, Default)]
-struct MemorySenderPersistence {
-    pairings: Arc<Mutex<Vec<SenderPairing>>>,
-    outboxes: Arc<Mutex<HashMap<String, Vec<OutgoingTap>>>>,
-}
-
-impl MemorySenderPersistence {
-    fn with(pairings: Vec<SenderPairing>) -> Self {
-        Self {
-            pairings: Arc::new(Mutex::new(pairings)),
-            ..Default::default()
-        }
-    }
-}
-
-impl SenderPersistence for MemorySenderPersistence {
-    fn load_pairings(&self) -> Vec<SenderPairing> {
-        self.pairings.lock().unwrap().clone()
-    }
-    fn save_pairing(&self, pairing: &SenderPairing) -> Result<(), String> {
-        let mut pairings = self.pairings.lock().unwrap();
-        pairings.retain(|saved| saved.credential_id != pairing.credential_id);
-        pairings.push(pairing.clone());
-        Ok(())
-    }
-    fn delete_pairing(&self, credential_id: &str) {
-        self.pairings
-            .lock()
-            .unwrap()
-            .retain(|saved| saved.credential_id != credential_id);
-    }
-    fn load_outbox(&self, credential_id: &str) -> Vec<OutgoingTap> {
-        self.outboxes
-            .lock()
-            .unwrap()
-            .get(credential_id)
-            .cloned()
-            .unwrap_or_default()
-    }
-    fn save_outbox(&self, outbox: &[OutgoingTap], credential_id: &str) {
-        self.outboxes
-            .lock()
-            .unwrap()
-            .insert(credential_id.into(), outbox.to_vec());
-    }
-}
 
 fn pairing(id: &str, color: Option<PersonColor>) -> SenderPairing {
     SenderPairing {
@@ -71,6 +22,7 @@ fn pairing(id: &str, color: Option<PersonColor>) -> SenderPairing {
         sender_name: "Rosa".into(),
         color,
         paired_at: 1.0,
+        account_id: None,
     }
 }
 
@@ -104,91 +56,84 @@ fn request_ids_fit_the_contract() {
     assert_ne!(id, new_request_id());
 }
 
+/// A key as `/account/sync` and `/account/accept` hand it out.
+fn synced(grant: &str) -> SyncedSender {
+    serde_json::from_str(&format!(
+        r#"{{"id":"inbox123:s1","grant":{grant},"name":"Rosa","color":"plum"}}"#
+    ))
+    .unwrap()
+}
+
 #[test]
-fn pairing_sends_name_and_color_and_keeps_the_credential() {
+fn a_key_from_the_account_is_kept_and_connected() {
     let persistence = MemorySenderPersistence::default();
-    let stub = Stub::new(|seen| match seen.path.as_str() {
-        "/v1/invites/redeem" => (201, SENDER_GRANT.into()),
-        _ => (503, String::new()),
-    });
+    let stub = Stub::new(|_| (503, String::new()));
     let store = make_store(&persistence, &stub);
-    let id = store
-        .pair(&format!("shouldertap://join#{CODE}"), "  Rosa ", PersonColor::Plum)
-        .unwrap();
-    // A sender names no platform: that's for devices joining.
-    assert_eq!(
-        stub.body_for("/v1/invites/redeem").unwrap(),
-        serde_json::json!({"code": CODE, "name": "Rosa", "color": "plum"})
-    );
+    let id = store.add(&synced(SENDER_GRANT)).unwrap();
     assert_eq!(id, "s1");
-    let state = store.state();
-    assert_eq!(state.sessions.len(), 1);
-    assert_eq!(state.sessions[0].pairing.recipient_name, "Jamie");
-    assert_eq!(state.sessions[0].color(), PersonColor::Plum);
+    let pairing = session(&store).pairing;
+    assert_eq!(pairing.recipient_name, "Jamie");
+    assert_eq!(pairing.sender_name, "Rosa");
+    assert_eq!(pairing.color, Some(PersonColor::Plum));
+    assert_eq!(pairing.account_id.as_deref(), Some("inbox123:s1"));
     let saved: Vec<String> = persistence.load_pairings().into_iter().map(|p| p.token).collect();
     assert_eq!(saved, ["inbox123.s1s1s1s1.secret5678"]);
+    assert_eq!(store.tokens(), ["inbox123.s1s1s1s1.secret5678"]);
+    // It connects like a saved pairing: a ticket for its socket.
+    assert!(eventually(|| stub.count("/v1/connect-tickets") >= 1));
 }
 
 #[test]
-fn device_codes_are_refused() {
+fn a_device_key_is_not_a_person_to_tap() {
     let persistence = MemorySenderPersistence::default();
-    let stub = Stub::new(|_| {
-        (
-            201,
-            r#"{"kind":"device","credentialId":"d1","token":"inbox123.d1d1d1d1.secret5678","recipientName":"Jamie"}"#
-                .into(),
-        )
-    });
-    let store = make_store(&persistence, &stub);
-    let error = store.pair(CODE, "Rosa", PersonColor::Moss).unwrap_err();
-    assert_eq!(
-        error.message,
-        "That code links one of your own devices, not someone to tap. Paste it where you set up this device."
-    );
+    let store = make_store(&persistence, &Stub::new(|_| (503, String::new())));
+    let device =
+        r#"{"kind":"device","credentialId":"d1","token":"inbox123.d1d1d1d1.secret5678","recipientName":"Jamie"}"#;
+    let error = store.add(&synced(device)).unwrap_err();
+    assert_eq!(error.message, "That isn't a key to tap someone.");
     assert_eq!(persistence.load_pairings(), []);
-    assert_eq!(store.state().sessions, []);
 }
 
 #[test]
-fn bad_links_and_names_are_refused_before_the_server() {
-    let stub = Stub::new(|_| (201, SENDER_GRANT.into()));
-    let store = make_store(&MemorySenderPersistence::default(), &stub);
-    assert_eq!(
-        store
-            .pair("https://shouldertap.app/join", "Rosa", PersonColor::Moss)
-            .unwrap_err()
-            .message,
-        "That doesn't look like a Shouldertap invite link."
-    );
-    assert_eq!(
-        store.pair(CODE, "   ", PersonColor::Moss).unwrap_err().message,
-        "Enter your name (up to 40 characters)."
-    );
-    assert_eq!(stub.count("/v1/invites/redeem"), 0);
+fn a_new_key_for_the_same_person_replaces_the_old_one_and_keeps_unsent_taps() {
+    let persistence = MemorySenderPersistence::with(vec![pairing("s1", Some(PersonColor::Rose))]);
+    let unsent = OutgoingTap {
+        request_id: "r1".into(),
+        body: "Hi".into(),
+        created_at: 1.0,
+        failed: true,
+        error: Some("Nope".into()),
+    };
+    persistence.save_outbox(std::slice::from_ref(&unsent), "s1");
+    let store = make_store(&persistence, &Stub::new(|_| (503, String::new())));
+    store.start();
+    store.add(&synced(SENDER_GRANT)).unwrap();
+    let state = store.state();
+    let tokens: Vec<&str> = state.sessions.iter().map(|s| s.pairing.token.as_str()).collect();
+    assert_eq!(tokens, ["inbox123.s1s1s1s1.secret5678"]);
+    assert_eq!(state.sessions[0].outbox, [unsent]);
 }
 
 #[test]
-fn pairing_the_same_recipient_again_replaces_it() {
-    let persistence = MemorySenderPersistence::with(vec![pairing("old0old0", Some(PersonColor::Rose))]);
-    let stub = Stub::new(|seen| match (seen.method, seen.path.as_str()) {
-        ("POST", "/v1/invites/redeem") => (201, SENDER_GRANT.into()),
-        ("DELETE", _) => (200, r#"{"revoked":true}"#.into()),
-        _ => (503, String::new()),
-    });
+fn forgetting_tokens_drops_only_their_pairings() {
+    let persistence = MemorySenderPersistence::with(vec![
+        pairing("aaaaaaaa", Some(PersonColor::Rose)),
+        pairing("bbbbbbbb", Some(PersonColor::Moss)),
+    ]);
+    let stub = Stub::new(|_| (503, String::new()));
     let store = make_store(&persistence, &stub);
     store.start();
-    assert_eq!(session(&store).id(), "old0old0");
-    store.pair(CODE, "Rosa", PersonColor::Rose).unwrap();
+    store.forget_tokens(&["inbox123.aaaaaaaa.secret5678".to_string()]);
     let ids: Vec<String> = store.state().sessions.iter().map(|s| s.id().to_string()).collect();
-    assert_eq!(ids, ["s1"]);
+    assert_eq!(ids, ["bbbbbbbb"]);
     let saved: Vec<String> = persistence
         .load_pairings()
         .into_iter()
         .map(|p| p.credential_id)
         .collect();
-    assert_eq!(saved, ["s1"]);
-    // The old key is revoked, so the recipient doesn't list them twice.
-    assert!(eventually(|| stub.count("/v1/credentials/old0old0") == 1));
+    assert_eq!(saved, ["bbbbbbbb"]);
+    // Gone already: nothing to revoke.
+    assert_eq!(stub.count("/v1/credentials/aaaaaaaa"), 0);
 }
 
 #[test]

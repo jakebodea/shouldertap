@@ -23,8 +23,8 @@ use windows::Win32::Security::Credentials::{
     CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree, CredReadW, CredWriteW,
 };
 use windows::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, REG_SZ, RRF_RT_REG_BINARY, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY,
-    RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
+    HKEY, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_BINARY, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY, RegDeleteKeyValueW,
+    RegGetValueW, RegSetKeyValueW,
 };
 use windows::Win32::System::SystemInformation::{
     COMPUTER_NAME_FORMAT, ComputerNamePhysicalDnsHostname, GetComputerNameExW,
@@ -195,16 +195,6 @@ fn computer_name(format: COMPUTER_NAME_FORMAT) -> Option<String> {
         GetComputerNameExW(format, Some(PWSTR(buffer.as_mut_ptr())), &mut length).ok()?;
         Some(String::from_utf16_lossy(&buffer[..length as usize]))
     }
-}
-
-/// This PC's MachineGuid, for its one free trial. It never leaves the PC;
-/// only its salted hash does.
-pub fn hardware_id() -> Option<String> {
-    read_string(
-        HKEY_LOCAL_MACHINE,
-        w!("SOFTWARE\\Microsoft\\Cryptography"),
-        w!("MachineGuid"),
-    )
 }
 
 // Open at login
@@ -459,6 +449,14 @@ pub fn vault() -> Option<Box<dyn CredentialVault>> {
     Some(Box::new(CredentialManager {
         target: HSTRING::from(format!("{}/credential", config::APP_ID)),
     }))
+}
+
+/// The account session (docs/onboarding.md), apart from the messaging
+/// credentials: signing out never unpairs this PC.
+pub fn account_vault() -> Box<dyn CredentialVault> {
+    Box::new(CredentialManager {
+        target: HSTRING::from(format!("{}/account", config::APP_ID)),
+    })
 }
 
 /// Each sender pairing's token, one generic credential per pairing

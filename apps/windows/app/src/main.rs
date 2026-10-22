@@ -21,6 +21,7 @@ mod text_field;
 mod theme;
 mod themes;
 mod updates;
+mod welcome;
 
 use std::borrow::Cow;
 

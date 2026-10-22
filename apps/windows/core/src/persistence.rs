@@ -19,6 +19,35 @@ pub trait CredentialVault: Send + Sync {
     fn delete(&self);
 }
 
+/// A secret in one owner-only file, where there's no safer vault (developing
+/// on a Mac). Windows keeps secrets in Credential Manager instead.
+pub struct FileVault {
+    path: PathBuf,
+}
+
+impl FileVault {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl CredentialVault for FileVault {
+    fn read(&self) -> Option<String> {
+        let secret = fs::read_to_string(&self.path).ok()?;
+        let secret = secret.trim();
+        (!secret.is_empty()).then(|| secret.to_string())
+    }
+
+    fn write(&self, token: &str) -> Result<(), String> {
+        let directory = self.path.parent().map(Path::to_path_buf).unwrap_or_default();
+        write_file(&directory, &self.path, token.as_bytes())
+    }
+
+    fn delete(&self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 pub struct LocalPersistence {
     directory: PathBuf,
     vault: Option<Box<dyn CredentialVault>>,

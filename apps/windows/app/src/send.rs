@@ -1,8 +1,8 @@
 //! The Send window: tap the people this PC can tap, like apps/ios's
-//! ComposeView and PairFlow (apps/web's tap.tsx and join.tsx). The sender's
-//! color frames it (docs/design.md, "Sender (Mac and Windows)"): people as
-//! chips on the frame's top edge with Add someone beside them, and the
-//! composer or the pairing form on the paper page.
+//! ComposeView (apps/web's tap.tsx). The sender's color frames it
+//! (docs/design.md, "Sender (Mac and Windows)"): people as chips on the
+//! frame's top edge with Add someone beside them, and the composer or
+//! accepting an invite (docs/onboarding.md) on the paper page.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -12,14 +12,15 @@ use gpui::{
     Subscription, Window, div, prelude::*, px, svg,
 };
 use shouldertap_core::{
-    ApiError, LiveStatus, MAX_NAME_LENGTH, MAX_TAP_LENGTH, OutgoingTap, PersonColor, ResponseKind, SenderSession,
-    SenderState, SenderStore, Tap, TapState, Timestamp, invite_code, now_ms,
+    AccountStore, ApiError, InvitePreview, LiveStatus, MAX_TAP_LENGTH, OutgoingTap, PersonColor, ResponseKind,
+    SenderSession, SenderState, SenderStore, Tap, TapState, Timestamp, invite_code, now_ms, token_inbox_id,
 };
 
 use crate::assets::{Icon, MARK_PATH};
 use crate::shell::{Model, Shell};
 use crate::text_field::{TextField, TextFieldEvent};
 use crate::theme::{self, BRICOLAGE, paper};
+use crate::welcome::WelcomeStep;
 
 /// What the window opens on.
 #[derive(Clone, Debug, PartialEq)]
@@ -30,7 +31,7 @@ pub enum SendTarget {
 
 #[derive(Clone, Debug, PartialEq)]
 enum Confirm {
-    Unpair,
+    Remove,
     DeleteData,
     Tap(String),
 }
@@ -39,7 +40,6 @@ enum Confirm {
 enum Focus {
     Composer,
     Invite,
-    Name,
 }
 
 /// The countdown appears this close to the limit.
@@ -54,12 +54,14 @@ pub struct SendView {
     /// Unsent drafts by person, while the window is open.
     drafts: HashMap<String, String>,
     send_error: Option<String>,
-    // Pairing
+    // Accepting an invite
     invite: Entity<TextField>,
-    name: Entity<TextField>,
-    color: PersonColor,
-    pairing: bool,
-    pair_error: Option<String>,
+    accepting: bool,
+    accept_error: Option<String>,
+    /// Who sent the pasted invite: its code, then the server's answer.
+    preview: Option<(String, Option<InvitePreview>)>,
+    /// "You and Sam are connected", once accepted.
+    connected: Option<String>,
     // Options and deleting
     confirming: Option<Confirm>,
     busy: bool,
@@ -81,7 +83,6 @@ impl SendView {
                 .colors(paper::tone(), paper::ink())
         });
         let invite = field(cx, "Paste the invite link they sent you", 512);
-        let name = field(cx, "e.g. Sam", MAX_NAME_LENGTH);
         let subscriptions = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
             cx.subscribe(&composer, |this, _, event, cx| match event {
@@ -93,16 +94,8 @@ impl SendView {
                 TextFieldEvent::Cancel => {}
             }),
             cx.subscribe(&invite, |this, _, event, cx| match event {
-                TextFieldEvent::Submit => {
-                    this.pending_focus = Some(Focus::Name);
-                    cx.notify();
-                }
-                TextFieldEvent::Changed => cx.notify(),
-                TextFieldEvent::Cancel => this.cancel_adding(cx),
-            }),
-            cx.subscribe(&name, |this, _, event, cx| match event {
-                TextFieldEvent::Submit => this.pair(cx),
-                TextFieldEvent::Changed => cx.notify(),
+                TextFieldEvent::Submit => this.accept(cx),
+                TextFieldEvent::Changed => this.invite_changed(cx),
                 TextFieldEvent::Cancel => this.cancel_adding(cx),
             }),
         ];
@@ -124,10 +117,10 @@ impl SendView {
             drafts: HashMap::new(),
             send_error: None,
             invite,
-            name,
-            color: PersonColor::Cobalt,
-            pairing: false,
-            pair_error: None,
+            accepting: false,
+            accept_error: None,
+            preview: None,
+            connected: None,
             confirming: None,
             busy: false,
             action_error: None,
@@ -141,6 +134,17 @@ impl SendView {
 
     fn senders(&self, cx: &App) -> SenderStore {
         self.model.read(cx).senders.clone()
+    }
+
+    fn account(&self, cx: &App) -> AccountStore {
+        self.model.read(cx).account.clone()
+    }
+
+    /// Your own color (picked once, on the account), framing the window
+    /// while there's no one to tap.
+    fn own_color(&self, cx: &App) -> PersonColor {
+        let state = &self.model.read(cx).account_state;
+        state.profile().map_or(PersonColor::Cobalt, |profile| profile.color)
     }
 
     pub fn show(&mut self, target: SendTarget, cx: &mut Context<Self>) {
@@ -176,6 +180,9 @@ impl SendView {
         self.composer.update(cx, |field, cx| field.set_text(&draft, cx));
         // One GET: the history is current even if a live event was missed.
         self.senders(cx).refresh(&id);
+        if self.selected.as_ref() != Some(&id) {
+            self.connected = None;
+        }
         self.selected = Some(id);
         self.adding = false;
         self.send_error = None;
@@ -189,17 +196,6 @@ impl SendView {
         if !self.adding {
             self.save_draft(cx);
         }
-        let state = self.model.read(cx).sender_state.clone();
-        // Pairing with another person reuses the name and color of the last.
-        if let Some(last) = state.sessions.last() {
-            if self.name.read(cx).text().is_empty() {
-                let name = last.pairing.sender_name.clone();
-                self.name.update(cx, |field, cx| field.set_text(&name, cx));
-            }
-            if !self.adding {
-                self.color = last.color();
-            }
-        }
         // An invite link on the clipboard is almost certainly why they're here.
         if self.invite.read(cx).text().is_empty()
             && let Some(code) = cx
@@ -210,13 +206,10 @@ impl SendView {
             self.invite.update(cx, |field, cx| field.set_text(code.trim(), cx));
         }
         self.adding = true;
-        self.pair_error = None;
+        self.accept_error = None;
         self.confirming = None;
-        self.pending_focus = Some(if self.invite.read(cx).text().is_empty() {
-            Focus::Invite
-        } else {
-            Focus::Name
-        });
+        self.pending_focus = Some(Focus::Invite);
+        self.invite_changed(cx);
         cx.notify();
     }
 
@@ -225,7 +218,7 @@ impl SendView {
             return;
         }
         self.adding = false;
-        self.pair_error = None;
+        self.accept_error = None;
         let state = self.model.read(cx).sender_state.clone();
         if let Some(session) = self.current(&state) {
             let draft = self.drafts.get(session.id()).cloned().unwrap_or_default();
@@ -288,37 +281,100 @@ impl SendView {
         );
     }
 
-    // Pairing
+    // Accepting an invite
 
-    fn pair(&mut self, cx: &mut Context<Self>) {
-        let invite = self.invite.read(cx).text().trim().to_string();
-        let name = self.name.read(cx).text().trim().to_string();
-        if invite.is_empty() || name.is_empty() || self.pairing {
+    /// Looks up who sent a pasted invite, once per code.
+    fn invite_changed(&mut self, cx: &mut Context<Self>) {
+        self.accept_error = None;
+        let code = invite_code(self.invite.read(cx).text());
+        if code.as_deref() == self.preview.as_ref().map(|(code, _)| code.as_str()) {
+            cx.notify();
             return;
         }
-        let color = self.color;
-        self.pairing = true;
-        self.pair_error = None;
-        self.run(
-            cx,
-            move |senders| senders.pair(&invite, &name, color),
-            |this, result, cx| {
-                this.pairing = false;
-                match result {
-                    Ok(id) => {
-                        this.invite.update(cx, |field, cx| field.clear(cx));
-                        this.adding = false;
-                        this.select(id, cx);
-                    }
-                    Err(error) => this.pair_error = Some(error.to_string()),
+        self.preview = code.clone().map(|code| (code, None));
+        cx.notify();
+        let Some(code) = code else { return };
+        let account = self.account(cx);
+        let task = cx.background_executor().spawn({
+            let code = code.clone();
+            async move { account.preview(&code) }
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some((current, preview)) = &mut this.preview
+                    && *current == code
+                {
+                    *preview = result.ok();
+                    cx.notify();
                 }
-            },
-        );
+            });
+        })
+        .detach();
     }
 
-    fn unpair(&mut self, id: String, cx: &mut Context<Self>) {
-        self.senders(cx).unpair(&id);
-        self.after_removing(&id, cx);
+    fn accept(&mut self, cx: &mut Context<Self>) {
+        let invite = self.invite.read(cx).text().trim().to_string();
+        if invite.is_empty() || self.accepting || !self.model.read(cx).account_state.signed_in {
+            return;
+        }
+        self.accepting = true;
+        self.accept_error = None;
+        let account = self.account(cx);
+        let task = cx.background_executor().spawn(async move { account.accept(&invite) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.accepting = false;
+                let accepted = match result {
+                    Ok(accepted) => accepted,
+                    Err(error) => {
+                        this.accept_error = Some(error.to_string());
+                        cx.notify();
+                        return;
+                    }
+                };
+                let code = invite_code(this.invite.read(cx).text());
+                let message = format!("You and {} are connected.", accepted.person.name);
+                // Already connected: the key this PC has, or sync brings one.
+                let id = accepted.sender.map(|sender| sender.grant.credential_id).or_else(|| {
+                    let inbox = code.as_deref().and_then(token_inbox_id)?;
+                    this.senders(cx).session_for_inbox(inbox)
+                });
+                this.invite.update(cx, |field, cx| field.clear(cx));
+                this.preview = None;
+                match id {
+                    Some(id) => this.select(id, cx),
+                    None => this.account(cx).sync_in_background(),
+                }
+                this.connected = Some(message);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Stops tapping them from every device on the account (or just this PC,
+    /// signed out). Stays open with the error, to try again.
+    fn remove(&mut self, id: String, cx: &mut Context<Self>) {
+        self.busy = true;
+        self.action_error = None;
+        let account = self.account(cx);
+        let target = id.clone();
+        let task = cx.background_executor().spawn(async move { account.remove(&target) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = false;
+                match result {
+                    Ok(()) => this.after_removing(&id, cx),
+                    Err(error) => this.action_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     fn delete_data(&mut self, id: String, cx: &mut Context<Self>) {
@@ -363,16 +419,18 @@ impl Render for SendView {
             let field = match focus {
                 Focus::Composer => &self.composer,
                 Focus::Invite => &self.invite,
-                Focus::Name => &self.name,
             };
             window.focus(&field.focus_handle(cx));
         }
         let state = self.model.read(cx).sender_state.clone();
         let current = self.current(&state);
-        let frame = current.as_ref().map(SenderSession::color).unwrap_or(self.color);
+        let frame = current
+            .as_ref()
+            .map(SenderSession::color)
+            .unwrap_or_else(|| self.own_color(cx));
         let page: Vec<AnyElement> = match &current {
             Some(session) => self.composer_page(session, &state, cx),
-            None => self.pair_page(&state, cx),
+            None => self.accept_page(&state, frame, cx),
         };
         div()
             .id("send")
@@ -500,6 +558,9 @@ impl SendView {
         if let Some(notice) = state.notice.clone() {
             page.insert(0, self.notice(notice, cx));
         }
+        if let Some(connected) = self.connected.clone() {
+            page.insert(0, self.connected_banner(connected, cx));
+        }
 
         let focus = self.composer.focus_handle(cx);
         let field = div()
@@ -567,6 +628,31 @@ impl SendView {
             .child(
                 pill("notice-ok", "OK", None, None, false).on_click(cx.listener(|this, _, _, cx| {
                     this.senders(cx).clear_notice();
+                })),
+            )
+            .into_any_element()
+    }
+
+    fn connected_banner(&mut self, message: String, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .px(px(14.))
+            .py(px(10.))
+            .rounded(px(16.))
+            .bg(paper::faint())
+            .child(
+                div()
+                    .flex_1()
+                    .font_weight(FontWeight::BOLD)
+                    .text_size(px(14.))
+                    .child(message),
+            )
+            .child(
+                pill("connected-ok", "OK", None, None, false).on_click(cx.listener(|this, _, _, cx| {
+                    this.connected = None;
+                    cx.notify();
                 })),
             )
             .into_any_element()
@@ -736,10 +822,10 @@ impl SendView {
             .flex_wrap()
             .gap(px(8.))
             .child(
-                pill("unpair", &format!("Unpair {recipient}"), None, None, false).on_click(cx.listener(
+                pill("remove", &format!("Remove {recipient}"), None, None, false).on_click(cx.listener(
                     |this, _, _, cx| {
                         this.action_error = None;
-                        this.confirming = Some(Confirm::Unpair);
+                        this.confirming = Some(Confirm::Remove);
                         cx.notify();
                     },
                 )),
@@ -752,16 +838,16 @@ impl SendView {
                 })),
             );
         let confirmation = match self.confirming {
-            Some(Confirm::Unpair) => Some(self.confirmation(
+            Some(Confirm::Remove) => Some(self.confirmation(
                 &format!("Stop tapping {recipient}?"),
-                format!("Your taps stop reaching {recipient}'s devices. To pair again, you'll need a new invite."),
-                "Unpair",
-                move |this, cx| this.unpair(id.clone(), cx),
+                format!("You stop tapping {recipient} from all your devices. They can still tap you. To connect again, you'll need a new invite."),
+                "Remove",
+                move |this, cx| this.remove(id.clone(), cx),
                 cx,
             )),
             Some(Confirm::DeleteData) => Some(self.confirmation(
                 "Delete your data?",
-                format!("Removes you and every tap you sent from {recipient}'s inbox, then unpairs this PC."),
+                format!("Removes you and every tap you sent from {recipient}'s inbox, then removes them here."),
                 "Delete",
                 move |this, cx| this.delete_data(id.clone(), cx),
                 cx,
@@ -823,98 +909,80 @@ impl SendView {
     }
 }
 
-// Pairing
+// Accepting an invite
 
 impl SendView {
-    fn pair_page(&mut self, state: &SenderState, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let name = self.name.read(cx).text().trim().to_string();
-        let ready = !self.invite.read(cx).text().trim().is_empty() && !name.is_empty() && !self.pairing;
+    /// Paste an invite link, see who sent it, accept. Your name and color
+    /// come from your account, so there's nothing else to fill in.
+    fn accept_page(&mut self, state: &SenderState, frame: PersonColor, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let account = self.model.read(cx).account_state.clone();
         let first = state.sessions.is_empty();
         let mut page: Vec<AnyElement> = Vec::new();
         if let Some(notice) = state.notice.clone() {
             page.push(self.notice(notice, cx));
         }
-        page.push(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .child(
-                    div()
-                        .font_weight(FontWeight::EXTRA_BOLD)
-                        .text_size(px(30.))
-                        .line_height(px(32.))
-                        .child(if first { "Tap someone" } else { "Add someone" }),
+        if let Some(connected) = self.connected.clone() {
+            page.push(self.connected_banner(connected, cx));
+        }
+        let title = if first { "Tap someone" } else { "Add someone" };
+        if !account.signed_in || account.needs_profile() {
+            let (body, label, step) = if account.signed_in {
+                (
+                    "Pick your name and color first: they frame every tap you send.",
+                    "Finish setting up",
+                    WelcomeStep::You,
                 )
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .text_color(paper::tone())
-                        .child("Paste the invite link they sent you, then choose how your taps look on their screens."),
+            } else {
+                (
+                    "Sign in to accept invites. The people you connect with follow you to every device.",
+                    "Sign in",
+                    WelcomeStep::Email,
                 )
-                .into_any_element(),
-        );
-        page.push(labeled("Invite link", input(&self.invite, cx)));
-        page.push(labeled("Your name", input(&self.name, cx)));
+            };
+            page.push(page_heading(title, body));
+            page.push(
+                pill("sign-in", label, None, Some(frame), false)
+                    .w_full()
+                    .on_click(move |_, _, cx| Shell::open_welcome(step, cx))
+                    .into_any_element(),
+            );
+            return page;
+        }
 
-        let swatches = PersonColor::ALL.map(|option| {
-            let selected = option == self.color;
-            div()
-                .id(SharedString::from(format!("color-{}", option.swatch().label)))
-                .flex_1()
-                .h(px(48.))
-                .p(px(3.))
-                .rounded_full()
-                .border_2()
-                .border_color(if selected {
-                    paper::ink().into()
-                } else {
-                    gpui::transparent_black()
-                })
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.color = option;
-                    cx.notify();
-                }))
-                .child(
-                    div()
-                        .size_full()
-                        .rounded_full()
-                        .bg(theme::base(option))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .when(selected, |swatch| {
-                            swatch.child(
-                                svg()
-                                    .path(Icon::OnIt.path())
-                                    .size(px(20.))
-                                    .text_color(theme::ink(option)),
-                            )
-                        }),
-                )
-        });
-        let [a, b, c, d, e, f, g, h] = swatches;
-        page.push(labeled(
-            "Your color",
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(10.))
-                .child(div().flex().gap(px(10.)).child(a).child(b).child(c).child(d))
-                .child(div().flex().gap(px(10.)).child(e).child(f).child(g).child(h))
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .text_color(paper::tone())
-                        .child("Frames your taps on their screen, so they know it's you from across the room."),
-                )
-                .into_any_element(),
+        page.push(page_heading(
+            title,
+            "Got a link? Paste the invite they sent you. You'll be connected both ways.",
         ));
-        page.push(preview(if name.is_empty() { "You" } else { &name }, self.color).into_any_element());
-        if let Some(error) = self.pair_error.clone() {
+        page.push(labeled("Invite link", input(&self.invite, cx)));
+        let code = invite_code(self.invite.read(cx).text());
+        match self.preview.clone() {
+            Some((_, Some(preview))) => {
+                let color = preview.color.unwrap_or(frame);
+                page.push(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(10.))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::BOLD)
+                                .text_size(px(17.))
+                                .child(format!("{} invited you to Shouldertap", preview.name)),
+                        )
+                        .child(preview_frame(&preview.name, color))
+                        .into_any_element(),
+                );
+            }
+            Some((_, None)) => page.push(tone_text("Looking up the invite…").into_any_element()),
+            None if !self.invite.read(cx).text().trim().is_empty() => {
+                page.push(danger_text("That doesn't look like a Shouldertap invite link.".into()).into_any_element())
+            }
+            None => {}
+        }
+        if let Some(error) = self.accept_error.clone() {
             page.push(danger_text(error).into_any_element());
         }
+        let ready = code.is_some() && !self.accepting;
         page.push(
             div()
                 .flex()
@@ -922,18 +990,20 @@ impl SendView {
                 .gap(px(8.))
                 .child(
                     pill(
-                        "pair",
-                        if self.pairing { "Pairing…" } else { "Pair" },
+                        "accept",
+                        if self.accepting { "Accepting…" } else { "Accept" },
                         None,
-                        Some(self.color),
+                        Some(frame),
                         !ready,
                     )
                     .w_full()
-                    .when(ready, |pill| pill.on_click(cx.listener(|this, _, _, cx| this.pair(cx)))),
+                    .when(ready, |pill| {
+                        pill.on_click(cx.listener(|this, _, _, cx| this.accept(cx)))
+                    }),
                 )
                 .when(!first, |el| {
                     el.child(
-                        pill("cancel-pair", "Cancel", None, None, false)
+                        pill("cancel-accept", "Cancel", None, None, false)
                             .w_full()
                             .on_click(cx.listener(|this, _, _, cx| this.cancel_adding(cx))),
                     )
@@ -950,7 +1020,31 @@ fn danger() -> Hsla {
     gpui::rgb(0xc42b1c).into()
 }
 
-fn danger_text(text: String) -> impl IntoElement {
+/// A page's title and what to do, in tone.
+pub(crate) fn page_heading(title: &str, body: &str) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .child(
+            div()
+                .font_weight(FontWeight::EXTRA_BOLD)
+                .text_size(px(30.))
+                .line_height(px(32.))
+                .child(title.to_string()),
+        )
+        .child(tone_text(body))
+        .into_any_element()
+}
+
+pub(crate) fn tone_text(text: &str) -> gpui::Div {
+    div()
+        .text_size(px(14.))
+        .text_color(paper::tone())
+        .child(text.to_string())
+}
+
+pub(crate) fn danger_text(text: String) -> impl IntoElement {
     div().text_size(px(14.)).text_color(danger()).child(text)
 }
 
@@ -963,7 +1057,7 @@ fn heading(text: &str) -> impl IntoElement {
         .child(text.to_string())
 }
 
-fn labeled(label: &str, content: impl IntoElement) -> AnyElement {
+pub(crate) fn labeled(label: &str, content: impl IntoElement) -> AnyElement {
     div()
         .flex()
         .flex_col()
@@ -979,7 +1073,7 @@ fn labeled(label: &str, content: impl IntoElement) -> AnyElement {
 }
 
 /// A field: `faint` fill, radius 18, no border (docs/design.md).
-fn input(field: &Entity<TextField>, cx: &App) -> AnyElement {
+pub(crate) fn input(field: &Entity<TextField>, cx: &App) -> AnyElement {
     let focus = field.focus_handle(cx);
     div()
         .w_full()
@@ -1016,7 +1110,7 @@ fn message(body: &str) -> gpui::Div {
 
 /// Every action is a pill: filled in a person's color with their ink, or a
 /// 1.5px `line` outline with ink text (docs/design.md, "Pills").
-fn pill(
+pub(crate) fn pill(
     id: impl Into<SharedString>,
     title: &str,
     icon: Option<Icon>,
@@ -1204,8 +1298,8 @@ fn answer_card(
         )
 }
 
-/// How your taps look on their screen: your name on your color's frame.
-fn preview(name: &str, color: PersonColor) -> impl IntoElement {
+/// How taps look on screen: the sender's name on their color's frame.
+pub(crate) fn preview_frame(name: &str, color: PersonColor) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
@@ -1320,6 +1414,7 @@ mod tests {
                 sender_name: "Rosa".into(),
                 color: Some(PersonColor::Rose),
                 paired_at: 1.0,
+                account_id: None,
             },
             taps,
             outbox,
