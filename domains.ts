@@ -22,3 +22,6 @@ export const isProduction = (stage: string) => stage === "prod";
 
 /** Always the newest Mac build; scripts/release-mac.sh overwrites it. */
 export const macDownloadUrl = `https://${domains.downloads}/Shouldertap.dmg`;
+
+/** Always the newest Windows installer; scripts/release-windows.sh overwrites it. */
+export const windowsDownloadUrl = `https://${domains.downloads}/windows/Shouldertap-Setup.exe`;

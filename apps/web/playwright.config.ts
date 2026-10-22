@@ -19,6 +19,8 @@ export default defineConfig({
       command: "bun run build && bun run serve --host 127.0.0.1 --port 4173",
       env: {
         VITE_MAC_DOWNLOAD_URL: "http://127.0.0.1:4174/Shouldertap.dmg",
+        VITE_WINDOWS_DOWNLOAD_URL:
+          "http://127.0.0.1:4174/windows/Shouldertap-Setup.exe",
       },
       url: "http://127.0.0.1:4173",
       reuseExistingServer: !process.env.CI,
