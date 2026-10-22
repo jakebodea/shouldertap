@@ -2,18 +2,14 @@ import CoreImage.CIFilterBuiltins
 import ShouldertapCore
 import SwiftUI
 
-// Your own Shouldertap, on this iPhone: the Inbox tab. Linked to the inbox
-// with a device code from the Mac (`ReceiverStore`, `platform: .iphone`), the
-// phone gets your taps too (Receiving.swift) and manages the inbox like the
-// Mac menu does: invite people, remove them, see your devices and what has
-// come in.
+// Your own Shouldertap, on this iPhone: the Inbox tab. Signing in gives the
+// phone a credential for your inbox (`AccountStore.sync`), so it gets your
+// taps too (Receiving.swift) and manages the inbox like the Mac menu does:
+// invite people, remove them, see your devices and what has come in.
 
-/// What screens elsewhere can ask the root for: open your inbox, link this
-/// iPhone, note that an unlink is this phone's own doing, or open Account.
+/// What screens elsewhere can ask the root for: open your inbox, or open Account.
 struct InboxActions {
   var open: () -> Void = {}
-  var link: () -> Void = {}
-  var unlinking: () -> Void = {}
   var account: () -> Void = {}
 }
 
@@ -23,25 +19,6 @@ extension EnvironmentValues {
 
 /// Your inbox's frame: graphite, so it never reads as someone you tap.
 let inboxColor = PersonColor.graphite
-
-/// The device code inside whatever was scanned or pasted: the Mac's
-/// `shouldertap://link#<code>` QR, or the bare code. Invite links to tap
-/// someone (`/join`) are refused: redeeming one here would use it up.
-func linkCode(from input: String) -> String? {
-  let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-  if let url = URL(string: trimmed), url.scheme != nil {
-    guard url.host() == "link" || url.path() == "/link" else { return nil }
-  }
-  return inviteCode(from: trimmed)
-}
-
-/// True for links meant for tapping someone, so the link screen can say so.
-private func isSenderInvite(_ input: String) -> Bool {
-  guard let url = URL(string: input.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme != nil else {
-    return false
-  }
-  return url.host() == "join" || url.path() == "/join"
-}
 
 // MARK: The inbox
 
@@ -77,7 +54,7 @@ struct InboxScreen: View {
             .buttonStyle(QuietStyle())
           }
         }
-        InviteCard(inbox: inbox)
+        InviteCard(inbox: inbox, color: inboxColor)
         recent
         people
         devices
@@ -92,7 +69,7 @@ struct InboxScreen: View {
       titleVisibility: .visible,
       presenting: removing
     ) { credential in
-      Button(isSelf(credential) ? "Unlink" : "Remove", role: .destructive) { remove(credential) }
+      Button("Remove", role: .destructive) { remove(credential) }
     } message: { credential in
       Text(removeMessage(credential))
     }
@@ -154,16 +131,9 @@ struct InboxScreen: View {
   private var accountRow: some View {
     InboxSection(title: "Account") {
       VStack(alignment: .leading, spacing: 8) {
-        if Stores.account.signedIn {
-          Muted(Stores.account.email.map { "Signed in as \($0)." } ?? "Signed in.")
-          Button("Manage account", action: actions.account)
-            .buttonStyle(PillStyle(small: true))
-        } else {
-          Muted("Keep this inbox if you change phones.")
-          Button("Sign in with email", action: actions.account)
-            .buttonStyle(PillStyle(small: true))
-            .accessibilityIdentifier("inbox-account")
-        }
+        Muted(Stores.account.email.map { "Signed in as \($0)." } ?? "Signed in.")
+        Button("Manage account", action: actions.account)
+          .buttonStyle(PillStyle(small: true))
       }
       .padding(.top, 4)
     }
@@ -187,7 +157,7 @@ struct InboxScreen: View {
       ForEach(inbox.credentials.filter { $0.kind == .device }) { credential in
         CredentialRow(credential: credential, isSelf: isSelf(credential)) { removing = credential }
       }
-      AddMac(inbox: inbox)
+      Muted("Sign in on another iPhone, Mac or PC to get your taps there too.")
     }
   }
 
@@ -223,21 +193,17 @@ struct InboxScreen: View {
   private func isSelf(_ credential: Credential) -> Bool { credential.id == inbox.credentialId }
 
   private func removeTitle(_ credential: Credential) -> String {
-    isSelf(credential) ? "Unlink this iPhone?" : "Remove \(credential.name)?"
+    "Remove \(credential.name)?"
   }
 
   private func removeMessage(_ credential: Credential) -> String {
-    if isSelf(credential) {
-      return "It stops receiving taps for \(inbox.recipientName.isEmpty ? "your" : "\(inbox.recipientName)'s") Shouldertap. Other linked devices keep getting taps. You need a code from another linked device to return. If this is your last device, you will lose access to this inbox."
-    }
     if credential.kind == .sender {
       return "Their taps stop reaching you. To tap you again, they'll need a new invite."
     }
-    return "Taps stop reaching it. To add it back, you'll need a new device code."
+    return "Taps stop reaching it until you sign in on it again."
   }
 
   private func remove(_ credential: Credential) {
-    if isSelf(credential) { actions.unlinking() }
     Task {
       do {
         try await inbox.revoke(credentialId: credential.id)
@@ -252,8 +218,9 @@ struct InboxScreen: View {
 
 /// Invite someone: a QR code to scan in person, or the link to send. Each
 /// works once and lasts 7 days, like the Mac's.
-private struct InviteCard: View {
+struct InviteCard: View {
   let inbox: ReceiverStore
+  let color: PersonColor
   @State private var invite: SenderInvite?
   @State private var pending = false
   @State private var copied = false
@@ -280,7 +247,7 @@ private struct InviteCard: View {
             ShareLink(item: invite.url, message: Text("Here's your invite to tap me on Shouldertap. It works once.")) {
               Label("Send link", systemImage: "square.and.arrow.up")
             }
-            .buttonStyle(PillStyle(color: inboxColor, small: true))
+            .buttonStyle(PillStyle(color: color, small: true))
             .accessibilityIdentifier("share-invite")
             Button {
               UIPasteboard.general.url = invite.url
@@ -303,14 +270,14 @@ private struct InviteCard: View {
         .transition(.opacity.combined(with: .scale(scale: 0.97)))
       } else {
         Button(action: create) {
-          if pending {
-            ProgressView().tint(inboxColor.ink)
+          if pending || inbox.phase != .ready {
+            ProgressView().tint(color.ink)
           } else {
             Label { Text("Invite someone") } icon: { IconView(icon: .invite, size: 20) }
           }
         }
-        .buttonStyle(PillStyle(color: inboxColor))
-        .disabled(pending)
+        .buttonStyle(PillStyle(color: color))
+        .disabled(pending || inbox.phase != .ready)
         .accessibilityIdentifier("invite-someone")
       }
       if let error {
@@ -329,75 +296,6 @@ private struct InviteCard: View {
         withAnimation(.outExpo(0.5)) { invite = created }
       } catch {
         self.error = (error as? APIError)?.message ?? error.localizedDescription
-      }
-    }
-  }
-}
-
-/// A code for another Mac to paste, sent from here (AirDrop reaches the Mac).
-private struct AddMac: View {
-  let inbox: ReceiverStore
-  @State private var code: String?
-  @State private var copied = false
-  @State private var error: String?
-
-  var body: some View {
-    if let code {
-      VStack(alignment: .leading, spacing: 12) {
-        Text("On another iPhone, choose I already have an inbox and paste this code. On Mac, choose Already set up on another Mac. It expires in 15 minutes.")
-          .font(Bricolage.medium(15))
-          .foregroundStyle(Paper.tone)
-        Text(code)
-          .font(.system(size: 13, design: .monospaced))
-          .textSelection(.enabled)
-          .lineLimit(3)
-        HStack(spacing: 10) {
-          ShareLink(item: code) {
-            Label("Send code", systemImage: "square.and.arrow.up")
-          }
-          .buttonStyle(PillStyle(color: inboxColor, small: true))
-          Button {
-            UIPasteboard.general.string = code
-            copied = true
-          } label: {
-            Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-          }
-          .buttonStyle(PillStyle(small: true))
-          .sensoryFeedback(.success, trigger: copied)
-          Spacer(minLength: 0)
-          Button("Done") {
-            self.code = nil
-            copied = false
-          }
-          .font(Bricolage.bold(15))
-        }
-      }
-      .padding(16)
-      .background(Paper.faint, in: .rect(cornerRadius: 18, style: .continuous))
-      .padding(.top, 8)
-    } else {
-      Button {
-        error = nil
-        Task {
-          do { code = try await inbox.createDeviceCode().code } catch {
-            self.error = (error as? APIError)?.message ?? error.localizedDescription
-          }
-        }
-      } label: {
-        HStack(spacing: 12) {
-          IconView(icon: .addMac, size: 20)
-            .frame(width: 40, height: 40)
-            .background(Paper.faint, in: .circle)
-          Text("Add a device").font(Bricolage.bold(17))
-          Spacer(minLength: 0)
-        }
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityIdentifier("add-mac")
-      if let error {
-        Text(error).font(Bricolage.medium(14)).foregroundStyle(.red)
       }
     }
   }
@@ -454,16 +352,18 @@ private struct CredentialRow: View {
         Text(status).font(Bricolage.medium(14)).foregroundStyle(Paper.tone)
       }
       Spacer(minLength: 0)
-      Menu {
-        Button(isSelf ? "Unlink this iPhone" : "Remove \(credential.name)", systemImage: "minus.circle", role: .destructive, action: onRemove)
-      } label: {
-        Image(systemName: "ellipsis")
-          .font(.system(size: 17, weight: .semibold))
-          .frame(width: 40, height: 40)
-          .contentShape(Rectangle())
+      if !isSelf {
+        Menu {
+          Button("Remove \(credential.name)", systemImage: "minus.circle", role: .destructive, action: onRemove)
+        } label: {
+          Image(systemName: "ellipsis")
+            .font(.system(size: 17, weight: .semibold))
+            .frame(width: 40, height: 40)
+            .contentShape(Rectangle())
+        }
+        .foregroundStyle(Paper.tone)
+        .accessibilityLabel("Options for \(credential.name)")
       }
-      .foregroundStyle(Paper.tone)
-      .accessibilityLabel("Options for \(credential.name)")
     }
     .padding(.vertical, 8)
     .accessibilityIdentifier("credential-\(credential.name)")
@@ -521,231 +421,31 @@ private func qrImage(_ text: String) -> UIImage? {
   return UIImage(cgImage: image)
 }
 
-/// Creation and joining are separate choices so an existing owner never
-/// accidentally creates a second inbox instead of restoring their devices.
-struct InboxSetup: View {
-  let inbox: ReceiverStore
-  var code = ""
-  var onClose: (() -> Void)?
-  let onLinked: () -> Void
-  @State private var joining = false
-  @State private var name = ""
-  @State private var pending = false
-  @State private var error: String?
-
-  var body: some View {
-    if joining || !code.isEmpty {
-      LinkCover(inbox: inbox, code: code, onClose: onClose ?? { joining = false }, onLinked: onLinked)
-    } else {
-      Frame(color: inboxColor) {
-        VStack(spacing: 0) {
-          FrameBar { Wordmark() } trailing: {
-            if let onClose {
-              Button(action: onClose) { IconView(icon: .close, size: 18) }
-                .buttonStyle(FrameButtonStyle(iconOnly: true))
-                .accessibilityLabel("Close")
-            }
-          }
-          Page {
-            StepHeader(title: "Get taps on your iPhone", text: "Create your inbox, then invite someone you trust.")
-            TextField("Your name", text: $name)
-              .textContentType(.givenName)
-              .field()
-              .accessibilityIdentifier("inbox-name")
-            Text("Allow notifications to receive taps when the app is closed. On iPhone, taps use notifications and Live Activities; they cannot cover other apps. Add a Mac later for screen takeover.")
-              .font(Bricolage.medium(15)).foregroundStyle(Paper.tone)
-            if let error { Text(error).foregroundStyle(.red) }
-          } actions: {
-            Button {
-              pending = true
-              error = nil
-              Task {
-                defer { pending = false }
-                do {
-                  try await inbox.createInbox(recipientName: name.trimmingCharacters(in: .whitespacesAndNewlines))
-                  onLinked()
-                } catch {
-                  self.error = (error as? APIError)?.message ?? error.localizedDescription
-                }
-              }
-            } label: {
-              if pending { ProgressView() } else { Text("Create my inbox") }
-            }
-            .buttonStyle(PillStyle(color: inboxColor))
-            .disabled(pending || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityIdentifier("inbox-create")
-            Button("I already have an inbox") { joining = true }
-              .buttonStyle(QuietStyle()).disabled(pending)
-          }
-          .onPaper()
-        }
-      }
-    }
-  }
-}
-
-// MARK: Linking
-
-/// Link this iPhone to your Mac: open Shouldertap on the Mac, Add a Mac or
-/// iPhone, and scan its code (or paste it). A scanned code links right away.
-struct LinkCover: View {
-  let inbox: ReceiverStore
-  var code: String = ""
-  /// nil in the Inbox tab, where there's nothing to close.
-  var onClose: (() -> Void)?
-  let onLinked: () -> Void
-
-  @State private var text: String
-  @State private var scanning = false
-  @State private var scanned: String?
-  @State private var pending = false
-  @State private var error: String?
-
-  init(inbox: ReceiverStore, code: String = "", onClose: (() -> Void)? = nil, onLinked: @escaping () -> Void) {
-    self.inbox = inbox
-    self.code = code
-    self.onClose = onClose
-    self.onLinked = onLinked
-    _text = State(initialValue: code)
-  }
-
-  private var parsed: String? { linkCode(from: text) }
+/// The Inbox tab while this iPhone's inbox credential is on its way from the
+/// account (the first sync after signing in).
+struct InboxWaiting: View {
+  let account: AccountStore
+  let senders: SenderStore
+  let onRetry: () -> Void
 
   var body: some View {
     Frame(color: inboxColor) {
       VStack(spacing: 0) {
-        FrameBar {
-          Wordmark()
-        } trailing: {
-          if let onClose {
-            Button(action: onClose) { IconView(icon: .close, size: 18) }
-              .buttonStyle(FrameButtonStyle(iconOnly: true))
-              .accessibilityLabel("Close")
-              .accessibilityIdentifier("link-close")
+        FrameBar { Wordmark() } trailing: {
+          HStack(spacing: 6) {
+            AccountButton()
+            HelpButton(store: senders)
           }
         }
         Page {
-          StepHeader(
-            title: "Get your taps here too",
-            text: "Link this iPhone to your existing inbox. Taps reach your linked devices, and you can answer on any of them.")
-
-          NumberedSteps(color: inboxColor, steps: [
-            "Open Inbox on your linked iPhone, or Shouldertap in your Mac's menu bar.",
-            "Under Your devices, choose Add a device. On older Macs, choose Add another Mac.",
-            "Scan its QR code with this iPhone, or copy the code and paste it below.",
-          ])
-
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Or paste the code").font(Bricolage.bold(14, relativeTo: .subheadline))
-            HStack(spacing: 8) {
-              TextField("Device code", text: $text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.go)
-                .onSubmit { if parsed != nil { link(text) } }
-                .accessibilityIdentifier("link-field")
-                .field()
-              PasteButton(payloadType: String.self) { strings in
-                guard let first = strings.first else { return }
-                text = first
-              }
-              .labelStyle(.iconOnly)
-              .buttonBorderShape(.capsule)
-              .tint(inboxColor.base)
-            }
-            if let message = fieldMessage {
-              Text(message).font(Bricolage.medium(14)).foregroundStyle(.red)
-            }
-          }
-        } actions: {
-          if parsed != nil {
-            Button {
-              link(text)
-            } label: {
-              if pending { ProgressView().tint(inboxColor.ink) } else { Text("Link") }
-            }
-            .buttonStyle(PillStyle(color: inboxColor))
-            .disabled(pending)
-            .accessibilityIdentifier("link-button")
+          StepHeader(title: "Setting up your inbox", text: "Taps for you will arrive here and on your Lock Screen.")
+          if let error = account.error {
+            Text(error).font(Bricolage.medium(15)).foregroundStyle(.red)
+            Button("Try again", action: onRetry).buttonStyle(PillStyle(small: true))
           } else {
-            Button {
-              scanning = true
-            } label: {
-              Label("Scan QR code", systemImage: "qrcode.viewfinder")
-            }
-            .buttonStyle(PillStyle(color: inboxColor))
-            .accessibilityIdentifier("link-scan")
+            ProgressView().frame(maxWidth: .infinity)
           }
         }
-        .onPaper()
-      }
-    }
-    .fullScreenCover(
-      isPresented: $scanning,
-      onDismiss: {
-        if let scanned { link(scanned) }
-        scanned = nil
-      }
-    ) {
-      LinkScanScreen { value in
-        scanned = value
-        scanning = false
-      }
-    }
-  }
-
-  private var fieldMessage: String? {
-    if let error { return error }
-    guard !text.isEmpty, parsed == nil else { return nil }
-    return isSenderInvite(text)
-      ? "That's an invite to tap someone. To link your inbox, use the code under Your devices."
-      : "That doesn't look like a device code."
-  }
-
-  private func link(_ value: String) {
-    guard let code = linkCode(from: value), !pending else { return }
-    text = value
-    pending = true
-    error = nil
-    Task {
-      defer { pending = false }
-      do {
-        try await inbox.join(code: code)
-        onLinked()
-      } catch let failure as APIError where failure.code != .network {
-        error = failure.message
-      } catch {
-        self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
-      }
-    }
-  }
-}
-
-/// The camera, taking only the Mac's link code (`shouldertap://link#…`).
-private struct LinkScanScreen: View {
-  let onCode: (String) -> Void
-  @Environment(\.dismiss) private var dismiss
-
-  var body: some View {
-    Frame(color: inboxColor) {
-      VStack(spacing: 0) {
-        FrameBar {
-          Text("Scan your device code").font(Bricolage.extraBold(19)).tracking(-0.6)
-        } trailing: {
-          Button { dismiss() } label: { IconView(icon: .close, size: 18) }
-            .buttonStyle(FrameButtonStyle(iconOnly: true))
-            .accessibilityLabel("Close")
-        }
-        VStack(alignment: .leading, spacing: 16) {
-          QRScanner { value in
-            guard URL(string: value)?.scheme != nil, linkCode(from: value) != nil else { return false }
-            onCode(value)
-            return true
-          }
-          Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 22)
-        .padding(.top, 22)
         .onPaper()
       }
     }

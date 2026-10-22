@@ -1,7 +1,7 @@
 import ShouldertapCore
 import SwiftUI
 
-/// The two stores, built on first use: by the app, or by a background launch
+/// The stores, built on first use: by the app, or by a background launch
 /// (a Lock Screen answer, a push) that never builds the UI.
 @MainActor
 enum Stores {
@@ -11,17 +11,24 @@ enum Stores {
     return store
   }()
 
-  static let account = AccountStore(server: Config.server, clientID: "shouldertap-ios", vault: KeychainVault(service: "app.shouldertap.iphone.account"))
+  static let account = AccountStore(server: Config.server, vault: KeychainVault(service: "app.shouldertap.iphone.account"))
 
   static let inbox: ReceiverStore = {
     let inbox = ReceiverStore(
       endpoints: Endpoints(server: Config.server, web: Config.web),
-      persistence: Config.inboxPersistence,
-      deviceName: { UIDevice.current.name },
-      platform: .iphone)
+      persistence: Config.inboxPersistence)
+    // Someone accepted an invite, or a connection went away: new keys wait on the account.
+    inbox.onCredentialsChanged = { Task { await Stores.sync() } }
     inbox.start()
     return inbox
   }()
+
+  /// Brings this iPhone's inbox credential and sender keys in step with the
+  /// account. Safe to call often: on launch, foreground, after signing in or
+  /// saving the profile, and on the inbox's `credentials` event.
+  static func sync() async {
+    await account.sync(platform: .iphone, deviceName: UIDevice.current.name, inbox: inbox, senders: senders)
+  }
 }
 
 @main
@@ -30,7 +37,7 @@ struct ShouldertapApp: App {
 
   var body: some Scene {
     WindowGroup {
-      RootView(store: Stores.senders, inbox: Stores.inbox)
+      RootView(account: Stores.account, store: Stores.senders, inbox: Stores.inbox)
         #if DEBUG && targetEnvironment(simulator)
           .task { await TapActivities.startMarketingCaptureIfRequested() }
         #endif
@@ -46,44 +53,40 @@ enum HomeTab: String {
   case inbox
 }
 
-/// A brand-new phone gets the welcome, which leads to tapping someone or to
-/// linking your own Mac. After that the app is two tabs: Tap (the composer,
-/// or getting an invite) and Inbox (your inbox, or linking it). A tap
-/// waiting for you covers everything while the app is open, like the Mac
-/// overlay.
+/// Until you're signed in with a name and color, the first-run flow
+/// (Onboarding.swift). After that the app is two tabs: Tap (the composer, or
+/// adding your people) and Inbox. A tap waiting for you covers everything
+/// while the app is open, like the Mac overlay.
 struct RootView: View {
+  let account: AccountStore
   let store: SenderStore
   let inbox: ReceiverStore
   @AppStorage("selectedPairing") private var selectedId = ""
   @AppStorage("homeTab") private var tab = HomeTab.tap
-  /// Pairing to tap someone is in progress (or hasn't started): the flow
-  /// shows until its last screen is done, not as soon as the pairing exists.
-  @State private var onboarding: Bool
+  /// Finished the first-run flow while signed in; cleared on sign-out.
+  @AppStorage("onboarded") private var onboarded = false
   @State private var flowColor = PersonColor.cobalt
+  /// An invite link opened before onboarding finished; accepted at its end.
   @State private var firstInvite = ""
   @State private var cover: RootCover?
   @State private var showAccount = false
-  /// This phone is unlinking itself, so the inbox going away isn't news.
-  @State private var unlinking = false
   @State private var receiver = Receiver.shared
   @Environment(\.scenePhase) private var scenePhase
   @State private var wasBackground = false
 
-  init(store: SenderStore, inbox: ReceiverStore) {
-    self.store = store
-    self.inbox = inbox
-    _onboarding = State(initialValue: store.sessions.isEmpty)
-  }
-
   var body: some View {
     ZStack {
-      if showsWelcome {
+      if showsOnboarding {
         Frame(color: flowColor) {
-          PairFlow(store: store, invite: firstInvite, firstRun: true, color: $flowColor) { id in
-            selectedId = id
-            withAnimation(.outExpo(0.6)) { onboarding = false }
+          OnboardingFlow(
+            account: account, senders: store, invite: $firstInvite, color: $flowColor, sync: Stores.sync
+          ) { id in
+            if let id {
+              selectedId = id
+              tab = .tap
+            }
+            withAnimation(.outExpo(0.6)) { onboarded = true }
           }
-          .id(firstInvite)
         }
         .transition(.opacity)
       } else {
@@ -92,7 +95,7 @@ struct RootView: View {
     }
     .sheet(isPresented: $showAccount) {
       NavigationStack {
-        AccountView(account: Stores.account, inbox: inbox, senders: store)
+        AccountView(account: account)
           .navigationTitle("Account")
           .toolbar { Button("Done") { showAccount = false } }
       }
@@ -104,14 +107,16 @@ struct RootView: View {
       Group {
         switch cover {
         case .invite(let text):
-          PairCover(store: store, invite: text, onCancel: { self.cover = nil }) { id in
-            selectedId = id
+          AcceptInvite(account: account, senders: store, invite: text, onCancel: { self.cover = nil }) { id in
+            if let id { selectedId = id }
+            tab = .tap
             self.cover = nil
-            onboarding = false
           }
-        case .link(let code):
-          InboxSetup(inbox: inbox, code: code, onClose: { self.cover = nil }) {
-            self.cover = nil
+        case .add:
+          Frame(color: myColor) {
+            AddPeople(
+              inbox: inbox, senders: store, color: myColor, onInvite: { self.cover = .invite($0) },
+              onClose: { self.cover = nil })
           }
         }
       }
@@ -124,35 +129,30 @@ struct RootView: View {
       Button("OK", role: .cancel) {}
     }
     .overlay { takeover }
-    // shouldertap://join#<code> to tap someone; shouldertap://link#<code>
-    // from the Mac's QR code; shouldertap://tap/<id> from a Live Activity.
+    // shouldertap://join#<code> (or the web link) to connect with someone;
+    // shouldertap://tap/<id> from a Live Activity.
     .onOpenURL { url in
       if receiver.handle(url) { return }
-      if url.host() == "link" {
-        openLink(code: url.absoluteString)
-        return
-      }
       guard inviteCode(from: url.absoluteString) != nil else { return }
-      if showsWelcome {
+      if showsOnboarding {
         firstInvite = url.absoluteString
       } else {
         cover = .invite(url.absoluteString)
       }
     }
-    .onChange(of: store.sessions.isEmpty) { _, empty in
-      guard empty else { return }
-      firstInvite = ""
-      withAnimation(.outExpo(0.6)) { onboarding = true }
-    }
-    .onChange(of: inbox.phase) { old, new in
-      if new == .ready {
-        receiver.sync()
-        withAnimation(.outExpo(0.5)) { tab = .inbox }
+    // Signed out or deleted: back to the start. Signed in without a profile
+    // (made elsewhere and reset): back to the You step.
+    .onChange(of: account.signedIn) { _, signedIn in
+      if !signedIn {
+        showAccount = false
+        onboarded = false
       }
-      // Unlinked from elsewhere (the Mac removed this iPhone): say so once.
-      guard old == .ready, new == .setup else { return }
-      if !unlinking { store.notice = "This iPhone was unlinked from your Shouldertap" }
-      unlinking = false
+    }
+    .onChange(of: account.me.map { $0.profile == nil }) { _, missing in
+      if missing == true { onboarded = false }
+    }
+    .onChange(of: inbox.phase) { _, phase in
+      if phase == .ready { receiver.sync() }
     }
     .onChange(of: inbox.credentialId) { _, _ in receiver.sync() }
     .onChange(of: inbox.taps) { _, taps in receiver.reconcile(taps) }
@@ -166,10 +166,15 @@ struct RootView: View {
         store.nudge()
         inbox.nudge()
         inbox.refresh()
+        Task { await Stores.sync() }
       default: break
       }
     }
-    .task { receiver.sync() }
+    .task {
+      receiver.sync()
+      await account.refresh()
+      await Stores.sync()
+    }
   }
 
   private var home: some View {
@@ -186,19 +191,16 @@ struct RootView: View {
   }
 
   @ViewBuilder private var tapHome: some View {
-    if !onboarding, let session = composing {
+    if let session = composing {
       Frame(color: session.color) {
         ComposeView(
           session: session, store: store,
           onSelect: { id in withAnimation(.outExpo(0.5)) { selectedId = id } },
-          onAdd: { cover = .invite("") })
+          onAdd: { cover = .add })
       }
     } else {
-      Frame(color: flowColor) {
-        PairFlow(store: store, firstRun: false, color: $flowColor) { id in
-          selectedId = id
-          withAnimation(.outExpo(0.6)) { onboarding = false }
-        }
+      Frame(color: myColor) {
+        AddPeople(inbox: inbox, senders: store, color: myColor, onInvite: { cover = .invite($0) })
       }
     }
   }
@@ -209,7 +211,7 @@ struct RootView: View {
         InboxScreen(inbox: inbox, senders: store)
       }
     } else {
-      InboxSetup(inbox: inbox, onLinked: {})
+      InboxWaiting(account: account, senders: store) { Task { await Stores.sync() } }
     }
   }
 
@@ -222,15 +224,15 @@ struct RootView: View {
     }
   }
 
+  /// Your own color, from the profile.
+  private var myColor: PersonColor { account.me?.profile?.color ?? .cobalt }
+
   /// The person being tapped.
   private var composing: SenderSession? {
     store.session(id: selectedId) ?? store.sessions.last
   }
 
-  /// Nothing set up yet: the first-run flow, full screen.
-  private var showsWelcome: Bool {
-    onboarding && inbox.phase != .ready
-  }
+  private var showsOnboarding: Bool { !(account.signedIn && onboarded) }
 
   /// Taps waiting for an answer, for the Inbox tab's badge.
   private var waiting: Int {
@@ -241,24 +243,14 @@ struct RootView: View {
   private var actions: InboxActions {
     InboxActions(
       open: { tab = .inbox },
-      link: { openLink(code: "") },
-      unlinking: { unlinking = true },
       account: { showAccount = true })
-  }
-
-  private func openLink(code: String) {
-    if inbox.phase == .ready {
-      store.notice = "This iPhone is already linked to your Shouldertap. To link another inbox, unlink it first."
-    } else {
-      cover = .link(code)
-    }
   }
 }
 
-/// What covers the root: adding someone to tap, or linking your Mac.
+/// What covers the root: accepting an invite, or adding someone.
 enum RootCover: Identifiable, Hashable {
   case invite(String)
-  case link(String)
+  case add
 
   var id: Self { self }
 }

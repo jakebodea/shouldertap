@@ -27,16 +27,16 @@ struct HelpView: View {
     NavigationStack {
       List {
         Section("How Shouldertap works") {
-          Text("Tap: send a tap from your iPhone to someone who has invited you from their iPhone or Mac. Their answer appears here when you open Shouldertap.")
-          Text("Inbox: create an inbox on this iPhone or link an existing one to receive taps, on the Lock Screen and in the Dynamic Island, and answer from either.")
+          Text("Tap: send a tap to anyone you're connected with. Their answer appears here when you open Shouldertap.")
+          Text("Inbox: taps for you arrive on every device you're signed in on, on the Lock Screen and in the Dynamic Island, and you can answer from any of them.")
           NavigationLink("Try a sample tap") { SampleTapView() }
             .accessibilityIdentifier("sample-tap")
           Text("Sending, receiving and replies are free. Receive on iPhone, or add a computer for screen takeover. Replies do not send push notifications.")
             .font(.footnote).foregroundStyle(.secondary)
         }
         Section("Account") {
-          NavigationLink("Account and recovery") {
-            AccountView(account: Stores.account, inbox: Stores.inbox, senders: store)
+          NavigationLink("Account") {
+            AccountView(account: Stores.account)
               .navigationTitle("Account")
           }
           .accessibilityIdentifier("help-account")
