@@ -69,6 +69,68 @@ export interface SignInResult {
   readonly user: { readonly email: string };
 }
 
+/** A QR code a signed-in device shows for another to scan and sign in. */
+export interface QrSignIn {
+  readonly token: string;
+  /** `https://shouldertap.app/qr#<token>`; draw this. */
+  readonly url: string;
+  readonly expiresAt: number;
+}
+
+export interface QrSignInStatus {
+  readonly status: "pending" | "used" | "expired";
+  /** Who scanned it, once used. */
+  readonly platform: AccountPlatform | null;
+}
+
+/** A signed-out device asking a signed-in phone to approve it. */
+export interface DeviceSignIn {
+  readonly deviceCode: string;
+  readonly userCode: string;
+  /** Show as the QR code; the phone reads `user_code` from it. */
+  readonly url: string;
+  readonly interval: number;
+  readonly expiresAt: number;
+}
+
+export type DeviceSignInPoll =
+  | { readonly kind: "signed-in"; readonly token: string }
+  | { readonly kind: "pending"; readonly interval: number }
+  | { readonly kind: "denied" }
+  | { readonly kind: "expired" };
+
+export type DeviceClient =
+  | "shouldertap-ios"
+  | "shouldertap-mac"
+  | "shouldertap-windows"
+  | "shouldertap-web";
+
+/** The token in a scanned sign-in QR code, or null for anything else. */
+export const qrSignInToken = (scanned: string): string | null => {
+  const match = scanned
+    .trim()
+    .match(
+      /^(?:https:\/\/[^/]+\/qr|shouldertap:\/\/qr)#(?<token>[A-Za-z0-9]{16,128})$/u
+    );
+  return match?.groups?.token ?? null;
+};
+
+/** The user code in a scanned device sign-in QR code, or null. */
+export const deviceSignInCode = (scanned: string): string | null => {
+  let url: URL;
+  try {
+    url = new URL(scanned.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.pathname !== "/account/device") {
+    return null;
+  }
+  return url.searchParams.get("user_code") || null;
+};
+
+const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
+
 /** The most a device sends to `/account/sync`. */
 export const MAX_SYNC_TOKENS = 50;
 
@@ -138,6 +200,108 @@ export class AccountClient {
       email,
       otp,
     });
+  }
+
+  /** A sign-in QR code for another device; needs a session. */
+  createQrSignIn() {
+    return this.request<QrSignIn>("POST", "/api/auth/qr-sign-in/create", {});
+  }
+
+  /** Whether the QR code from `createQrSignIn` was scanned. */
+  qrSignInStatus(token: string) {
+    return this.request<QrSignInStatus>("POST", "/api/auth/qr-sign-in/status", {
+      token,
+    });
+  }
+
+  /** Signs this device in with a scanned QR code; the browser gets a cookie. */
+  redeemQrSignIn(token: string, platform: AccountPlatform) {
+    return this.request<SignInResult>("POST", "/api/auth/qr-sign-in/redeem", {
+      token,
+      platform,
+    });
+  }
+
+  /** Starts signing this device in by a phone scanning its QR code. */
+  async startDeviceSignIn(client: DeviceClient): Promise<DeviceSignIn> {
+    const grant = await this.request<{
+      device_code: string;
+      user_code: string;
+      verification_uri_complete: string;
+      interval: number;
+      expires_in: number;
+    }>("POST", "/api/auth/device/code", { client_id: client });
+    return {
+      deviceCode: grant.device_code,
+      userCode: grant.user_code,
+      url: grant.verification_uri_complete,
+      interval: grant.interval,
+      expiresAt: Date.now() + grant.expires_in * 1000,
+    };
+  }
+
+  /** One poll of a device sign-in; call again after `interval` seconds. */
+  async pollDeviceSignIn(
+    client: DeviceClient,
+    started: DeviceSignIn,
+    interval = started.interval
+  ): Promise<DeviceSignInPoll> {
+    try {
+      const { access_token: token } = await this.request<{
+        access_token: string;
+      }>("POST", "/api/auth/device/token", {
+        client_id: client,
+        device_code: started.deviceCode,
+        grant_type: DEVICE_GRANT,
+      });
+      return { kind: "signed-in", token };
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        throw error;
+      }
+      switch (error.message) {
+        case "authorization_pending": {
+          return { kind: "pending", interval };
+        }
+        case "slow_down": {
+          return { kind: "pending", interval: interval + 5 };
+        }
+        case "access_denied": {
+          return { kind: "denied" };
+        }
+        case "expired_token":
+        case "invalid_grant": {
+          return { kind: "expired" };
+        }
+        default: {
+          throw error;
+        }
+      }
+    }
+  }
+
+  /** Which kind of device a scanned code would sign in; needs a session. */
+  async reviewDeviceSignIn(userCode: string) {
+    const review = await this.request<{
+      user_code: string;
+      client_id: string;
+      status: string;
+    }>("GET", `/api/auth/device?user_code=${encodeURIComponent(userCode)}`);
+    return {
+      userCode: review.user_code,
+      client: review.client_id,
+      pending: review.status === "pending",
+    };
+  }
+
+  async approveDeviceSignIn(userCode: string) {
+    await this.request<unknown>("POST", "/api/auth/device/approve", {
+      userCode,
+    });
+  }
+
+  async denyDeviceSignIn(userCode: string) {
+    await this.request<unknown>("POST", "/api/auth/device/deny", { userCode });
   }
 
   /** Ends the account session; this device's messaging keys stay. */

@@ -4,7 +4,7 @@
 
 mod common;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::{MemoryPersistence, MemorySenderPersistence, MemoryVault, Stub, eventually};
@@ -499,4 +499,220 @@ fn signed_out_removing_someone_revokes_this_pcs_key() {
     assert_eq!(f.senders.tokens(), [OTHER_SENDER_TOKEN]);
     assert!(eventually(|| f.stub.count("/v1/credentials/key1key1") == 1));
     assert_eq!(f.stub.count("/account/remove"), 0);
+}
+
+// Signing in with a QR code (docs/onboarding.md, "Sign in with a QR code")
+
+const DEVICE_CODE: &str = r#"{"device_code":"dev-code-1","user_code":"WXYZ2345","verification_uri":"https://api.test/account/device","verification_uri_complete":"https://api.test/account/device?user_code=WXYZ2345","interval":5,"expires_in":600}"#;
+
+/// Answers `/api/auth/device/token` with each of `polls` in turn.
+fn device_server(
+    polls: Vec<(u16, &'static str)>,
+    me: &'static str,
+) -> impl Fn(&common::Seen) -> (u16, String) + Send + Sync + 'static {
+    let polls = Mutex::new(polls.into_iter());
+    move |seen| match seen.path.as_str() {
+        "/api/auth/device/code" => (200, DEVICE_CODE.into()),
+        "/api/auth/device/token" => {
+            let (status, body) = polls.lock().unwrap().next().unwrap_or((503, ""));
+            (status, body.into())
+        }
+        "/account/me" => (200, me.into()),
+        "/account/sync" => (200, sync_answer(Some(INBOX_TOKEN), &[SAM], &[])),
+        _ => (503, String::new()),
+    }
+}
+
+fn signed_out(handler: impl Fn(&common::Seen) -> (u16, String) + Send + Sync + 'static) -> Fixture {
+    fixture(
+        MemoryVault::default(),
+        MemoryPersistence::default(),
+        MemorySenderPersistence::default(),
+        handler,
+    )
+}
+
+#[test]
+fn a_phone_approving_this_pcs_qr_code_signs_it_in() {
+    let f = signed_out(device_server(
+        vec![
+            (
+                400,
+                r#"{"error":"authorization_pending","error_description":"Authorization pending"}"#,
+            ),
+            (
+                400,
+                r#"{"error":"slow_down","error_description":"Polling too frequently"}"#,
+            ),
+            (
+                200,
+                r#"{"access_token":"session-token-1","token_type":"Bearer","expires_in":604800,"scope":""}"#,
+            ),
+        ],
+        ME_WITHOUT_PROFILE,
+    ));
+    let code = f.account.start_device_sign_in().unwrap();
+    assert_eq!(
+        f.stub.body_for("/api/auth/device/code").unwrap(),
+        serde_json::json!({"client_id": "shouldertap-windows"})
+    );
+    assert_eq!(code.user_code, "WXYZ2345");
+    assert_eq!(
+        code.verification_uri_complete,
+        "https://api.test/account/device?user_code=WXYZ2345"
+    );
+    assert_eq!(code.interval, 5);
+
+    let first = f.account.poll_device_sign_in(&code, Duration::from_secs(5)).unwrap();
+    assert_eq!(
+        first,
+        DeviceSignInPoll::Pending {
+            interval: Duration::from_secs(5)
+        }
+    );
+    assert!(!f.account.state().signed_in);
+    let second = f.account.poll_device_sign_in(&code, Duration::from_secs(5)).unwrap();
+    assert_eq!(
+        second,
+        DeviceSignInPoll::Pending {
+            interval: Duration::from_secs(10)
+        }
+    );
+    let third = f.account.poll_device_sign_in(&code, Duration::from_secs(10)).unwrap();
+    assert_eq!(third, DeviceSignInPoll::SignedIn(SESSION.into()));
+    assert_eq!(
+        f.stub.body_for("/api/auth/device/token").unwrap(),
+        serde_json::json!({
+            "client_id": "shouldertap-windows",
+            "device_code": "dev-code-1",
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+        })
+    );
+
+    // Kept like an emailed-code sign-in, and the You step comes next.
+    assert_eq!(f.vault.secret().as_deref(), Some(SESSION));
+    assert_eq!(f.stub.token_for("/account/me").as_deref(), Some(SESSION));
+    let state = f.account.state();
+    assert!(state.needs_profile());
+    assert_eq!(state.email.as_deref(), Some("jake@example.com"));
+    assert_eq!(f.stub.count("/account/sync"), 0);
+}
+
+#[test]
+fn a_pc_approved_by_phone_syncs_when_the_account_has_a_profile() {
+    let f = signed_out(device_server(vec![(200, r#"{"access_token":"session-token-1"}"#)], ME));
+    let code = f.account.start_device_sign_in().unwrap();
+    f.account.poll_device_sign_in(&code, Duration::from_secs(5)).unwrap();
+    assert_eq!(f.stub.token_for("/account/sync").as_deref(), Some(SESSION));
+    assert_eq!(f.inbox.load_credential().as_deref(), Some(INBOX_TOKEN));
+    assert_eq!(f.senders.tokens(), [SENDER_TOKEN]);
+    assert!(!f.account.state().needs_profile());
+}
+
+#[test]
+fn a_declined_or_expired_qr_code_signs_nothing_in() {
+    let f = signed_out(device_server(
+        vec![
+            (400, r#"{"error":"access_denied","error_description":"Access denied"}"#),
+            (
+                400,
+                r#"{"error":"expired_token","error_description":"Device code has expired"}"#,
+            ),
+            (
+                400,
+                r#"{"error":"invalid_grant","error_description":"Invalid device code"}"#,
+            ),
+        ],
+        ME,
+    ));
+    let code = f.account.start_device_sign_in().unwrap();
+    let interval = Duration::from_secs(5);
+    assert_eq!(
+        f.account.poll_device_sign_in(&code, interval).unwrap(),
+        DeviceSignInPoll::Denied
+    );
+    assert_eq!(
+        f.account.poll_device_sign_in(&code, interval).unwrap(),
+        DeviceSignInPoll::Expired
+    );
+    assert_eq!(
+        f.account.poll_device_sign_in(&code, interval).unwrap(),
+        DeviceSignInPoll::Expired
+    );
+    // Anything else is trouble reaching the server, not an answer.
+    assert_eq!(
+        f.account.poll_device_sign_in(&code, interval).unwrap_err().code,
+        ErrorCode::Network
+    );
+    assert_eq!(f.vault.secret(), None);
+    assert!(!f.account.state().signed_in);
+    assert_eq!(f.stub.count("/account/me"), 0);
+}
+
+#[test]
+fn this_pc_shows_a_qr_code_and_learns_when_a_phone_used_it() {
+    const TOKEN: &str = "Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56";
+    let statuses = Mutex::new(
+        vec![
+            r#"{"status":"pending","platform":null}"#,
+            r#"{"status":"used","platform":"iphone"}"#,
+            r#"{"status":"expired","platform":null}"#,
+        ]
+        .into_iter(),
+    );
+    let f = signed_in(move |seen| {
+        match seen.path.as_str() {
+        "/api/auth/qr-sign-in/create" => (
+            200,
+            r#"{"token":"Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56","url":"https://shouldertap.app/qr#Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56","expiresAt":1792000120000}"#
+                .into(),
+        ),
+        "/api/auth/qr-sign-in/status" => (200, statuses.lock().unwrap().next().unwrap_or("").into()),
+        _ => (503, String::new()),
+    }
+    });
+    let qr = f.account.create_qr_sign_in().unwrap();
+    assert_eq!(qr.token, TOKEN);
+    assert_eq!(qr.url, "https://shouldertap.app/qr#Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56");
+    assert_eq!(qr.expires_at, 1_792_000_120_000.0);
+    assert_eq!(
+        f.stub.token_for("/api/auth/qr-sign-in/create").as_deref(),
+        Some(SESSION)
+    );
+
+    assert_eq!(f.account.qr_sign_in_status(TOKEN).unwrap(), QrSignInStatus::Pending);
+    assert_eq!(
+        f.stub.body_for("/api/auth/qr-sign-in/status").unwrap(),
+        serde_json::json!({"token": TOKEN})
+    );
+    assert_eq!(
+        f.stub.token_for("/api/auth/qr-sign-in/status").as_deref(),
+        Some(SESSION)
+    );
+    assert_eq!(
+        f.account.qr_sign_in_status(TOKEN).unwrap(),
+        QrSignInStatus::Used {
+            platform: Some("iphone".into())
+        }
+    );
+    assert_eq!(f.account.qr_sign_in_status(TOKEN).unwrap(), QrSignInStatus::Expired);
+}
+
+#[test]
+fn a_qr_code_needs_a_session() {
+    let f = signed_out(|_| (200, "{}".into()));
+    assert_eq!(f.account.create_qr_sign_in().unwrap_err().code, ErrorCode::Unauthorized);
+    assert_eq!(f.stub.count("/api/auth/qr-sign-in/create"), 0);
+
+    // A refused session ends here, like any other account call.
+    let g = signed_in(|seen| match seen.path.as_str() {
+        "/api/auth/qr-sign-in/create" => (401, r#"{"message":"Unauthorized"}"#.into()),
+        _ => (503, String::new()),
+    });
+    assert_eq!(
+        g.account.create_qr_sign_in().unwrap_err().message,
+        "Your sign-in expired. Sign in again."
+    );
+    assert!(!g.account.state().signed_in);
+    assert_eq!(g.vault.secret(), None);
 }

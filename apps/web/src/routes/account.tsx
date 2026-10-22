@@ -9,6 +9,7 @@ import { DocPage, DocSection } from "@/components/document";
 import { Frame } from "@/components/frame";
 import { Mark } from "@/components/mark";
 import { ProfileFields, SignIn } from "@/components/sign-in";
+import { SignInOnPhone } from "@/components/sign-in-on-phone";
 import { account, isSignedOutError, loadSession } from "@/lib/account";
 import type { Session } from "@/lib/account";
 import {
@@ -532,6 +533,7 @@ const SignedIn = ({
       {intent === "patron"
         ? [patronSection, profileSection]
         : [profileSection, patronSection]}
+      <SignInOnPhone onSignedOut={onSignedOut} />
       <SessionSection onSignedOut={onSignedOut} />
       <DeleteSection
         onDeleted={() => {

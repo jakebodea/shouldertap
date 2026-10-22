@@ -182,6 +182,82 @@ pub struct SignedInUser {
     pub email: String,
 }
 
+/// `POST /api/auth/qr-sign-in/create`: a one-time code another device scans
+/// to sign in (docs/onboarding.md, "QR sign-in: computer → phone").
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QrSignIn {
+    pub token: String,
+    /// `https://shouldertap.app/qr#<token>`: draw this.
+    pub url: String,
+    pub expires_at: Timestamp,
+}
+
+/// Whether the code from `create_qr_sign_in` was scanned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QrSignInStatus {
+    Pending,
+    /// `platform` is who scanned it: `iphone`, `mac`, `windows` or `web`.
+    Used {
+        platform: Option<String>,
+    },
+    Expired,
+}
+
+impl<'de> Deserialize<'de> for QrSignInStatus {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Wire {
+            status: String,
+            #[serde(default)]
+            platform: Option<String>,
+        }
+        let wire = Wire::deserialize(deserializer)?;
+        match wire.status.as_str() {
+            "pending" => Ok(Self::Pending),
+            "used" => Ok(Self::Used {
+                platform: wire.platform,
+            }),
+            "expired" => Ok(Self::Expired),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["pending", "used", "expired"],
+            )),
+        }
+    }
+}
+
+/// `POST /api/auth/device/code`: this signed-out PC asking a signed-in phone
+/// to approve it (docs/onboarding.md, "QR sign-in: phone → computer").
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct DeviceCode {
+    pub device_code: String,
+    pub user_code: String,
+    /// Show as the QR code; the phone reads `user_code` from it.
+    pub verification_uri_complete: String,
+    /// Seconds between polls.
+    pub interval: u64,
+    /// Seconds the code lasts.
+    pub expires_in: u64,
+}
+
+/// One poll of `device/token`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeviceSignInPoll {
+    /// Approved: the account session token.
+    SignedIn(String),
+    /// Not yet; poll again after `interval`.
+    Pending { interval: Duration },
+    /// The phone declined.
+    Denied,
+    /// The code ran out (or was already used): show a new one.
+    Expired,
+}
+
+const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
+/// How much longer to wait when the server says `slow_down` (RFC 8628).
+const SLOW_DOWN: Duration = Duration::from_secs(5);
+
 #[derive(Clone)]
 pub struct ApiClient {
     pub base_url: String,
@@ -408,6 +484,77 @@ impl ApiClient {
             .map(|_| ())
     }
 
+    /// A sign-in QR code for another device; needs the session.
+    pub fn create_qr_sign_in(&self) -> Result<QrSignIn, ApiError> {
+        self.send("POST", "/api/auth/qr-sign-in/create", Some(&serde_json::json!({})))
+    }
+
+    /// Whether the code from `create_qr_sign_in` was scanned; needs the session.
+    pub fn qr_sign_in_status(&self, token: &str) -> Result<QrSignInStatus, ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            token: &'a str,
+        }
+        self.send("POST", "/api/auth/qr-sign-in/status", Some(&Body { token }))
+    }
+
+    /// Starts device authorization for `client_id` (`shouldertap-windows`).
+    pub fn start_device_sign_in(&self, client_id: &str) -> Result<DeviceCode, ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            client_id: &'a str,
+        }
+        self.with_token(None)
+            .send("POST", "/api/auth/device/code", Some(&Body { client_id }))
+    }
+
+    /// One poll of a device sign-in started with `start_device_sign_in`;
+    /// `interval` is how long this PC has been waiting between polls.
+    pub fn poll_device_sign_in(
+        &self,
+        client_id: &str,
+        device_code: &str,
+        interval: Duration,
+    ) -> Result<DeviceSignInPoll, ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            client_id: &'a str,
+            device_code: &'a str,
+            grant_type: &'a str,
+        }
+        #[derive(Deserialize)]
+        struct Granted {
+            access_token: String,
+        }
+        #[derive(Deserialize)]
+        struct Refused {
+            error: String,
+        }
+        let response = self.with_token(None).request(
+            "POST",
+            "/api/auth/device/token",
+            Some(&Body {
+                client_id,
+                device_code,
+                grant_type: DEVICE_GRANT,
+            }),
+        )?;
+        if (200..300).contains(&response.status) {
+            return decode::<Granted>(&response).map(|granted| DeviceSignInPoll::SignedIn(granted.access_token));
+        }
+        // OAuth answers `{ error }`, whatever else the body carries.
+        let refused = serde_json::from_slice::<Refused>(&response.body).ok();
+        Ok(match refused.as_ref().map(|refused| refused.error.as_str()) {
+            Some("authorization_pending") => DeviceSignInPoll::Pending { interval },
+            Some("slow_down") => DeviceSignInPoll::Pending {
+                interval: interval + SLOW_DOWN,
+            },
+            Some("access_denied") => DeviceSignInPoll::Denied,
+            Some("expired_token" | "invalid_grant") => DeviceSignInPoll::Expired,
+            _ => return Err(ApiError::from_response(response.status, &response.body)),
+        })
+    }
+
     /// No auth: anyone holding the link may see who sent it.
     pub fn invite_preview(&self, code: &str) -> Result<InvitePreview, ApiError> {
         self.with_token(None)
@@ -422,30 +569,43 @@ impl ApiClient {
         path: &str,
         body: Option<&B>,
     ) -> Result<R, ApiError> {
+        let response = self.request(method, path, body)?;
+        if !(200..300).contains(&response.status) {
+            return Err(ApiError::from_response(response.status, &response.body));
+        }
+        decode(&response)
+    }
+
+    /// Whatever the server answers, success or not.
+    fn request<B: Serialize>(
+        &self,
+        method: &'static str,
+        path: &str,
+        body: Option<&B>,
+    ) -> Result<HttpResponse, ApiError> {
         let body = body
             .map(serde_json::to_vec)
             .transpose()
             .map_err(|error| ApiError::invalid(error.to_string()))?;
-        let response = self
-            .transport
+        self.transport
             .send(HttpRequest {
                 method,
                 url: format!("{}{}", self.base_url, path),
                 token: self.token.clone(),
                 body,
             })
-            .map_err(ApiError::network)?;
-        if !(200..300).contains(&response.status) {
-            return Err(ApiError::from_response(response.status, &response.body));
-        }
-        // The server answered with a shape we don't understand: treat as a
-        // transient failure rather than acting on it.
-        serde_json::from_slice(&response.body).map_err(|_| ApiError {
-            code: ErrorCode::Network,
-            message: "Unexpected response".into(),
-            status: response.status,
-        })
+            .map_err(ApiError::network)
     }
+}
+
+/// The server answered with a shape we don't understand: treat as a
+/// transient failure rather than acting on it.
+fn decode<R: DeserializeOwned>(response: &HttpResponse) -> Result<R, ApiError> {
+    serde_json::from_slice(&response.body).map_err(|_| ApiError {
+        code: ErrorCode::Network,
+        message: "Unexpected response".into(),
+        status: response.status,
+    })
 }
 
 /// One path segment, keeping the characters URLs leave alone.

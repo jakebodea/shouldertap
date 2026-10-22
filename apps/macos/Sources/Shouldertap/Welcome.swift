@@ -109,7 +109,17 @@ final class WelcomeController: NSObject, NSWindowDelegate {
 
 @MainActor @Observable
 final class WelcomeModel {
-  enum Step { case welcome, email, code, you, ready }
+  enum Step { case welcome, email, code, phone, you, ready }
+
+  /// "Sign in with your phone": this Mac's device sign-in code, waiting for
+  /// a signed-in iPhone to scan and approve it.
+  enum PhoneSignIn: Equatable {
+    case starting
+    case showing(DeviceSignIn)
+    case denied
+    case expired
+    case failed(String)
+  }
 
   let needsMove = Install.needsMove
   let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -121,16 +131,18 @@ final class WelcomeModel {
   var color = PersonColor.cobalt
   /// A new code went out: say so once.
   var resent = false
+  var phone = PhoneSignIn.starting
   let account: AccountStore
   @ObservationIgnored let sync: @MainActor () async -> Void
-  @ObservationIgnored let dismiss: (_ setUp: Bool) -> Void
+  @ObservationIgnored private let close: (_ setUp: Bool) -> Void
+  @ObservationIgnored private var phoneTask: Task<Void, Never>?
 
   init(
     account: AccountStore, sync: @escaping @MainActor () async -> Void, dismiss: @escaping (_ setUp: Bool) -> Void
   ) {
     self.account = account
     self.sync = sync
-    self.dismiss = dismiss
+    self.close = dismiss
     // Signed in without a name and color yet: straight to You.
     if account.signedIn, let me = account.me, me.profile == nil {
       step = .you
@@ -146,7 +158,70 @@ final class WelcomeModel {
 
   func go(_ next: Step) {
     account.error = nil
+    if next != .phone { stopPhoneSignIn() }
     withAnimation(.easeOutExpo(0.5)) { step = next }
+  }
+
+  func dismiss(_ setUp: Bool) {
+    stopPhoneSignIn()
+    close(setUp)
+  }
+
+  // MARK: Sign in with your phone
+
+  func signInWithPhone() {
+    go(.phone)
+    showNewPhoneCode()
+  }
+
+  /// A fresh device code (the first, or after one expired or was denied).
+  func showNewPhoneCode() {
+    stopPhoneSignIn()
+    phone = .starting
+    phoneTask = Task { await runPhoneSignIn() }
+  }
+
+  private func stopPhoneSignIn() {
+    phoneTask?.cancel()
+    phoneTask = nil
+  }
+
+  /// Shows the code, then polls every `interval` seconds (slower when the
+  /// server asks) until the phone approves, denies, or it expires.
+  private func runPhoneSignIn() async {
+    let started: DeviceSignIn
+    do {
+      started = try await account.startDeviceSignIn(client: .mac)
+    } catch {
+      if !Task.isCancelled { phone = .failed(error.localizedDescription) }
+      return
+    }
+    guard !Task.isCancelled else { return }
+    phone = .showing(started)
+    var interval = started.interval
+    while (try? await Task.sleep(for: .seconds(interval))) != nil {
+      guard Date.now < started.expiresAt else { phone = .expired; return }
+      let poll: DeviceSignInPoll
+      do {
+        poll = try await account.pollDeviceSignIn(started, interval: interval)
+      } catch {
+        // A network blip: keep waiting until the code expires.
+        continue
+      }
+      guard !Task.isCancelled else { return }
+      switch poll {
+      case .pending(let next): interval = next
+      case .denied: phone = .denied; return
+      case .expired: phone = .expired; return
+      case .signedIn:
+        // Done polling; leaving this step mustn't cancel the sync that follows.
+        phoneTask = nil
+        await afterSignIn()
+        // Signed in, but loading the account failed: the step offers to try again.
+        if step == .phone { phone = .failed(account.error ?? "Couldn’t load your account.") }
+        return
+      }
+    }
   }
 
   func moveToApplications() {
@@ -284,6 +359,7 @@ struct WelcomeView: View {
       case .welcome: WelcomeStep(model: model, arrived: arrived)
       case .email: EmailStep(model: model)
       case .code: CodeStep(model: model)
+      case .phone: PhoneStep(model: model)
       case .you: YouStep(model: model)
       case .ready: ReadyStep(model: model)
       }
@@ -337,7 +413,10 @@ private struct WelcomeStep: View {
             .keyboardShortcut(.cancelAction)
         }
         if !model.needsMove || model.moveError != nil {
-          Quiet("I have an account") { model.go(.email) }
+          HStack(spacing: 24) {
+            Quiet("I have an account") { model.go(.email) }
+            Quiet("Sign in with your phone") { model.signInWithPhone() }
+          }
         }
       }
       .rise(arrived, delay: 0.3, reduceMotion: model.reduceMotion)
@@ -366,8 +445,98 @@ private struct EmailStep: View {
           .disabled(model.account.busy || model.email.trimmingCharacters(in: .whitespaces).isEmpty)
         Pill(icon: .back, label: "Back", compact: true) { model.go(.welcome) }
       }
+      Quiet("Sign in with your phone instead") { model.signInWithPhone() }
+        .padding(.top, 18)
     }
     .onAppear { focused = true }
+  }
+}
+
+/// "Sign in with your phone": a QR code of this Mac's device sign-in link
+/// and the code under it, for a signed-in iPhone to scan and approve.
+private struct PhoneStep: View {
+  let model: WelcomeModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      MessageText(text: "Sign in with your phone.", size: 52)
+      Lede("Open Shouldertap on your iPhone → Account → Sign in on a computer, and scan this.")
+      HStack(alignment: .center, spacing: 32) {
+        code
+      }
+      .padding(.top, 20)
+      Spacer(minLength: 16)
+      HStack(spacing: 10) {
+        switch model.phone {
+        case .denied, .expired:
+          Pill(label: "Show a new code", hint: "↩", fill: .cobalt, compact: true) { model.showNewPhoneCode() }
+            .keyboardShortcut(.defaultAction)
+        case .failed:
+          if model.account.signedIn {
+            Pill(label: "Try again", hint: "↩", fill: .cobalt, compact: true) { Task { await model.afterSignIn() } }
+              .keyboardShortcut(.defaultAction)
+          } else {
+            Pill(label: "Show a new code", hint: "↩", fill: .cobalt, compact: true) { model.showNewPhoneCode() }
+              .keyboardShortcut(.defaultAction)
+          }
+        case .starting, .showing:
+          EmptyView()
+        }
+        Pill(icon: .back, label: "Back", compact: true) { model.go(.welcome) }
+      }
+      Quiet("Use your email instead") { model.go(.email) }
+        .padding(.top, 14)
+    }
+  }
+
+  @ViewBuilder private var code: some View {
+    let side: CGFloat = 168
+    switch model.phone {
+    case .starting:
+      ProgressView().frame(width: side, height: side)
+    case .showing(let started):
+      if let image = QRCode.image(for: started.url) {
+        Image(nsImage: image)
+          .interpolation(.none)
+          .resizable()
+          .frame(width: side, height: side)
+          .padding(12)
+          .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white))
+          .accessibilityLabel("QR code to sign in this Mac")
+      }
+      VStack(alignment: .leading, spacing: 10) {
+        Text(started.userCode)
+          .font(Bricolage.extraBold(44))
+          .monospaced()
+          .tracking(4)
+          .foregroundStyle(Paper.ink)
+          .textSelection(.enabled)
+          .accessibilityLabel("Code \(started.userCode.map(String.init).joined(separator: " "))")
+        Text("Your iPhone shows this code too. Check they match.")
+          .font(Bricolage.medium(15))
+          .foregroundStyle(Paper.tone)
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.small)
+          Text("Waiting for your iPhone…").font(Bricolage.medium(14)).foregroundStyle(Paper.tone)
+        }
+        .padding(.top, 6)
+      }
+    case .denied:
+      Notice("Your iPhone didn’t approve this Mac.")
+    case .expired:
+      Notice("That code expired.")
+    case .failed(let message):
+      Notice(message)
+    }
+  }
+}
+
+private struct Notice: View {
+  let text: String
+  init(_ text: String) { self.text = text }
+
+  var body: some View {
+    Text(text).font(Bricolage.bold(20)).foregroundStyle(Paper.ink)
   }
 }
 

@@ -3,14 +3,15 @@
 //! "Shouldertap" title (docs/design.md, "Surfaces").
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight, Hsla,
-    Pixels, Render, SharedString, Subscription, Window, div, prelude::*, px, svg,
+    Pixels, Render, SharedString, Subscription, Task, Window, div, prelude::*, px, svg,
 };
 use shouldertap_core::{
-    AccountStore, ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, Patron, Phase,
-    ReceiverStore, ResponseKind, SenderInvite, Tap, now_ms,
+    AccountStore, ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, Patron, Phase, QrSignIn,
+    QrSignInStatus, ReceiverStore, ResponseKind, SenderInvite, Tap, now_ms,
 };
 
 use crate::assets::{Icon, MARK_PATH};
@@ -27,6 +28,18 @@ pub const MIN_HEIGHT: f32 = 120.;
 const DELETE_ACCOUNT: &str = "delete-account";
 /// Grow with the content, and scroll past this.
 const MAX_HEIGHT: f32 = 620.;
+/// How often "Sign in on your phone" asks whether its code was scanned.
+const PHONE_SIGN_IN_POLL: Duration = Duration::from_secs(2);
+
+/// "Sign in on your phone": the one-time QR code this PC shows
+/// (docs/onboarding.md, "Sign in with a QR code"), while the menu is open.
+enum PhoneSignIn {
+    Creating,
+    Showing(QrSignIn),
+    /// Scanned; who by (`iphone`, `mac`, `windows`, `web`).
+    Used(Option<String>),
+    Expired,
+}
 
 pub struct MenuView {
     model: Entity<Model>,
@@ -40,6 +53,11 @@ pub struct MenuView {
     // Account
     account_busy: bool,
     account_error: Option<String>,
+    phone_sign_in: Option<PhoneSignIn>,
+    phone_sign_in_error: Option<String>,
+    /// Asks every 2s while the code shows; dropping it (Done, or the menu
+    /// closing) stops asking.
+    phone_sign_in_poll: Option<Task<()>>,
     // Optional support
     support_expanded: bool,
     plan_busy: bool,
@@ -78,6 +96,9 @@ impl MenuView {
             settings: false,
             account_busy: false,
             account_error: None,
+            phone_sign_in: None,
+            phone_sign_in_error: None,
+            phone_sign_in_poll: None,
             support_expanded: false,
             plan_busy: false,
             plan_opened: false,
@@ -165,6 +186,83 @@ impl MenuView {
 
     fn delete_account(&mut self, cx: &mut Context<Self>) {
         self.run_account(cx, |account| account.delete_account(), |this, _| this.confirming = None);
+    }
+
+    // Sign in on your phone
+
+    /// Makes a fresh one-time code and watches for the phone to scan it.
+    fn show_phone_sign_in(&mut self, cx: &mut Context<Self>) {
+        self.phone_sign_in = Some(PhoneSignIn::Creating);
+        self.phone_sign_in_error = None;
+        self.phone_sign_in_poll = None;
+        let account = self.model.read(cx).account.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { account.create_qr_sign_in() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                // Closed while it was being made.
+                if !matches!(this.phone_sign_in, Some(PhoneSignIn::Creating)) {
+                    return;
+                }
+                match result {
+                    Ok(qr) => {
+                        this.watch_phone_sign_in(qr.token.clone(), cx);
+                        this.phone_sign_in = Some(PhoneSignIn::Showing(qr));
+                    }
+                    Err(error) => {
+                        this.phone_sign_in = None;
+                        this.phone_sign_in_error = Some(error.to_string());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn watch_phone_sign_in(&mut self, token: String, cx: &mut Context<Self>) {
+        let account = self.model.read(cx).account.clone();
+        self.phone_sign_in_poll = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(PHONE_SIGN_IN_POLL).await;
+                let (account, token) = (account.clone(), token.clone());
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { account.qr_sign_in_status(&token) })
+                    .await;
+                let keep_asking = this
+                    .update(cx, |this, cx| {
+                        let next = match result {
+                            Ok(QrSignInStatus::Pending) => return true,
+                            // Offline for a moment: ask again.
+                            Err(error) if error.is_retryable() => return true,
+                            Ok(QrSignInStatus::Used { platform }) => Some(PhoneSignIn::Used(platform)),
+                            Ok(QrSignInStatus::Expired) => Some(PhoneSignIn::Expired),
+                            Err(error) => {
+                                this.phone_sign_in_error = Some(error.to_string());
+                                None
+                            }
+                        };
+                        this.phone_sign_in = next;
+                        cx.notify();
+                        false
+                    })
+                    .unwrap_or(false);
+                if !keep_asking {
+                    break;
+                }
+            }
+        }));
+    }
+
+    fn close_phone_sign_in(&mut self, cx: &mut Context<Self>) {
+        self.phone_sign_in = None;
+        self.phone_sign_in_error = None;
+        self.phone_sign_in_poll = None;
+        cx.notify();
     }
 
     // Plan
@@ -806,6 +904,7 @@ impl MenuView {
                 )
                 .into_any_element(),
         ];
+        rows.push(self.phone_sign_in(s, cx));
         if confirming {
             rows.push(
                 div()
@@ -866,6 +965,78 @@ impl MenuView {
             );
         }
         section(s, "Account", rows).into_any_element()
+    }
+
+    /// "Sign in on your phone", or the code it shows and how that went.
+    fn phone_sign_in(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let Some(phone) = &self.phone_sign_in else {
+            return div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(
+                    menu_button(
+                        s,
+                        "sign-in-on-phone",
+                        "Sign in on your phone",
+                        Some(Icon::Phone),
+                        Kind::Secondary,
+                        true,
+                        false,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.show_phone_sign_in(cx))),
+                )
+                .when_some(self.phone_sign_in_error.clone(), |el, error| {
+                    el.child(error_text(s, error))
+                })
+                .into_any_element();
+        };
+        let new_code = |cx: &mut Context<Self>| {
+            menu_button(
+                s,
+                "phone-new-code",
+                "Show a new code",
+                None,
+                Kind::Primary,
+                false,
+                false,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.show_phone_sign_in(cx)))
+        };
+        let done = menu_button(s, "phone-done", "Done", None, Kind::Plain, false, false)
+            .on_click(cx.listener(|this, _, _, cx| this.close_phone_sign_in(cx)));
+        let card = card(s);
+        match phone {
+            PhoneSignIn::Creating => card
+                .child(
+                    div()
+                        .size(px(176.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(muted(s, "Making a code…")),
+                )
+                .child(done),
+            PhoneSignIn::Showing(qr) => card
+                .child(qr_code(&qr.url, px(176.)))
+                .child(muted_center(
+                    s,
+                    "Scan with the Shouldertap app on your iPhone. Works once, for 2 minutes.",
+                ))
+                .child(done),
+            PhoneSignIn::Used(platform) => card
+                .child(svg().path(Icon::OnIt.path()).size(px(28.)).text_color(s.primary))
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(format!("Signed in on your {}", scanned_on(platform.as_deref()))),
+                )
+                .child(done),
+            PhoneSignIn::Expired => card
+                .child(muted_center(s, "That code expired. Show a new one to scan."))
+                .child(div().flex().gap(px(8.)).child(new_code(cx)).child(done)),
+        }
+        .into_any_element()
     }
 
     /// Opens the Appearance window; shows what taps look like right now.
@@ -1428,6 +1599,20 @@ fn hairline(s: Surface) -> impl IntoElement {
     div().h(px(1.)).w_full().flex_none().bg(s.separator)
 }
 
+fn card(s: Surface) -> gpui::Div {
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap(px(10.))
+        .p(px(12.))
+        .rounded(px(10.))
+        .bg(s.card)
+        .border_1()
+        .border_color(s.separator)
+}
+
 /// A person: a circle in their color with their initial in its ink.
 fn avatar(name: &str, color: shouldertap_core::PersonColor, size: f32) -> impl IntoElement {
     let initial = name
@@ -1466,6 +1651,17 @@ fn platform_icon(platform: DevicePlatform) -> Icon {
         DevicePlatform::Mac => Icon::Mac,
         DevicePlatform::Windows => Icon::Pc,
         DevicePlatform::Iphone => Icon::Phone,
+    }
+}
+
+/// Who scanned a sign-in QR code, as "Signed in on your …" ends.
+fn scanned_on(platform: Option<&str>) -> &'static str {
+    match platform {
+        Some("mac") => "Mac",
+        Some("windows") => "PC",
+        Some("web") => "browser",
+        // The iPhone app is what scans it.
+        _ => "iPhone",
     }
 }
 

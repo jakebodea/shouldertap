@@ -9,6 +9,7 @@ import {
 
 import { accountCodeSender, accountEmailSender } from "./account-email";
 import type { AccountEmailBinding } from "./account-email";
+import { qrSignIn } from "./qr-sign-in";
 
 export interface AccountAuthOptions {
   database: BetterAuthOptions["database"];
@@ -41,7 +42,10 @@ export const accountAuthOptions = ({
     user: { deleteUser: { enabled: true } },
     plugins: [
       // Every current client signs in with a code typed (or autofilled) in
-      // the app itself. Links and device authorization remain for older builds.
+      // the app itself, or with a QR code: a signed-in device shows one for
+      // a new device to scan (qrSignIn), or a new device shows its device
+      // authorization code for a signed-in phone to approve. Magic links
+      // remain for older builds.
       emailOTP({
         otpLength: 6,
         expiresIn: 600,
@@ -81,6 +85,7 @@ export const accountAuthOptions = ({
             "shouldertap-web",
           ].includes(clientId),
       }),
+      qrSignIn({ webOrigin: webOrigin ?? origin }),
       bearer(),
     ],
   }) satisfies BetterAuthOptions;

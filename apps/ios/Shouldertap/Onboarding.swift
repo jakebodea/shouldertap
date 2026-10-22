@@ -19,6 +19,8 @@ struct OnboardingFlow: View {
   let senders: SenderStore
   /// An invite link opened before (or during) onboarding; cleared once used.
   @Binding var invite: String
+  /// A sign-in QR code scanned here or opened as a link; redeemed, then cleared.
+  @Binding var signInLink: String
   @Binding var color: PersonColor
   let sync: () async -> Void
   /// Finished: the person to tap first, when an invite connected you.
@@ -35,6 +37,8 @@ struct OnboardingFlow: View {
   @State private var acceptError: String?
   @State private var preview: InvitePreview?
   @State private var previewFailed = false
+  /// Why the last sign-in QR code didn't work, shown on the Email step.
+  @State private var scanError: String?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var step: OnboardingStep {
@@ -80,6 +84,12 @@ struct OnboardingFlow: View {
       notificationsUndetermined = await Receiver.shared.notificationsUndetermined()
     }
     .task(id: invite) { await loadPreview() }
+    .onChange(of: signInLink, initial: true) { _, link in
+      guard !link.isEmpty else { return }
+      signInLink = ""
+      // Not tied to this view: finishing onboarding mustn't cancel the sync.
+      Task { await signInWithQR(link) }
+    }
     .task(id: step) {
       switch step {
       case .loading where account.signedIn && account.me == nil: await account.refresh()
@@ -114,7 +124,7 @@ struct OnboardingFlow: View {
         WelcomeStep(color: $color, knock: $knock, invalidInvite: previewFailed) { go { started = true } }
       }
     case .email:
-      EmailStep(account: account, email: $email, color: color)
+      EmailStep(account: account, email: $email, color: color, scanError: $scanError) { signInLink = $0 }
     case .code:
       CodeStep(account: account, color: color) { await sync() }
     case .loading, .done:
@@ -137,6 +147,20 @@ struct OnboardingFlow: View {
       }
     case .connected:
       EmptyView()
+    }
+  }
+
+  /// "Scan from your computer", or a shouldertap://qr link: signs in, then
+  /// carries on exactly as after a correct emailed code (You when there's no
+  /// profile, Notifications, sync). A code that didn't work shows on Email.
+  private func signInWithQR(_ link: String) async {
+    guard !account.signedIn else { return }
+    scanError = nil
+    if !started { go { started = true } }
+    if await account.signIn(scanned: link, platform: .iphone) {
+      await sync()
+    } else {
+      scanError = account.error
     }
   }
 
@@ -292,7 +316,12 @@ private struct EmailStep: View {
   let account: AccountStore
   @Binding var email: String
   let color: PersonColor
+  @Binding var scanError: String?
+  /// "Scan from your computer" read a sign-in QR code.
+  let onScanned: (String) -> Void
   @FocusState private var focused: Bool
+  @State private var scanning = false
+  @State private var scanned: String?
 
   private var valid: Bool {
     let value = email.trimmingCharacters(in: .whitespaces)
@@ -312,7 +341,7 @@ private struct EmailStep: View {
         .onSubmit(send)
         .accessibilityIdentifier("email-field")
         .field()
-      if let error = account.error {
+      if let error = account.error ?? scanError {
         Text(error).font(Bricolage.medium(15)).foregroundStyle(.red)
       }
     } actions: {
@@ -322,15 +351,38 @@ private struct EmailStep: View {
       .buttonStyle(PillStyle(color: color))
       .disabled(!valid || account.busy)
       .accessibilityIdentifier("send-code")
+      Button {
+        focused = false
+        scanError = nil
+        scanning = true
+      } label: {
+        Label("Scan from your computer", systemImage: "qrcode.viewfinder")
+      }
+      .buttonStyle(QuietStyle())
+      .disabled(account.busy)
+      .accessibilityIdentifier("scan-sign-in")
     }
     .onAppear {
       account.error = nil
       focused = true
     }
+    .fullScreenCover(
+      isPresented: $scanning,
+      onDismiss: {
+        if let scanned { onScanned(scanned) }
+        scanned = nil
+      }
+    ) {
+      ScanScreen(color: color, copy: .signIn, accepts: { qrSignInToken(from: $0) != nil }) { value in
+        scanned = value
+        scanning = false
+      }
+    }
   }
 
   private func send() {
     guard valid else { return }
+    scanError = nil
     Task { await account.sendCode(email: email) }
   }
 }
@@ -382,15 +434,15 @@ private struct CodeStep: View {
       if account.busy {
         ProgressView().frame(minHeight: 52)
       }
-      HStack(spacing: 0) {
+      HStack(spacing: 8) {
         Button("Resend") {
           code = ""
           Task { resent = await account.sendCode(email: account.pendingEmail ?? "") }
         }
-        .buttonStyle(QuietStyle())
+        .buttonStyle(PillStyle())
         .accessibilityIdentifier("resend-code")
         Button("Change email") { withAnimation(.outExpo(0.55)) { account.changeEmail() } }
-          .buttonStyle(QuietStyle())
+          .buttonStyle(PillStyle())
           .accessibilityIdentifier("change-email")
       }
       .disabled(account.busy)
