@@ -1,7 +1,7 @@
-import { QrCodeIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { QrCodeIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ApiError } from "@shouldertap/client";
-import { MAX_NAME_LENGTH, personColors, swatches } from "@shouldertap/domain";
+import type { InvitePreview, Me } from "@shouldertap/client";
+import { fallbackColor } from "@shouldertap/domain";
 import type { PersonColor } from "@shouldertap/domain";
 import {
   createFileRoute,
@@ -9,95 +9,44 @@ import {
   redirect,
   useNavigate,
 } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { toast } from "sonner";
 
 import { Frame } from "@/components/frame";
-import { HomeScreenCard } from "@/components/home-screen";
 import { Mark } from "@/components/mark";
+import { MiniTap } from "@/components/mini-tap";
 import { QrScanner } from "@/components/qr-scanner";
-import { api, revokePairing } from "@/lib/api";
-import { frameStyle } from "@/lib/frame";
-import { isIosBrowser } from "@/lib/install";
+import { SignIn, StepHeading } from "@/components/sign-in";
+import {
+  account,
+  loadSession,
+  needsSignIn,
+  syncThisBrowser,
+  thisDevice,
+} from "@/lib/account";
+import { revokePairing } from "@/lib/api";
+import {
+  codeFromPaste,
+  codeFromScan,
+  failureMessage,
+  OFFLINE_MESSAGE,
+} from "@/lib/onboarding";
 import {
   addPairing,
+  inboxOf,
   loadPairings,
   pairingForCode,
+  pairingFromSender,
   selectPairing,
 } from "@/lib/pairing";
 
 // The invite code travels in the URL fragment so it never reaches a server log.
-const LEADING_HASH = /^#/u;
-const readCode = () =>
-  decodeURIComponent(window.location.hash.replace(LEADING_HASH, "")).trim();
-
-/** A pasted invite: the full link (code after "#") or just the code. */
-const codeFromPaste = (value: string) => {
-  const trimmed = value.trim();
-  const hash = trimmed.indexOf("#");
-  return decodeURIComponent(hash === -1 ? trimmed : trimmed.slice(hash + 1));
-};
-
-/** The code from a scanned invite link, or null for any other QR code. */
-const codeFromScan = (value: string) => {
-  try {
-    const url = new URL(value);
-    return url.pathname === "/join" && url.hash.length > 1
-      ? codeFromPaste(value)
-      : null;
-  } catch {
-    return null;
-  }
-};
+const readCode = () => codeFromPaste(window.location.hash.slice(1));
 
 const JoinComponent = () => {
   const navigate = useNavigate();
   const [code, setCode] = useState(readCode);
-  const [pairInBrowser, setPairInBrowser] = useState(() => !isIosBrowser());
-  const [name, setName] = useState("");
-  const [color, setColor] = useState<PersonColor>("cobalt");
-  const [pending, setPending] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  // Resolves to the message to show, or null once the pairing succeeded.
-  const redeem = async (): Promise<string | null> => {
-    try {
-      const grant = await api.redeemInvite({ code, name: name.trim(), color });
-      if (grant.kind !== "sender") {
-        return "That code links your own device. Open Inbox in the iPhone app, or enter it in the Mac app.";
-      }
-      const replaced = addPairing({
-        token: grant.token,
-        credentialId: grant.credentialId,
-        senderName: name.trim(),
-        recipientName: grant.recipientName,
-        color,
-      });
-      for (const old of replaced) {
-        revokePairing(old);
-      }
-      history.replaceState(null, "", "/join");
-      navigate({ to: "/tap" });
-      return null;
-    } catch (error) {
-      return error instanceof ApiError && error.code !== "network"
-        ? error.message
-        : "Couldn't reach Shouldertap. Check your connection and try again.";
-    }
-  };
-
-  const onSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    setPending(true);
-    setSubmitError(null);
-    const failure = await redeem();
-    if (failure !== null) {
-      setSubmitError(failure);
-    }
-    setPending(false);
-  };
-
   if (!code) {
     return (
       <PasteInvite
@@ -105,7 +54,7 @@ const JoinComponent = () => {
           const paired = pairingForCode(pasted);
           if (paired) {
             selectPairing(paired.credentialId);
-            toast(`This phone already taps ${paired.recipientName}`);
+            toast(`You can already tap ${paired.recipientName}`);
             navigate({ to: "/tap", replace: true });
             return;
           }
@@ -115,130 +64,234 @@ const JoinComponent = () => {
       />
     );
   }
+  return (
+    <Invite
+      code={code}
+      key={code}
+      onReset={() => {
+        history.replaceState(null, "", "/join");
+        setCode("");
+      }}
+    />
+  );
+};
+
+type Phase =
+  | { readonly kind: "invite" }
+  /** Signed out, or signed in without a profile: sign in right here. */
+  | { readonly kind: "sign-in"; readonly me: Me | null }
+  | {
+      readonly kind: "connected";
+      readonly name: string;
+      readonly mutual: boolean;
+    };
+
+type Lookup =
+  | { readonly kind: "loading" }
+  | { readonly kind: "found"; readonly invite: InvitePreview }
+  | { readonly kind: "failed"; readonly message: string };
+
+/**
+ * "{name} invited you to Shouldertap": who it's from, in their color, and
+ * Accept. Accepting signs in first if needed, then connects you both ways.
+ */
+const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
+  const navigate = useNavigate();
+  const [lookup, setLookup] = useState<Lookup>({ kind: "loading" });
+  const [phase, setPhase] = useState<Phase>({ kind: "invite" });
+  const [pending, setPending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [ownColor, setOwnColor] = useState<PersonColor | null>(null);
+
+  const load = useCallback(async () => {
+    setLookup({ kind: "loading" });
+    try {
+      setLookup({ kind: "found", invite: await account.previewInvite(code) });
+    } catch (error) {
+      setLookup({ kind: "failed", message: failureMessage(error) });
+    }
+  }, [code]);
+  useEffect(() => {
+    // The invite lookup is a request to the API, an external system.
+    // oxlint-disable-next-line react/set-state-in-effect -- state changes after the request
+    load();
+  }, [load]);
+
+  const invite = lookup.kind === "found" ? lookup.invite : null;
+  const theirColor = invite?.color ?? fallbackColor(inboxOf(code) ?? code);
+  // A first color for the You step that isn't the inviter's own.
+  const suggestedColor: PersonColor =
+    theirColor === "cobalt" ? "moss" : "cobalt";
+
+  const finish = async () => {
+    setPending(true);
+    setFailure(null);
+    try {
+      const result = await account.accept({
+        code,
+        platform: "web",
+        deviceName: thisDevice(),
+      });
+      if (result.sender) {
+        const replaced = addPairing(
+          pairingFromSender(result.sender, result.person.name)
+        );
+        for (const old of replaced) {
+          revokePairing(old);
+        }
+      } else {
+        // Already connected: this browser may still need its own key.
+        await syncThisBrowser().catch(() => null);
+        const paired = pairingForCode(code);
+        if (paired) {
+          selectPairing(paired.credentialId);
+        }
+      }
+      history.replaceState(null, "", "/join");
+      setPhase({
+        kind: "connected",
+        name: result.person.name,
+        mutual: result.mutual,
+      });
+    } catch (error) {
+      setFailure(failureMessage(error));
+      setPhase({ kind: "invite" });
+    }
+    setPending(false);
+  };
+
+  const accept = async () => {
+    setPending(true);
+    setFailure(null);
+    const session = await loadSession();
+    if (session.kind === "offline") {
+      setFailure(OFFLINE_MESSAGE);
+      setPending(false);
+      return;
+    }
+    if (needsSignIn(session)) {
+      setPending(false);
+      setPhase({
+        kind: "sign-in",
+        me: session.kind === "signed-in" ? session.me : null,
+      });
+      return;
+    }
+    await finish();
+  };
+
+  if (phase.kind === "connected") {
+    return (
+      <Frame color={theirColor}>
+        <Mark className="size-9" />
+        <StepHeading title={`You and ${phase.name} are connected`}>
+          {phase.mutual
+            ? "You can tap each other now. Taps cover their screen until they answer."
+            : `You can tap ${phase.name} now. Taps cover their screen until they answer.`}
+        </StepHeading>
+        <MiniTap color={theirColor} name={phase.name} />
+        <button
+          className="pill pill-frame mt-auto w-full"
+          onClick={() => {
+            navigate({ to: "/tap", replace: true });
+          }}
+          type="button"
+        >
+          Tap {phase.name}
+        </button>
+      </Frame>
+    );
+  }
+
+  if (phase.kind === "sign-in") {
+    const color = ownColor ?? suggestedColor;
+    return (
+      <Frame color={ownColor ?? theirColor}>
+        <Mark className="size-9" />
+        <SignIn
+          color={color}
+          lead={
+            invite
+              ? `Sign in to accept ${invite.name}'s invite. We'll email you a six-digit code. No password.`
+              : undefined
+          }
+          me={phase.me}
+          onColor={setOwnColor}
+          onDone={finish}
+        />
+        {pending ? (
+          <output className="text-tone block text-center">Connecting…</output>
+        ) : null}
+        {failure ? (
+          <p className="text-destructive text-[0.9375rem]" role="alert">
+            {failure}
+          </p>
+        ) : null}
+      </Frame>
+    );
+  }
+
+  if (lookup.kind === "failed") {
+    return (
+      <Frame color="graphite">
+        <Mark className="size-9" />
+        <StepHeading title="This invite doesn't work">
+          {lookup.message} Ask them for a new link.
+        </StepHeading>
+        <div className="mt-auto flex flex-col gap-3">
+          <button className="pill w-full" onClick={load} type="button">
+            Try again
+          </button>
+          <button className="pill w-full" onClick={onReset} type="button">
+            Use another link
+          </button>
+        </div>
+      </Frame>
+    );
+  }
 
   return (
-    <Frame color={color}>
+    <Frame color={theirColor}>
       <Mark className="size-9" />
-      <div className="flex flex-col gap-2">
-        <h1 className="text-[2.125rem] leading-none font-extrabold tracking-[-0.035em] text-balance">
-          You&apos;re invited
-        </h1>
-        <p className="text-tone text-[1.0625rem] leading-snug">
-          Pair this phone to send taps. They reach the other person&apos;s
-          linked devices. Their answer appears here.
-        </p>
-      </div>
-
-      {pairInBrowser ? null : (
-        <HomeScreenCard
-          onSkip={() => {
-            setPairInBrowser(true);
-          }}
-        />
-      )}
-
-      <form
-        className="flex flex-1 flex-col gap-6"
-        hidden={!pairInBrowser}
-        onSubmit={onSubmit}
-      >
-        <div>
-          <label className="mb-2 block text-sm font-bold" htmlFor="sender-name">
-            Your name
-          </label>
-          <input
-            // oxlint-disable-next-line jsx-a11y/autocomplete-valid -- given-name is a valid HTML autocomplete token that oxlint's list omits; "name" would change what iOS autofills
-            autoComplete="given-name"
-            className="field"
-            id="sender-name"
-            maxLength={MAX_NAME_LENGTH}
-            onChange={(event) => {
-              setName(event.target.value);
-            }}
-            placeholder="e.g. Sam"
-            value={name}
-          />
-        </div>
-
-        <fieldset>
-          <legend className="mb-2 block text-sm font-bold">Your color</legend>
-          <div className="grid max-w-[24rem] grid-cols-8 gap-2">
-            {personColors.map((option) => (
-              <label
-                className="has-[:focus-visible]:outline-ink relative grid aspect-square w-full cursor-pointer place-items-center rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.1)] has-[:checked]:shadow-[0_0_0_2px_var(--paper),0_0_0_4px_var(--ink)] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-4"
-                key={option}
-                style={{
-                  background: swatches[option].base,
-                  color: swatches[option].ink,
-                }}
-              >
-                <input
-                  aria-label={swatches[option].label}
-                  checked={color === option}
-                  className="peer sr-only"
-                  name="color"
-                  onChange={() => {
-                    setColor(option);
-                  }}
-                  type="radio"
-                  value={option}
-                />
-                <HugeiconsIcon
-                  className="size-5 opacity-0 transition-opacity peer-checked:opacity-100"
-                  icon={Tick02Icon}
-                  strokeWidth={2}
-                />
-              </label>
-            ))}
+      {invite ? (
+        <>
+          <StepHeading title={`${invite.name} invited you to Shouldertap`}>
+            Accept to tap each other. A tap covers their screen until they
+            answer.
+          </StepHeading>
+          <figure className="flex flex-col gap-2">
+            <MiniTap color={theirColor} name={invite.name} />
+            <figcaption className="text-tone text-[0.8125rem]">
+              A tap from {invite.name}
+            </figcaption>
+          </figure>
+          <div className="mt-auto flex flex-col gap-3">
+            {failure ? (
+              <p className="text-destructive text-[0.9375rem]" role="alert">
+                {failure}
+              </p>
+            ) : null}
+            <button
+              className="pill pill-frame w-full"
+              disabled={pending}
+              onClick={accept}
+              type="button"
+            >
+              {pending ? "Accepting…" : "Accept"}
+            </button>
           </div>
-        </fieldset>
-
-        <figure className="flex flex-col gap-2">
-          <TapPreview color={color} name={name.trim() || "You"} />
-          <figcaption className="text-tone text-[0.8125rem]">
-            How your taps look
-          </figcaption>
-        </figure>
-
-        <div className="mt-auto flex flex-col gap-3">
-          {submitError ? (
-            <p className="text-destructive text-[0.9375rem]">{submitError}</p>
-          ) : null}
-          <button
-            className="pill pill-frame w-full"
-            disabled={pending || !name.trim()}
-            type="submit"
-          >
-            {pending ? "Pairing…" : "Pair this phone"}
-          </button>
-          <p className="text-tone text-center text-[0.8125rem]">
-            By pairing, you agree to the{" "}
-            <a
-              className="text-ink underline underline-offset-[3px]"
-              href="/terms"
-            >
-              Terms
-            </a>{" "}
-            and{" "}
-            <a
-              className="text-ink underline underline-offset-[3px]"
-              href="/privacy"
-            >
-              Privacy Policy
-            </a>
-            .
-          </p>
-        </div>
-      </form>
+        </>
+      ) : (
+        <output className="text-tone block py-8">Opening your invite…</output>
+      )}
     </Frame>
   );
 };
 
 /**
- * Reached without a code: a Home Screen app whose saved page lost it, a
- * phone whose pairing Safari forgot, or a paired phone adding someone. An
- * invite link opens in Safari, not in the Home Screen app, so adding someone
- * there means scanning or pasting it.
+ * Reached without a code: a Home Screen app whose saved page lost it, or a
+ * signed-in browser adding someone. An invite link opens in Safari, not in
+ * the Home Screen app, so adding someone there means scanning or pasting it.
  */
 const PasteInvite = ({ onCode }: { onCode: (code: string) => void }) => {
   const adding = useMemo(() => loadPairings().length > 0, []);
@@ -261,16 +314,9 @@ const PasteInvite = ({ onCode }: { onCode: (code: string) => void }) => {
   return (
     <Frame color="graphite">
       <Mark className="size-9" />
-      <div className="flex flex-col gap-2">
-        <h1 className="text-[2.125rem] leading-none font-extrabold tracking-[-0.035em]">
-          {adding ? "Add someone" : "Pair this phone"}
-        </h1>
-        <p className="text-tone text-[1.0625rem] leading-snug">
-          {adding
-            ? "Scan their invite QR code, or paste the invite link they sent you."
-            : "Scan their invite QR code, or paste the invite link you were sent. If this phone used to send taps and stopped, Safari may have forgotten the pairing: ask for a new invite."}
-        </p>
-      </div>
+      <StepHeading title={adding ? "Add someone" : "Got a link?"}>
+        Scan their invite QR code, or paste the invite link they sent you.
+      </StepHeading>
       {scanning ? (
         <div className="flex flex-col gap-3">
           <QrScanner onScan={onScan} />
@@ -322,42 +368,16 @@ const PasteInvite = ({ onCode }: { onCode: (code: string) => void }) => {
           Continue
         </button>
       </form>
-      {adding ? (
-        <Link
-          className="text-tone self-center text-[0.9375rem] underline underline-offset-[3px]"
-          replace
-          to="/tap"
-        >
-          Cancel
-        </Link>
-      ) : null}
+      <Link
+        className="text-tone self-center text-[0.9375rem] underline underline-offset-[3px]"
+        replace
+        to="/tap"
+      >
+        {adding ? "Cancel" : "Invite someone instead"}
+      </Link>
     </Frame>
   );
 };
-
-/** A miniature of the Mac overlay, framed in the chosen color. */
-const TapPreview = ({ color, name }: { color: PersonColor; name: string }) => (
-  <div
-    aria-hidden="true"
-    className="bg-frame text-frame-ink relative rounded-2xl px-2 pt-[1.6rem] pb-2 transition-colors duration-500"
-    style={frameStyle(color)}
-  >
-    <div className="absolute top-[0.4rem] left-3.5 flex gap-1.5 text-[0.6875rem]">
-      <span className="max-w-40 truncate font-bold">{name}</span>
-      <span className="opacity-75">just now</span>
-    </div>
-    <div className="bg-paper text-ink rounded-[0.625rem] px-4 pt-[1.125rem] pb-3.5">
-      <p className="mb-3 text-2xl leading-none font-extrabold tracking-[-0.035em]">
-        Can you come here?
-      </p>
-      <div className="flex gap-1.5">
-        <i className="bg-frame h-4 w-10 rounded-full" />
-        <i className="h-4 w-10 rounded-full shadow-[inset_0_0_0_1px_var(--line)]" />
-        <i className="h-4 w-10 rounded-full shadow-[inset_0_0_0_1px_var(--line)]" />
-      </div>
-    </div>
-  </div>
-);
 
 // A Home Screen app keeps launching the page it was saved from, invite code
 // and all. Once that person is paired, launching it opens the composer.
