@@ -1,17 +1,20 @@
 import type { Me } from "@shouldertap/client";
 import { MAX_NAME_LENGTH } from "@shouldertap/domain";
 import type { PersonColor } from "@shouldertap/domain";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import { ColorPicker, MiniTap } from "@/components/mini-tap";
-import { account } from "@/lib/account";
+import { QrCode } from "@/components/qr-code";
+import { account, signInWithApprovedSession } from "@/lib/account";
 import {
   CODE_LENGTH,
   codeFailureMessage,
   failureMessage,
   otpDigits,
 } from "@/lib/onboarding";
+import { afterDevicePoll } from "@/lib/qr-sign-in";
+import type { ScanFromPhone } from "@/lib/qr-sign-in";
 
 /** A step's title and one line under it, as on every sender page. */
 export const StepHeading = ({
@@ -97,11 +100,13 @@ const EmailStep = ({
   title,
   lead,
   onSent,
+  onPhone,
 }: {
   initialEmail: string;
   title: ReactNode;
   lead: ReactNode;
   onSent: (email: string) => void;
+  onPhone: () => void;
 }) => {
   const [email, setEmail] = useState(initialEmail);
   const [pending, setPending] = useState(false);
@@ -151,6 +156,14 @@ const EmailStep = ({
           type="submit"
         >
           {pending ? "Sending…" : "Send code"}
+        </button>
+        <button
+          className="pill w-full"
+          disabled={pending}
+          onClick={onPhone}
+          type="button"
+        >
+          Sign in with your phone
         </button>
         <Terms />
       </div>
@@ -279,6 +292,176 @@ const CodeStep = ({
   );
 };
 
+const DEVICE_CLIENT = "shouldertap-web";
+
+/**
+ * "Sign in with your phone": a QR code for a signed-in iPhone to scan and
+ * approve, with the code under it to check against the phone's.
+ */
+const PhoneStep = ({
+  onSignedIn,
+  onEmail,
+}: {
+  onSignedIn: (me: Me) => void;
+  onEmail: () => void;
+}) => {
+  const [state, setState] = useState<ScanFromPhone>({ kind: "starting" });
+  const mounted = useRef(true);
+  const latestOnSignedIn = useRef(onSignedIn);
+  useEffect(() => {
+    latestOnSignedIn.current = onSignedIn;
+  });
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  // The phone approved: move its session into this browser's cookie. Runs
+  // once per approval; the bearer session it trades ends with it.
+  const finish = useCallback(async (token: string) => {
+    try {
+      const me = await signInWithApprovedSession(token);
+      if (mounted.current) {
+        latestOnSignedIn.current(me);
+      }
+    } catch (error) {
+      if (mounted.current) {
+        setState({ kind: "failed", message: failureMessage(error) });
+      }
+    }
+  }, []);
+
+  const start = useCallback(async () => {
+    setState({ kind: "starting" });
+    try {
+      const started = await account.startDeviceSignIn(DEVICE_CLIENT);
+      setState({ kind: "waiting", started, interval: started.interval });
+    } catch (error) {
+      setState({ kind: "failed", message: failureMessage(error) });
+    }
+  }, []);
+  useEffect(() => {
+    // Starting a device sign-in is a request to the API, an external system.
+    // oxlint-disable-next-line react/set-state-in-effect -- state changes after the request
+    start();
+  }, [start]);
+
+  // Polls at the server's pace until the phone answers or the code expires;
+  // stops when the step goes away.
+  const waiting = state.kind === "waiting" ? state : null;
+  useEffect(() => {
+    if (!waiting) {
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async (current: ScanFromPhone & { kind: "waiting" }) => {
+      let next: ScanFromPhone;
+      try {
+        next = afterDevicePoll(
+          current,
+          await account.pollDeviceSignIn(
+            DEVICE_CLIENT,
+            current.started,
+            current.interval
+          ),
+          Date.now()
+        );
+      } catch {
+        // Offline for a moment: keep waiting at the same pace.
+        next = afterDevicePoll(
+          current,
+          { kind: "pending", interval: current.interval },
+          Date.now()
+        );
+      }
+      if (cancelled) {
+        return;
+      }
+      if (next.kind === "waiting") {
+        const after = next;
+        timer = setTimeout(() => poll(after), after.interval * 1000);
+        return;
+      }
+      setState(next);
+      if (next.kind === "signing-in") {
+        finish(next.token);
+      }
+    };
+    timer = setTimeout(() => poll(waiting), waiting.interval * 1000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [waiting, finish]);
+
+  const again = (message: string) => (
+    <div className="flex flex-col gap-3">
+      <p className="text-ink text-[1.0625rem] font-semibold" role="alert">
+        {message}
+      </p>
+      <button className="pill pill-frame w-full" onClick={start} type="button">
+        Show a new code
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-1 flex-col gap-6">
+      <StepHeading title="Sign in with your phone">
+        Open Shouldertap on your iPhone → Account → Sign in on a computer, and
+        scan this.
+      </StepHeading>
+      {state.kind === "starting" ? (
+        <output className="text-tone block py-8 text-center">
+          Making your code…
+        </output>
+      ) : null}
+      {state.kind === "waiting" ? (
+        <figure className="flex w-full max-w-[16rem] flex-col gap-3 self-center sm:self-start">
+          <QrCode value={state.started.url} />
+          <figcaption className="flex flex-col items-center gap-1">
+            <span className="text-[1.75rem] leading-none font-extrabold tracking-[0.12em] tabular-nums">
+              {state.started.userCode}
+            </span>
+            <span className="text-tone text-[0.8125rem]">
+              Your phone shows this code too.
+            </span>
+          </figcaption>
+        </figure>
+      ) : null}
+      {state.kind === "signing-in" ? (
+        <output className="text-tone block py-8 text-center">
+          Signing in…
+        </output>
+      ) : null}
+      {state.kind === "denied"
+        ? again("Your phone said no, so this browser isn't signed in.")
+        : null}
+      {state.kind === "expired"
+        ? again("That code expired. Show a new one and scan again.")
+        : null}
+      {state.kind === "failed" ? (
+        <div className="flex flex-col gap-3">
+          <Failure>{state.message}</Failure>
+          <button className="pill w-full" onClick={start} type="button">
+            Show a new code
+          </button>
+        </div>
+      ) : null}
+      <button
+        className="text-tone mt-auto self-center text-[0.9375rem] underline underline-offset-[3px]"
+        onClick={onEmail}
+        type="button"
+      >
+        Use email instead
+      </button>
+    </div>
+  );
+};
+
 const YouStep = ({
   me,
   color,
@@ -340,11 +523,12 @@ const YouStep = ({
 type Step =
   | { readonly kind: "email"; readonly email: string }
   | { readonly kind: "code"; readonly email: string }
+  | { readonly kind: "phone"; readonly email: string }
   | { readonly kind: "you"; readonly me: Me };
 
 /**
- * Email → six-digit code → name and color (only when the account has no
- * profile yet). Calls `onDone` once the person is signed in with a profile.
+ * Email → six-digit code (or a phone scanning a QR code) → name and color
+ * (only when the account has no profile yet). Calls `onDone` once the person is signed in with a profile.
  * The You step's color is the caller's, so it can paint the frame.
  */
 export const SignIn = ({
@@ -379,10 +563,23 @@ export const SignIn = ({
         <EmailStep
           initialEmail={step.email}
           lead={lead}
+          onPhone={() => {
+            setStep({ kind: "phone", email: step.email });
+          }}
           onSent={(email) => {
             setStep({ kind: "code", email });
           }}
           title={title}
+        />
+      );
+    }
+    case "phone": {
+      return (
+        <PhoneStep
+          onEmail={() => {
+            setStep({ kind: "email", email: step.email });
+          }}
+          onSignedIn={signedIn}
         />
       );
     }

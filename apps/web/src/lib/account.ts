@@ -3,11 +3,27 @@ import type { Me } from "@shouldertap/client";
 
 import { browserDeviceName } from "@/lib/onboarding";
 import { applySync, syncTokens } from "@/lib/pairing";
+import { tradeBearerForCookie } from "@/lib/qr-sign-in";
 
 /** Account calls go to the API origin with this browser's session cookie. */
 export const account = new AccountClient({
   baseUrl: import.meta.env.VITE_SERVER_URL,
 });
+
+/**
+ * Signs this browser in with the session a phone approved (device sign-in),
+ * moving it into the cookie; returns who signed in.
+ */
+export const signInWithApprovedSession = async (sessionToken: string) => {
+  await tradeBearerForCookie(
+    new AccountClient({
+      baseUrl: import.meta.env.VITE_SERVER_URL,
+      sessionToken,
+    }),
+    account
+  );
+  return account.me();
+};
 
 /** How this browser appears among the account's devices. */
 export const thisDevice = () =>
