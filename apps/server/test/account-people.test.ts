@@ -240,7 +240,7 @@ const connect = async () => {
   const accepted = await act<{
     person: object;
     mutual: boolean;
-    sender: { name: string; grant: { recipientName: string } };
+    sender: { id: string; name: string; grant: { recipientName: string } };
   }>("sam", "accept", { ...phone, code: invite.code });
   return { invite, preview, accepted };
 };
@@ -505,6 +505,35 @@ describe("account people", () => {
       expect(accepted.person).toStrictEqual({ name: "Jo", color: null });
       expect(accepted.mutual).toBeFalsy();
       expect(world.get(sam.inboxId)?.credentials.size).toBe(0);
+    });
+  });
+  describe("removing someone you tap", () => {
+    it("keeps them off every device, while they can still tap you", async () => {
+      const { accepted } = await connect();
+      const removed = await act("sam", "remove", { id: accepted.sender.id });
+      const samMac = await act<SyncResult>("sam", "sync", {
+        platform: "mac",
+        deviceName: "Sam's Mac",
+        receive: true,
+      });
+      const ariPhone = await act<SyncResult>("ari", "sync", {
+        platform: "iphone",
+        deviceName: "Ari's iPhone",
+        receive: true,
+      });
+      expect(removed).toStrictEqual({ removed: true });
+      expect(samMac.senders.map((s) => s.grant.recipientName)).toStrictEqual(
+        []
+      );
+      expect(ariPhone.senders.map((s) => s.grant.recipientName)).toStrictEqual([
+        "Sam",
+      ]);
+    });
+
+    it("can't remove a connection another account owns", async () => {
+      const { accepted } = await connect();
+      const refused = await fails("ari", "remove", { id: accepted.sender.id });
+      expect(refused.message).toBe("No such person");
     });
   });
 });

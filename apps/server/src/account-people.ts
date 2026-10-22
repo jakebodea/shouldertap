@@ -465,6 +465,31 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
   return { person, sender, mutual: inviter !== null };
 });
 
+/** Stops tapping someone from every device: the connection ends, so sync
+ * won't issue a key for it again. They can still tap you. */
+export const removePerson = Effect.fn(function* removePerson(
+  { db, inboxes }: Dependencies,
+  userId: string,
+  input: Record<string, unknown>
+) {
+  const resource = (yield* accountResources(db, userId)).find(
+    (r) => r.kind === "sender" && r.id === input.id
+  );
+  if (!resource?.inbox_id || !resource.credential_id) {
+    return yield* new NotFound({ message: "No such person" });
+  }
+  yield* inboxes
+    .getByName(resource.inbox_id)
+    .removeAccountSender(resource.credential_id);
+  yield* run(
+    db,
+    "DELETE FROM account_resource WHERE kind='sender' AND id=? AND user_id=?",
+    resource.id,
+    userId
+  );
+  return { removed: true as const };
+});
+
 /** Route actions for docs/onboarding.md; null when the path isn't one. */
 export const peopleAction = (
   deps: Dependencies,
@@ -491,6 +516,9 @@ export const peopleAction = (
     }
     case "accept": {
       return acceptInvite(deps, userId, input);
+    }
+    case "remove": {
+      return removePerson(deps, userId, input);
     }
     default: {
       return null;

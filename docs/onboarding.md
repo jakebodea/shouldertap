@@ -106,6 +106,15 @@ POST /account/accept { "code": string, "platform": ..., "deviceName": string }
 
 The server adds both directions: a sender credential for you in their inbox, and one for them in yours, each with that person's profile name and color. Their devices get a `credentials` socket event and pick up their new key with `/account/sync`. Your own invite answers 400 "That's your own invite".
 
+### Remove someone you tap
+
+```
+POST /account/remove { "id": string }   // the sender id from sync/accept: `${inboxId}:${credentialId}`
+→ { "removed": true }
+```
+
+Ends that connection for every device on the account (sync stops issuing it); then drop the local token. It doesn't stop them tapping you; they remove you from their side. Don't use `/v1/pairings/{id}` revoke for this: it only unlinks one device's key, and the next sync would issue a new one.
+
 ### Older clients
 
 `/v1/invites/redeem`, `/v1/inboxes`, device invites (`kind: "device"`), magic links and device authorization keep working for builds already installed. New clients don't call them.
