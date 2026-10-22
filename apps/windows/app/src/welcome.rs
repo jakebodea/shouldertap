@@ -1,16 +1,23 @@
 //! The welcome: account-first onboarding (docs/onboarding.md, "The flow"),
 //! like apps/macos's Welcome.swift. Welcome → email → six-digit code → you
-//! (name and color, only when the account has none) → the menu. A Frame
-//! (docs/design.md): Cobalt, then the color you pick, around a paper page,
-//! with the wordmark on the frame's top edge. Windows asks for nothing else.
+//! (name and color, only when the account has none) → the menu. Instead of
+//! an email, a signed-in iPhone can scan this PC's QR code ("Sign in with
+//! your phone"). A Frame (docs/design.md): Cobalt, then the color you pick,
+//! around a paper page, with the wordmark on the frame's top edge. Windows
+//! asks for nothing else.
+
+use std::time::Duration;
 
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, FontWeight, Hsla, Render, SharedString, Subscription,
-    Window, div, prelude::*, px, svg,
+    Task, Window, div, prelude::*, px, svg,
 };
-use shouldertap_core::{AccountStore, ApiError, CODE_LENGTH, MAX_NAME_LENGTH, PersonColor};
+use shouldertap_core::{
+    AccountStore, ApiError, CODE_LENGTH, DeviceCode, DeviceSignInPoll, MAX_NAME_LENGTH, PersonColor,
+};
 
 use crate::assets::{Icon, MARK_PATH};
+use crate::qr::qr_code;
 use crate::send::{danger_text, input, labeled, page_heading, pill, preview_frame, tone_text};
 use crate::shell::{Model, Shell};
 use crate::text_field::{TextField, TextFieldEvent};
@@ -22,10 +29,19 @@ pub enum WelcomeStep {
     Welcome,
     Email,
     Code,
+    /// "Sign in with your phone": a QR code a signed-in iPhone approves.
+    Phone,
     You,
 }
 
 const WELCOME_COLOR: PersonColor = PersonColor::Cobalt;
+
+/// Why the phone's QR code stopped working.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PhoneEnded {
+    Denied,
+    Expired,
+}
 
 pub struct WelcomeView {
     model: Entity<Model>,
@@ -39,6 +55,11 @@ pub struct WelcomeView {
     notice: Option<String>,
     /// The You step was filled in from the account once.
     prefilled: bool,
+    /// The Phone step's code, and why it stopped working.
+    device: Option<DeviceCode>,
+    device_ended: Option<PhoneEnded>,
+    /// Polls while the Phone step shows; dropped when it leaves.
+    device_poll: Option<Task<()>>,
     focus: FocusHandle,
     pending_focus: bool,
     _subscriptions: Vec<Subscription>,
@@ -89,6 +110,9 @@ impl WelcomeView {
             error: None,
             notice: None,
             prefilled: false,
+            device: None,
+            device_ended: None,
+            device_poll: None,
             focus: cx.focus_handle(),
             pending_focus: false,
             _subscriptions: subscriptions,
@@ -106,6 +130,13 @@ impl WelcomeView {
         self.error = None;
         self.notice = None;
         self.pending_focus = true;
+        // Leaving the Phone step stops polling; arriving makes a new code.
+        self.device = None;
+        self.device_ended = None;
+        self.device_poll = None;
+        if step == WelcomeStep::Phone {
+            self.start_phone(cx);
+        }
         self.prefill(cx);
         cx.notify();
     }
@@ -208,20 +239,98 @@ impl WelcomeView {
             cx,
             move |account| account.verify(&email, &code),
             |this, result, cx| match result {
-                Ok(()) => {
-                    if this.account(cx).state().needs_profile() {
-                        this.go(WelcomeStep::You, cx);
-                    } else {
-                        // Back on a new PC: sync already brought everything.
-                        finish(cx);
-                    }
-                }
+                Ok(()) => this.signed_in(cx),
                 Err(error) => {
                     this.error = Some(error.to_string());
                     this.code.update(cx, |field, cx| field.clear(cx));
                 }
             },
         );
+    }
+
+    /// However this PC signed in: the You step, or done when the account
+    /// already has a profile.
+    fn signed_in(&mut self, cx: &mut Context<Self>) {
+        if self.account(cx).state().needs_profile() {
+            self.go(WelcomeStep::You, cx);
+        } else {
+            // Back on a new PC: sync already brought everything.
+            finish(cx);
+        }
+    }
+
+    // Phone
+
+    /// A new code for a signed-in iPhone to scan, then waits for it.
+    fn start_phone(&mut self, cx: &mut Context<Self>) {
+        self.device = None;
+        self.device_ended = None;
+        self.device_poll = None;
+        self.run(
+            cx,
+            |account| account.start_device_sign_in(),
+            |this, result, cx| {
+                // Left the step while the code was being made.
+                if this.step != WelcomeStep::Phone {
+                    return;
+                }
+                match result {
+                    Ok(code) => {
+                        this.watch_phone(code.clone(), cx);
+                        this.device = Some(code);
+                    }
+                    Err(error) => this.error = Some(error.to_string()),
+                }
+            },
+        );
+    }
+
+    /// Polls every `interval` the server asks for until the phone answers or
+    /// the code runs out.
+    fn watch_phone(&mut self, code: DeviceCode, cx: &mut Context<Self>) {
+        let account = self.account(cx);
+        self.device_poll = Some(cx.spawn(async move |this, cx| {
+            let mut interval = Duration::from_secs(code.interval.max(1));
+            loop {
+                cx.background_executor().timer(interval).await;
+                let (account, code) = (account.clone(), code.clone());
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { account.poll_device_sign_in(&code, interval) })
+                    .await;
+                match this.update(cx, |this, cx| this.phone_polled(result, cx)) {
+                    Ok(Some(next)) => interval = next,
+                    _ => break,
+                }
+            }
+        }));
+    }
+
+    /// When to ask again, if at all.
+    fn phone_polled(&mut self, result: Result<DeviceSignInPoll, ApiError>, cx: &mut Context<Self>) -> Option<Duration> {
+        let next = match result {
+            Ok(DeviceSignInPoll::Pending { interval }) => Some(interval),
+            Ok(DeviceSignInPoll::SignedIn(_)) => {
+                self.signed_in(cx);
+                None
+            }
+            Ok(DeviceSignInPoll::Denied) => {
+                self.device_ended = Some(PhoneEnded::Denied);
+                None
+            }
+            Ok(DeviceSignInPoll::Expired) => {
+                self.device_ended = Some(PhoneEnded::Expired);
+                None
+            }
+            // Offline for a moment: keep waiting.
+            Err(error) if error.is_retryable() => Some(Duration::from_secs(5)),
+            Err(error) => {
+                self.error = Some(error.to_string());
+                None
+            }
+        };
+        cx.notify();
+        next
     }
 
     // You
@@ -261,7 +370,7 @@ impl Render for WelcomeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if std::mem::take(&mut self.pending_focus) {
             let field = match self.step {
-                WelcomeStep::Welcome => None,
+                WelcomeStep::Welcome | WelcomeStep::Phone => None,
                 WelcomeStep::Email => Some(&self.email),
                 WelcomeStep::Code => Some(&self.code),
                 WelcomeStep::You => Some(&self.name),
@@ -280,6 +389,7 @@ impl Render for WelcomeView {
             WelcomeStep::Welcome => self.welcome_page(frame, cx),
             WelcomeStep::Email => self.email_page(frame, cx),
             WelcomeStep::Code => self.code_page(cx),
+            WelcomeStep::Phone => self.phone_page(frame, cx),
             WelcomeStep::You => self.you_page(cx),
         };
         div()
@@ -315,7 +425,7 @@ impl WelcomeView {
         let ink: Hsla = theme::ink(frame).into();
         let back = match self.step {
             WelcomeStep::Email => Some(WelcomeStep::Welcome),
-            WelcomeStep::Code => Some(WelcomeStep::Email),
+            WelcomeStep::Code | WelcomeStep::Phone => Some(WelcomeStep::Email),
             _ => None,
         };
         div()
@@ -412,6 +522,103 @@ impl WelcomeView {
                 pill.on_click(cx.listener(|this, _, _, cx| this.send_code(false, cx)))
             })
             .into_any_element(),
+        );
+        page.push(
+            pill(
+                "with-phone",
+                "Sign in with your phone",
+                Some(Icon::Phone),
+                None,
+                self.busy,
+            )
+            .w_full()
+            .when(!self.busy, |pill| {
+                pill.on_click(cx.listener(|this, _, _, cx| this.go(WelcomeStep::Phone, cx)))
+            })
+            .into_any_element(),
+        );
+        page
+    }
+
+    /// A QR code for a signed-in iPhone to scan, with the code to check
+    /// under it, until the phone approves.
+    fn phone_page(&mut self, frame: PersonColor, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut page = vec![page_heading(
+            "Sign in with your phone",
+            "Open Shouldertap on your iPhone → Account → Sign in on a computer, and scan this.",
+        )];
+        let side = px(220.);
+        let ended = self.device_ended;
+        match (&self.device, ended) {
+            (Some(code), None) => page.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(14.))
+                    .child(qr_code(&code.verification_uri_complete, side))
+                    .child(
+                        div()
+                            .font_family("Consolas")
+                            .font_weight(FontWeight::BOLD)
+                            .text_size(px(32.))
+                            .line_height(px(36.))
+                            .child(code.user_code.clone()),
+                    )
+                    .child(tone_text("Waiting for your phone…"))
+                    .into_any_element(),
+            ),
+            (_, Some(ended)) => page.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .child(danger_text(
+                        match ended {
+                            PhoneEnded::Denied => "Your phone declined this sign-in.",
+                            PhoneEnded::Expired => "That code expired.",
+                        }
+                        .into(),
+                    ))
+                    .child(
+                        pill("phone-new-code", "Show a new code", None, Some(frame), self.busy)
+                            .w_full()
+                            .when(!self.busy, |pill| {
+                                pill.on_click(cx.listener(|this, _, _, cx| this.start_phone(cx)))
+                            }),
+                    )
+                    .into_any_element(),
+            ),
+            (None, None) if self.busy => page.push(
+                div()
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .size(side)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(tone_text("Making a code…")),
+                    )
+                    .into_any_element(),
+            ),
+            // Couldn't make one: the error says why.
+            (None, None) => page.push(
+                pill("phone-try-again", "Try again", None, Some(frame), false)
+                    .w_full()
+                    .on_click(cx.listener(|this, _, _, cx| this.start_phone(cx)))
+                    .into_any_element(),
+            ),
+        }
+        page.extend(self.messages());
+        page.push(
+            pill("with-email", "Use email instead", None, None, self.busy)
+                .w_full()
+                .when(!self.busy, |pill| {
+                    pill.on_click(cx.listener(|this, _, _, cx| this.go(WelcomeStep::Email, cx)))
+                })
+                .into_any_element(),
         );
         page
     }

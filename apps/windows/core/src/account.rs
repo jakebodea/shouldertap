@@ -1,5 +1,6 @@
 //! The account: one email for the person, signed in on each of their devices
-//! (docs/onboarding.md). A six-digit emailed code gives this PC a session;
+//! (docs/onboarding.md). A six-digit emailed code, or a signed-in phone
+//! scanning this PC's QR code, gives this PC a session;
 //! `sync` then hands the receiver its inbox credential and the sender store a
 //! key for each of the person's people. The Rust twin of AccountStore in
 //! ShouldertapCore/Account.swift.
@@ -11,8 +12,9 @@
 //! `on_change`.
 
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
-use crate::api::{ApiClient, ApiError, ErrorCode, Transport};
+use crate::api::{ApiClient, ApiError, DeviceCode, DeviceSignInPoll, ErrorCode, QrSignIn, QrSignInStatus, Transport};
 use crate::models::*;
 use crate::persistence::CredentialVault;
 use crate::sender::SenderStore;
@@ -22,6 +24,8 @@ use crate::store::ReceiverStore;
 pub const CODE_LENGTH: usize = 6;
 /// What a wrong or expired code reads as (docs/onboarding.md, "Sign in").
 pub const WRONG_CODE: &str = "That code didn't work. Check it or send a new one.";
+/// This app in device authorization ("Sign in with your phone").
+pub const DEVICE_CLIENT_ID: &str = "shouldertap-windows";
 const EXPIRED_SESSION: &str = "Your sign-in expired. Sign in again.";
 const MAX_DEVICE_NAME: usize = 80;
 const MAX_SYNC_TOKENS: usize = 50;
@@ -140,16 +144,53 @@ impl AccountStore {
             }
             result => result?,
         };
-        self.inner
-            .config
-            .vault
-            .write(&signed_in.token)
-            .map_err(ApiError::invalid)?;
-        *self.inner.token.lock().unwrap() = Some(signed_in.token);
+        self.adopt_session(signed_in.token, Some(signed_in.user.email))
+    }
+
+    // Signing in with a QR code (docs/onboarding.md, "Sign in with a QR code")
+
+    /// Phone → this PC: starts device authorization. Show `verification_uri_complete`
+    /// as a QR code with `user_code` under it, then `poll_device_sign_in`.
+    pub fn start_device_sign_in(&self) -> Result<DeviceCode, ApiError> {
+        self.inner.api(None).start_device_sign_in(DEVICE_CLIENT_ID)
+    }
+
+    /// One poll of `start_device_sign_in`'s code, `interval` after the last.
+    /// Once a phone approves, signs in like `verify`: the session is kept, the
+    /// account loads and syncs, and `state().needs_profile()` says whether the
+    /// You step comes next.
+    pub fn poll_device_sign_in(&self, code: &DeviceCode, interval: Duration) -> Result<DeviceSignInPoll, ApiError> {
+        let poll = self
+            .inner
+            .api(None)
+            .poll_device_sign_in(DEVICE_CLIENT_ID, &code.device_code, interval)?;
+        if let DeviceSignInPoll::SignedIn(token) = &poll {
+            self.adopt_session(token.clone(), None)?;
+        }
+        Ok(poll)
+    }
+
+    /// This PC → a phone: a one-time code for the phone to scan. Show `url`.
+    pub fn create_qr_sign_in(&self) -> Result<QrSignIn, ApiError> {
+        let api = self.inner.session()?;
+        self.inner.checked(api.create_qr_sign_in())
+    }
+
+    /// Whether the phone has scanned the code from `create_qr_sign_in`.
+    pub fn qr_sign_in_status(&self, token: &str) -> Result<QrSignInStatus, ApiError> {
+        let api = self.inner.session()?;
+        self.inner.checked(api.qr_sign_in_status(token))
+    }
+
+    /// Keeps a new session, then loads the account and syncs. Trouble after
+    /// keeping it is in `sync_error`.
+    fn adopt_session(&self, token: String, email: Option<String>) -> Result<(), ApiError> {
+        self.inner.config.vault.write(&token).map_err(ApiError::invalid)?;
+        *self.inner.token.lock().unwrap() = Some(token);
         self.inner.update(|state| {
             *state = AccountState {
                 signed_in: true,
-                email: Some(signed_in.user.email),
+                email,
                 ..AccountState::default()
             }
         });
