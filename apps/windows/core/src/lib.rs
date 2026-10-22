@@ -12,8 +12,10 @@ pub mod persistence;
 pub mod sender;
 pub mod store;
 
-pub use account::{AccountConfig, AccountState, AccountStore, CODE_LENGTH, WRONG_CODE};
-pub use api::{ApiClient, ApiError, ErrorCode, NetworkTransport, Transport};
+pub use account::{AccountConfig, AccountState, AccountStore, CODE_LENGTH, DEVICE_CLIENT_ID, WRONG_CODE};
+pub use api::{
+    ApiClient, ApiError, DeviceCode, DeviceSignInPoll, ErrorCode, NetworkTransport, QrSignIn, QrSignInStatus, Transport,
+};
 pub use live::{LiveStatus, merge_snapshot, merge_tap};
 pub use models::*;
 pub use persistence::{CredentialVault, FileVault, LocalPersistence, LocalSenderPersistence, SenderVaults};
