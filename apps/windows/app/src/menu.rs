@@ -6,10 +6,10 @@ use std::collections::HashMap;
 
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight, Hsla,
-    MouseButton, Pixels, Render, SharedString, Subscription, Window, div, prelude::*, px, svg,
+    Pixels, Render, SharedString, Subscription, Window, div, prelude::*, px, svg,
 };
 use shouldertap_core::{
-    ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, MAX_NAME_LENGTH, Patron, Phase,
+    AccountStore, ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, Patron, Phase,
     ReceiverStore, ResponseKind, SenderInvite, Tap, now_ms,
 };
 
@@ -19,10 +19,12 @@ use crate::platform::{self, TrayAnchor};
 use crate::qr::qr_code;
 use crate::send::{SendTarget, latest_status};
 use crate::shell::{Model, Shell};
-use crate::text_field::{TextField, TextFieldEvent};
 use crate::theme::{self, BRICOLAGE, Surface};
+use crate::welcome::WelcomeStep;
 
 pub const MIN_HEIGHT: f32 = 120.;
+/// `confirming` while asking before deleting the account.
+const DELETE_ACCOUNT: &str = "delete-account";
 /// Grow with the content, and scroll past this.
 const MAX_HEIGHT: f32 = 620.;
 
@@ -31,11 +33,9 @@ pub struct MenuView {
     anchor: Option<TrayAnchor>,
     focus: FocusHandle,
     height: f32,
-    // Setup
-    name: Entity<TextField>,
-    code: Entity<TextField>,
-    busy: bool,
-    error: Option<String>,
+    // Account
+    account_busy: bool,
+    account_error: Option<String>,
     // Optional support
     support_expanded: bool,
     plan_busy: bool,
@@ -46,10 +46,6 @@ pub struct MenuView {
     invite: Option<SenderInvite>,
     invite_copied: bool,
     invite_error: Option<String>,
-    // Add a device
-    device_code: Option<String>,
-    device_copied: bool,
-    device_error: Option<String>,
     // Pairings
     confirming: Option<String>,
     row_errors: HashMap<String, String>,
@@ -58,56 +54,25 @@ pub struct MenuView {
 
 impl MenuView {
     pub fn new(model: Entity<Model>, anchor: Option<TrayAnchor>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let surface = Surface::new(platform::is_dark(window));
-        let name = cx.new(|cx| {
-            TextField::new(cx, "Your first name, as senders will see it", MAX_NAME_LENGTH)
-                .colors(surface.tertiary, surface.primary)
-        });
-        let code = cx.new(|cx| {
-            TextField::new(cx, "Paste the pairing code from your other computer", 512)
-                .colors(surface.tertiary, surface.primary)
-        });
         let subscriptions = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
-            cx.subscribe(&name, |this, _, event, cx| match event {
-                TextFieldEvent::Submit => this.create_inbox(cx),
-                TextFieldEvent::Changed => cx.notify(),
-                TextFieldEvent::Cancel => Shell::close_menu(cx),
-            }),
-            cx.subscribe(&code, |this, _, event, cx| match event {
-                TextFieldEvent::Submit => this.join(cx),
-                TextFieldEvent::Changed => cx.notify(),
-                TextFieldEvent::Cancel => Shell::close_menu(cx),
-            }),
             // Like a flyout: clicking anywhere else closes it.
             cx.observe_window_activation(window, |_, window, cx| {
                 if !window.is_window_active() {
                     Shell::menu_deactivated(cx);
                 }
             }),
-            cx.observe_window_appearance(window, |this, window, cx| {
-                let surface = Surface::new(platform::is_dark(window));
-                for field in [&this.name, &this.code] {
-                    field.update(cx, |field, _| field.set_colors(surface.tertiary, surface.primary));
-                }
-                cx.notify();
-            }),
+            cx.observe_window_appearance(window, |_, _, cx| cx.notify()),
         ];
         let focus = cx.focus_handle();
-        if model.read(cx).state.phase == Phase::Setup {
-            window.focus(&name.focus_handle(cx));
-        } else {
-            window.focus(&focus);
-        }
+        window.focus(&focus);
         Self {
             model,
             anchor,
             focus,
             height: MIN_HEIGHT,
-            name,
-            code,
-            busy: false,
-            error: None,
+            account_busy: false,
+            account_error: None,
             support_expanded: false,
             plan_busy: false,
             plan_opened: false,
@@ -116,9 +81,6 @@ impl MenuView {
             invite: None,
             invite_copied: false,
             invite_error: None,
-            device_code: None,
-            device_copied: false,
-            device_error: None,
             confirming: None,
             row_errors: HashMap::new(),
             _subscriptions: subscriptions,
@@ -148,40 +110,56 @@ impl MenuView {
         .detach();
     }
 
-    // Setup
+    // Account
 
-    fn create_inbox(&mut self, cx: &mut Context<Self>) {
-        let name = self.name.read(cx).text().trim().to_string();
-        if name.is_empty() || self.busy {
-            return;
-        }
-        self.busy = true;
-        self.error = None;
-        self.run(
-            cx,
-            move |store| store.create_inbox(&name),
-            |this, result, _| {
-                this.busy = false;
-                this.error = result.err().map(|error| error.to_string());
-            },
-        );
+    /// Runs a blocking account command off the UI thread, then `done` on it.
+    fn run_account(
+        &mut self,
+        cx: &mut Context<Self>,
+        work: impl FnOnce(AccountStore) -> Result<(), ApiError> + Send + 'static,
+        done: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
+    ) {
+        self.account_busy = true;
+        self.account_error = None;
+        let account = self.model.read(cx).account.clone();
+        let task = cx.background_executor().spawn(async move { work(account) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.account_busy = false;
+                match result {
+                    Ok(()) => done(this, cx),
+                    Err(error) => this.account_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
-    fn join(&mut self, cx: &mut Context<Self>) {
-        let code = self.code.read(cx).text().trim().to_string();
-        if code.is_empty() || self.busy {
-            return;
-        }
-        self.busy = true;
-        self.error = None;
-        self.run(
-            cx,
-            move |store| store.join(&code),
-            |this, result, _| {
-                this.busy = false;
-                this.error = result.err().map(|error| error.to_string());
-            },
-        );
+    fn sync(&mut self, cx: &mut Context<Self>) {
+        // A failed sync shows in the account's own state.
+        let account = self.model.read(cx).account.clone();
+        self.account_busy = true;
+        let task = cx.background_executor().spawn(async move { account.sync() });
+        cx.spawn(async move |this, cx| {
+            let _ = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.account_busy = false;
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn sign_out(&mut self, cx: &mut Context<Self>) {
+        self.run_account(cx, |account| account.sign_out(), |_, _| {});
+    }
+
+    fn delete_account(&mut self, cx: &mut Context<Self>) {
+        self.run_account(cx, |account| account.delete_account(), |this, _| this.confirming = None);
     }
 
     // Plan
@@ -219,18 +197,6 @@ impl MenuView {
             |this, result, _| match result {
                 Ok(invite) => this.invite = Some(invite),
                 Err(error) => this.invite_error = Some(error.to_string()),
-            },
-        );
-    }
-
-    fn create_device_code(&mut self, cx: &mut Context<Self>) {
-        self.device_error = None;
-        self.run(
-            cx,
-            |store| store.create_device_code(),
-            |this, result, _| match result {
-                Ok(invite) => this.device_code = Some(invite.code),
-                Err(error) => this.device_error = Some(error.to_string()),
             },
         );
     }
@@ -287,8 +253,7 @@ impl Render for MenuView {
         let phase = self.model.read(cx).state.phase;
         let body: AnyElement = match phase {
             Phase::Loading => div().h(px(120.)).into_any_element(),
-            Phase::Setup => self.setup(s, window, cx).into_any_element(),
-            Phase::Ready => self.ready(s, cx).into_any_element(),
+            Phase::Setup | Phase::Ready => self.home(s, cx).into_any_element(),
         };
         let this = cx.entity();
         let content = div()
@@ -329,47 +294,12 @@ impl Render for MenuView {
 // Screens
 
 impl MenuView {
-    fn setup(&mut self, s: Surface, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let name_empty = self.name.read(cx).text().trim().is_empty();
-        let code_empty = self.code.read(cx).text().trim().is_empty();
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(16.))
-            .child(brand(s, "Welcome", None))
-            .child(muted(
-                s,
-                "People you trust can tap you on the shoulder. Their message covers your screens until you answer, and they see your reply right away.",
-            ))
-            .child(section(
-                s,
-                "Set up this PC",
-                vec![
-                    field(s, &self.name, window, cx),
-                    menu_button(s, "get-started", "Get started", None, Kind::Primary, true, self.busy || name_empty)
-                        .on_click(cx.listener(|this, _, _, cx| this.create_inbox(cx)))
-                        .into_any_element(),
-                ],
-            ))
-            .child(section(
-                s,
-                "Already set up on another computer?",
-                vec![
-                    field(s, &self.code, window, cx),
-                    menu_button(s, "pair", "Pair this PC", Some(Icon::AddDevice), Kind::Secondary, true, self.busy || code_empty)
-                        .on_click(cx.listener(|this, _, _, cx| this.join(cx)))
-                        .into_any_element(),
-                ],
-            ))
-            .when_some(self.error.clone(), |el, error| el.child(error_text(s, error)))
-            .when(self.busy, |el| el.child(muted(s, "Working…")))
-            // A PC can tap people without receiving any taps itself.
-            .child(self.you_can_tap(s, cx))
-            .child(self.footer(s, cx))
-    }
-
-    fn ready(&mut self, s: Surface, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Your people and taps once this PC receives; before that (signed out,
+    /// or the account still handing it a credential), what to do next.
+    fn home(&mut self, s: Surface, cx: &mut Context<Self>) -> impl IntoElement {
         let state = self.model.read(cx).state.clone();
+        let account = self.model.read(cx).account_state.clone();
+        let receiving = state.phase == Phase::Ready;
         let senders: Vec<Credential> = state
             .credentials
             .iter()
@@ -383,11 +313,12 @@ impl MenuView {
             .cloned()
             .collect();
         // Billing never changes the recipient name or messaging controls.
-        let subtitle = if state.recipient_name.is_empty() {
-            " ".to_string()
+        let name = if state.recipient_name.is_empty() {
+            account.profile().map(|profile| profile.name.clone())
         } else {
-            format!("Taps for {}", state.recipient_name)
+            Some(state.recipient_name.clone())
         };
+        let subtitle = name.map_or_else(|| " ".to_string(), |name| format!("Taps for {name}"));
 
         let mut people: Vec<AnyElement> = Vec::new();
         if senders.is_empty() {
@@ -397,11 +328,10 @@ impl MenuView {
                 people.push(self.pairing_row(s, sender, false, cx));
             }
         }
-        let mut your_devices: Vec<AnyElement> = devices
+        let your_devices: Vec<AnyElement> = devices
             .iter()
             .map(|device| self.pairing_row(s, device, Some(&device.id) == state.credential_id.as_ref(), cx))
             .collect();
-        your_devices.push(self.add_device(s, cx));
         let recent: Vec<AnyElement> = if state.taps.is_empty() {
             vec![muted(s, "Taps you receive show up here.").into_any_element()]
         } else {
@@ -409,20 +339,203 @@ impl MenuView {
         };
 
         let support = self.support(s, state.patron.as_ref(), cx);
+        let next_step = self.next_step(s, cx);
+        let receiving_sections: Vec<AnyElement> = if receiving {
+            vec![
+                support,
+                self.invite_sender(s, cx),
+                section(s, "Can tap you", people).into_any_element(),
+            ]
+        } else {
+            Vec::new()
+        };
+        let receiving_details: Vec<AnyElement> = if receiving {
+            vec![
+                section(s, "Your devices", your_devices).into_any_element(),
+                section(s, "Accessibility", vec![self.appearance_row(s, &state, cx)]).into_any_element(),
+                section(s, "Recent", recent).into_any_element(),
+            ]
+        } else {
+            Vec::new()
+        };
+        let account_section = account.signed_in.then(|| self.account_section(s, cx));
 
         div()
             .flex()
             .flex_col()
             .gap(px(16.))
-            .child(brand(s, &subtitle, Some(status_label(s, state.status))))
-            .child(support)
-            .child(self.invite_sender(s, cx))
-            .child(section(s, "Can tap you", people))
+            .child(brand(s, &subtitle, receiving.then(|| status_label(s, state.status))))
+            .children(next_step)
+            .children(receiving_sections)
             .child(self.you_can_tap(s, cx))
-            .child(section(s, "Your devices", your_devices))
-            .child(section(s, "Accessibility", vec![self.appearance_row(s, &state, cx)]))
-            .child(section(s, "Recent", recent))
+            .children(receiving_details)
+            .children(account_section)
             .child(self.footer(s, cx))
+    }
+
+    /// What this PC still needs from the person or the account, if anything.
+    fn next_step(&mut self, s: Surface, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let model = self.model.read(cx);
+        let account = model.account_state.clone();
+        let receiving = model.state.phase == Phase::Ready;
+        let tapping = !model.sender_state.sessions.is_empty();
+        let prompt = |text: &str, id: &'static str, label: &str, kind: Kind, step: WelcomeStep| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(muted(s, text))
+                .child(
+                    menu_button(s, id, label, None, kind, true, false)
+                        .on_click(move |_, _, cx| Shell::open_welcome(step, cx)),
+                )
+                .into_any_element()
+        };
+        if !account.signed_in {
+            return Some(if receiving || tapping {
+                prompt(
+                    "Sign in with your email to keep your people on every device.",
+                    "sign-in",
+                    "Sign in",
+                    Kind::Secondary,
+                    WelcomeStep::Email,
+                )
+            } else {
+                prompt(
+                    "People you trust can tap you on the shoulder. Their message covers your screens until you answer, and they see your reply right away.",
+                    "get-started",
+                    "Get started",
+                    Kind::Primary,
+                    WelcomeStep::Welcome,
+                )
+            });
+        }
+        if account.needs_profile() {
+            return Some(prompt(
+                "Pick your name and color to finish setting up.",
+                "finish-setup",
+                "Finish setting up",
+                Kind::Primary,
+                WelcomeStep::You,
+            ));
+        }
+        let error = account.sync_error.clone();
+        if receiving && error.is_none() {
+            return None;
+        }
+        let status = match (&error, account.me.is_some()) {
+            (Some(error), _) => error_text(s, error.clone()).into_any_element(),
+            (None, false) => muted(s, "Loading your account…").into_any_element(),
+            (None, true) => muted(s, "Setting up this PC…").into_any_element(),
+        };
+        let busy = self.account_busy;
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(status)
+                .when(error.is_some(), |el| {
+                    el.child(
+                        menu_button(
+                            s,
+                            "sync-again",
+                            if busy { "Trying…" } else { "Try again" },
+                            None,
+                            Kind::Secondary,
+                            true,
+                            busy,
+                        )
+                        .when(!busy, |button| {
+                            button.on_click(cx.listener(|this, _, _, cx| this.sync(cx)))
+                        }),
+                    )
+                })
+                .into_any_element(),
+        )
+    }
+
+    /// The email this PC is signed in with, signing out and deleting the
+    /// account. Neither touches the people this PC is connected to.
+    fn account_section(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
+        let email = self.model.read(cx).account_state.email.clone().unwrap_or_default();
+        let busy = self.account_busy;
+        let confirming = self.confirming.as_deref() == Some(DELETE_ACCOUNT);
+        let mut rows: Vec<AnyElement> = vec![
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .truncate()
+                        .child(email),
+                )
+                .child(
+                    menu_button(s, "sign-out", "Sign out", None, Kind::Plain, false, busy).when(!busy, |button| {
+                        button.on_click(cx.listener(|this, _, _, cx| this.sign_out(cx)))
+                    }),
+                )
+                .child(
+                    menu_button(s, "delete-account", "Delete account", None, Kind::Plain, false, busy).when(
+                        !busy,
+                        |button| {
+                            button.on_click(cx.listener(|this, _, _, cx| {
+                                this.account_error = None;
+                                this.confirming = Some(DELETE_ACCOUNT.into());
+                                cx.notify();
+                            }))
+                        },
+                    ),
+                )
+                .into_any_element(),
+        ];
+        if confirming {
+            rows.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(muted(
+                        s,
+                        "Deletes your account and signs out. This PC keeps receiving and tapping the people it's connected to.",
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.))
+                            .child(
+                                menu_button(
+                                    s,
+                                    "confirm-delete-account",
+                                    if busy { "Deleting…" } else { "Delete account" },
+                                    None,
+                                    Kind::Danger,
+                                    false,
+                                    busy,
+                                )
+                                .when(!busy, |button| {
+                                    button.on_click(cx.listener(|this, _, _, cx| this.delete_account(cx)))
+                                }),
+                            )
+                            .child(
+                                menu_button(s, "cancel-delete-account", "Cancel", None, Kind::Plain, false, false)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.confirming = None;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        if let Some(error) = self.account_error.clone() {
+            rows.push(error_text(s, error).into_any_element());
+        }
+        section(s, "Account", rows).into_any_element()
     }
 
     /// The people this PC can tap: each opens the Send window on them.
@@ -499,9 +612,7 @@ impl MenuView {
                                     "Add someone you can tap"
                                 }),
                         )
-                        .when(first, |el| {
-                            el.child(muted(s, "Got an invite link? Pair to tap them from this PC."))
-                        }),
+                        .when(first, |el| el.child(muted(s, "Got a link? Paste it to connect."))),
                 )
                 .into_any_element(),
         );
@@ -655,69 +766,6 @@ impl MenuView {
                             },
                         )),
                     ),
-            )
-            .into_any_element()
-    }
-
-    /// Another computer pastes the code; an iPhone scans the QR code, which
-    /// opens Shouldertap on it (`shouldertap://link#<code>`, the code in the
-    /// fragment like invite links).
-    fn add_device(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
-        let Some(code) = self.device_code.clone() else {
-            return div()
-                .flex()
-                .flex_col()
-                .child(
-                    row(s, "add-device")
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _, _, cx| this.create_device_code(cx)))
-                        .child(glyph(s, Icon::AddDevice))
-                        .child(
-                            div()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(s.secondary)
-                                .child("Add a Mac, PC or iPhone"),
-                        ),
-                )
-                .when_some(self.device_error.clone(), |el, error| el.child(error_text(s, error)))
-                .into_any_element();
-        };
-        let copy = code.clone();
-        card(s)
-            .mt(px(4.))
-            .child(qr_code(&format!("shouldertap://link#{code}"), px(148.)))
-            .child(muted_center(
-                s,
-                "Scan with your iPhone's camera to link it, or paste the code into Shouldertap on another Mac or PC. It works once and expires in 15 minutes.",
-            ))
-            .child(mono(s, &code))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(8.))
-                    .child(
-                        menu_button(
-                            s,
-                            "copy-code",
-                            if self.device_copied { "Copied" } else { "Copy code" },
-                            Some(Icon::Copy),
-                            Kind::Primary,
-                            false,
-                            false,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
-                            this.device_copied = true;
-                            cx.notify();
-                        })),
-                    )
-                    .child(menu_button(s, "code-done", "Done", None, Kind::Plain, false, false).on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.device_code = None;
-                            this.device_copied = false;
-                            cx.notify();
-                        },
-                    ))),
             )
             .into_any_element()
     }
@@ -1098,28 +1146,6 @@ fn card(s: Surface) -> gpui::Div {
         .bg(s.card)
         .border_1()
         .border_color(s.separator)
-}
-
-fn field(s: Surface, field: &Entity<TextField>, window: &Window, cx: &App) -> AnyElement {
-    let focused_border = if s.dark { rgb_hsla(0x6aa0ff) } else { rgb_hsla(0x2b66d9) };
-    let handle = field.focus_handle(cx);
-    let focused = handle.clone();
-    div()
-        .w_full()
-        .h(px(30.))
-        .px(px(9.))
-        .flex()
-        .items_center()
-        .rounded(px(6.))
-        .bg(s.card)
-        .border_1()
-        .border_color(s.separator)
-        .text_size(px(13.))
-        .line_height(px(18.))
-        .on_mouse_down(MouseButton::Left, move |_, window, _| window.focus(&focused))
-        .when(handle.is_focused(window), |el| el.border_color(focused_border))
-        .child(field.clone())
-        .into_any_element()
 }
 
 /// A person: a circle in their color with their initial in its ink.

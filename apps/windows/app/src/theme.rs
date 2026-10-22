@@ -45,7 +45,6 @@ pub const BRICOLAGE: &str = "Bricolage Grotesque";
 /// system's light or dark colors, with Bricolage only in the title.
 #[derive(Clone, Copy)]
 pub struct Surface {
-    pub dark: bool,
     pub background: Hsla,
     pub card: Hsla,
     pub separator: Hsla,
@@ -65,7 +64,6 @@ impl Surface {
         let hex = |value: u32| -> Hsla { rgb(value).into() };
         if dark {
             Self {
-                dark,
                 background: hex(0x202020),
                 card: hex(0x2c2c2c),
                 separator: hex(0x3a3a3a),
@@ -80,7 +78,6 @@ impl Surface {
             }
         } else {
             Self {
-                dark,
                 background: hex(0xf6f6f6),
                 card: hex(0xffffff),
                 separator: hex(0xe1e1e1),

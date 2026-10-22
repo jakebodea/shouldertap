@@ -187,9 +187,6 @@ pub fn run(directory: String, cx: &mut App) {
                     std::env::temp_dir().join("shouldertap-snapshots"),
                     None,
                 )),
-                device_name: Box::new(|| "Snapshot".into()),
-                platform: shouldertap_core::DevicePlatform::Windows,
-                machine: Box::new(|| None),
                 transport: std::sync::Arc::new(shouldertap_core::NetworkTransport::default()),
                 ack_retry_delay: Duration::from_secs(10),
             });
@@ -201,11 +198,24 @@ pub fn run(directory: String, cx: &mut App) {
                 )),
                 transport: std::sync::Arc::new(shouldertap_core::NetworkTransport::default()),
             });
+            let account = shouldertap_core::AccountStore::new(shouldertap_core::AccountConfig {
+                server: "http://127.0.0.1:9".into(),
+                vault: Box::new(shouldertap_core::FileVault::new(
+                    std::env::temp_dir().join("shouldertap-snapshots/account.secret"),
+                )),
+                transport: std::sync::Arc::new(shouldertap_core::NetworkTransport::default()),
+                platform: shouldertap_core::DevicePlatform::Windows,
+                device_name: Box::new(|| "Snapshot".into()),
+                receiver: store.clone(),
+                senders: senders.clone(),
+            });
             let model = cx.new(|_| crate::shell::Model {
                 state: store.state(),
                 store,
                 sender_state: senders.state(),
                 senders,
+                account_state: account.state(),
+                account,
                 updates: Default::default(),
                 launch_at_login: false,
             });

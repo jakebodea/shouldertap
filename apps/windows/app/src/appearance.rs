@@ -5,8 +5,7 @@ use std::time::Instant;
 
 use gpui::{App, Context, Entity, FontWeight, Render, Subscription, Window, div, prelude::*, px};
 use shouldertap_core::{
-    ActiveTap, ApiError, CredentialKind, MotionPreference, PersonColor, Tap, TapState,
-    UpdateAppearance, now_ms,
+    ActiveTap, ApiError, CredentialKind, MotionPreference, PersonColor, Tap, TapState, UpdateAppearance, now_ms,
 };
 
 use crate::menu::{Kind, error_text, menu_button, muted};

@@ -2,7 +2,7 @@
 
 use futures::channel::mpsc::UnboundedSender;
 use gpui::{App, Bounds, Pixels, Window, WindowAppearance, point, px, size};
-use shouldertap_core::{CredentialVault, SenderVaults};
+use shouldertap_core::{CredentialVault, FileVault, SenderVaults};
 
 use super::{MENU_WIDTH, PlatformEvent, TrayAnchor};
 use crate::mark::Knock;
@@ -37,6 +37,11 @@ pub fn vault() -> Option<Box<dyn CredentialVault>> {
     None
 }
 
+/// The account session in an owner-only file while developing.
+pub fn account_vault() -> Box<dyn CredentialVault> {
+    Box::new(FileVault::new(crate::config::data_dir().join("account.secret")))
+}
+
 /// Sender tokens stay in the owner-only `senders.secret` while developing.
 pub fn sender_vaults() -> Option<SenderVaults> {
     None
@@ -44,10 +49,6 @@ pub fn sender_vaults() -> Option<SenderVaults> {
 
 pub fn device_name() -> String {
     "Dev PC".into()
-}
-
-pub fn hardware_id() -> Option<String> {
-    None
 }
 
 pub fn reduce_motion() -> bool {
