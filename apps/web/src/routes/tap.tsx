@@ -42,7 +42,7 @@ import {
   needsSignIn,
   syncThisBrowser,
 } from "@/lib/account";
-import { revokePairing } from "@/lib/api";
+import { removePerson } from "@/lib/api";
 import {
   loadPairing,
   loadPairings,
@@ -276,11 +276,11 @@ const Composer = ({
     if (
       // oxlint-disable-next-line no-alert -- a native confirm is right for this rare action
       window.confirm(
-        `Stop sending taps to ${pairing.recipientName} from this phone?`
+        `Stop tapping ${pairing.recipientName}? This removes them from all your devices.`
       )
     ) {
       onUnpair();
-      revokePairing(pairing);
+      removePerson(pairing);
     }
   };
 

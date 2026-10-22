@@ -196,6 +196,14 @@ export class AccountClient {
     return this.request<AcceptResult>("POST", "/account/accept", request);
   }
 
+  /**
+   * Stops tapping someone from every device on the account. `id` is the
+   * sender id from sync or accept (`${inboxId}:${credentialId}`).
+   */
+  removePerson(id: string) {
+    return this.request<{ removed: true }>("POST", "/account/remove", { id });
+  }
+
   private async request<A>(
     method: "GET" | "POST",
     path: string,
