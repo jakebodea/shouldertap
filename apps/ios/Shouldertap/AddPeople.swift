@@ -10,7 +10,8 @@ struct AddPeople: View {
   let inbox: ReceiverStore
   let senders: SenderStore
   let color: PersonColor
-  /// A link was pasted or scanned: accept it.
+  /// A link was pasted or scanned: accept it, or (a computer's sign-in code,
+  /// scanned) confirm signing that computer in. See `RootView.open(scanned:)`.
   let onInvite: (String) -> Void
   var onClose: (() -> Void)?
 
@@ -198,19 +199,32 @@ struct AcceptInvite: View {
   }
 }
 
-/// The camera, over everything in your frame. Takes only invite links
-/// (https://shouldertap.app/join#… or shouldertap://join#…); any other QR
-/// code keeps it scanning.
+/// An invite link (https://shouldertap.app/join#… or shouldertap://join#…).
+nonisolated func isInvite(_ value: String) -> Bool {
+  guard let url = URL(string: value), url.path == "/join" || url.host == "join" else { return false }
+  return inviteCode(from: value) != nil
+}
+
+/// What an in-app scanner takes once you're signed in: an invite, or a
+/// computer's "Sign in with your phone" code (docs/onboarding.md).
+nonisolated func isInviteOrComputerSignIn(_ value: String) -> Bool {
+  isInvite(value) || deviceSignInCode(from: value) != nil
+}
+
+/// The camera, over everything in your frame. `accepts` decides which QR
+/// codes it takes; any other keeps it scanning.
 struct ScanScreen: View {
   let color: PersonColor
-  let onInvite: (String) -> Void
+  var copy = ScanCopy.invite
+  var accepts: (String) -> Bool = isInviteOrComputerSignIn
+  let onScan: (String) -> Void
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
     Frame(color: color) {
       VStack(spacing: 0) {
         FrameBar {
-          Text("Scan their invite").font(Bricolage.extraBold(19)).tracking(-0.6)
+          Text(copy.title).font(Bricolage.extraBold(19)).tracking(-0.6)
         } trailing: {
           Button { dismiss() } label: { IconView(icon: .close, size: 18) }
             .buttonStyle(FrameButtonStyle(iconOnly: true))
@@ -218,11 +232,9 @@ struct ScanScreen: View {
             .accessibilityIdentifier("scan-cancel")
         }
         VStack(alignment: .leading, spacing: 16) {
-          QRScanner { value in
-            guard let url = URL(string: value), url.path == "/join" || url.host == "join",
-              inviteCode(from: value) != nil
-            else { return false }
-            onInvite(value)
+          QRScanner(copy: copy) { value in
+            guard accepts(value) else { return false }
+            onScan(value)
             return true
           }
           Spacer(minLength: 0)

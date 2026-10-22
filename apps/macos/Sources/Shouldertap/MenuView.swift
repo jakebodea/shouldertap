@@ -354,6 +354,7 @@ private struct AccountSection: View {
         Spacer(minLength: 0)
         MenuButton(title: "Sign out", kind: .plain) { Task { await account.signOut() } }
       }
+      PhoneSignIn(account: account)
       if confirming {
         Muted("Deletes your account. Taps already on this Mac stay here. Cancel an active membership first.")
         HStack(spacing: 8) {
@@ -369,6 +370,94 @@ private struct AccountSection: View {
         MenuButton(title: "Delete account…", kind: .plain) { confirming = true }
       }
       if let error = account.error { ErrorText(error) }
+    }
+  }
+}
+
+/// "Sign in on your phone" (docs/onboarding.md, "Computer → phone"): a
+/// one-time QR code the iPhone app scans to sign in as you. It works once,
+/// for 2 minutes; this watches for it to be used every 2 seconds.
+private struct PhoneSignIn: View {
+  let account: AccountStore
+
+  private enum Phase: Equatable {
+    case idle
+    case showing(QrSignIn)
+    case used(SignInDevice?)
+    case expired
+  }
+
+  @State private var phase = Phase.idle
+  @State private var loading = false
+  @State private var error: String?
+
+  var body: some View {
+    switch phase {
+    case .idle:
+      VStack(alignment: .leading, spacing: 8) {
+        MenuButton(title: loading ? "Making a code…" : "Sign in on your phone", icon: .phone, kind: .secondary, action: show)
+          .disabled(loading)
+        if let error { ErrorText(error) }
+      }
+    case .showing(let qr):
+      Card {
+        if let image = QRCode.image(for: qr.url) {
+          Image(nsImage: image)
+            .interpolation(.none)
+            .resizable()
+            .frame(width: 176, height: 176)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .accessibilityLabel("QR code to sign in on your phone")
+        }
+        Muted("Scan with the Shouldertap app on your iPhone. Works once, for 2 minutes.")
+          .multilineTextAlignment(.center)
+        if let error { ErrorText(error) }
+        MenuButton(title: "Done", kind: .plain) { phase = .idle }
+      }
+      .task(id: qr.token) { await watch(qr) }
+    case .used(let device):
+      Card {
+        Text("Signed in on your \(device?.rawValue ?? "phone")").font(.system(size: 13, weight: .semibold))
+        MenuButton(title: "Done", kind: .plain) { phase = .idle }
+      }
+    case .expired:
+      Card {
+        Muted("That code expired.")
+        HStack(spacing: 8) {
+          MenuButton(title: "Show a new code", kind: .primary, action: show)
+          MenuButton(title: "Done", kind: .plain) { phase = .idle }
+        }
+      }
+    }
+  }
+
+  private func show() {
+    loading = true
+    error = nil
+    Task {
+      defer { loading = false }
+      do { phase = .showing(try await account.createQrSignIn()) } catch { self.error = error.localizedDescription }
+    }
+  }
+
+  /// Polls until the code is used or expires, or the card goes away.
+  private func watch(_ qr: QrSignIn) async {
+    while (try? await Task.sleep(for: .seconds(2))) != nil {
+      do {
+        let status = try await account.qrSignInStatus(token: qr.token)
+        error = nil
+        switch status.status {
+        case .pending: continue
+        case .used: phase = .used(status.device); return
+        case .expired: phase = .expired; return
+        }
+      } catch is CancellationError {
+        return
+      } catch {
+        // A blip; keep watching until it expires.
+        self.error = error.localizedDescription
+        if Date.now.timeIntervalSince1970 * 1000 > qr.expiresAt { phase = .expired; return }
+      }
     }
   }
 }
