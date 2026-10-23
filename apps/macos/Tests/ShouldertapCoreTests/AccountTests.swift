@@ -409,6 +409,32 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     ])
   }
 
+  /// The server refuses a cookie without an Origin, which only browsers send:
+  /// the bearer is the session, and no cookie is sent or kept.
+  @Test func sendsTheBearerButNeverASessionCookie() async throws {
+    let server = try await LocalServer { head in
+      head.hasPrefix("POST /api/auth/qr-sign-in/create ")
+        ? (["Set-Cookie: session_token=fresh; Path=/"], #"{"token":"Ab12Cd34Ef56Gh78","url":"https://shouldertap.app/qr#Ab12Cd34Ef56Gh78","expiresAt":1790000000000}"#)
+        : (["Set-Cookie: session_token=fresh; Path=/"], jakeMe)
+    }
+    defer { server.stop() }
+    let config = URLSessionConfiguration.ephemeral
+    let jar = config.httpCookieStorage!
+    jar.setCookie(HTTPCookie(properties: [.domain: "127.0.0.1", .path: "/", .name: "session_token", .value: "saved"])!)
+    let vault = MemoryVault()
+    try vault.write("account-session")
+    let account = AccountStore(server: server.url, vault: vault, session: URLSession(configuration: config))
+
+    let qr = try await account.createQrSignIn()
+
+    let create = try #require(server.requests.first { $0.hasPrefix("POST /api/auth/qr-sign-in/create ") })
+    let headers = create.lowercased()
+    #expect(qr.token == "Ab12Cd34Ef56Gh78")
+    #expect(headers.contains("authorization: bearer account-session"))
+    #expect(!headers.contains("cookie:"))
+    #expect(jar.cookies?.map(\.value) == ["saved"])
+  }
+
   @Test func aComputerWaitsSlowsDownThenSignsInOnceThePhoneApproves() async throws {
     let vault = MemoryVault()
     let bodies = Bodies()
