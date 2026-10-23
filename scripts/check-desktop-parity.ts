@@ -47,6 +47,8 @@ export const desktopLabels = {
     "Account",
     "Sign out",
     "Sign in on your phone",
+    "Patron themes",
+    "Explore patron themes",
     "App",
     "Open at login",
     "Check for Updates…",
