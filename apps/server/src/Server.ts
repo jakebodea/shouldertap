@@ -32,6 +32,7 @@ import { createAccountAuth } from "./account-auth";
 import {
   accountBilling,
   checkoutAvailable,
+  checkoutFlagValue,
   patronCheckoutConfig,
 } from "./account-billing";
 import { deleteAccount } from "./account-delete";
@@ -103,7 +104,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
         ACCOUNT_DB: accountDatabase,
         ACCOUNT_SECRET: accountSecret,
         ACCOUNT_PRODUCTION: production ? "true" : "false",
-        PATRON_CHECKOUT_ENABLED: production ? "true" : "false",
+        PATRON_CHECKOUT_ENABLED: checkoutFlagValue(production),
         ...(production
           ? {
               ACCOUNT_EMAIL: yield* Cloudflare.Email.SendEmail("AccountEmail", {

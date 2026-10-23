@@ -6,7 +6,6 @@ import {
 } from "@shouldertap/domain";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 
 import {
   accountResources,
@@ -31,15 +30,13 @@ interface Dependencies {
   origin: string;
 }
 
-// Alchemy's runtime env decoder can turn the text "true" into a boolean.
-// Accept both boundary representations before building the Worker.
-export const patronCheckoutConfig = Config.schema(
-  Schema.Boolean,
+// Alchemy parses JSON primitives during init. Use non-JSON boolean text so
+// Config.Boolean receives the same representation during plan and runtime.
+export const checkoutFlagValue = (enabled: boolean) => (enabled ? "yes" : "no");
+
+export const patronCheckoutConfig = Config.Boolean(
   "PATRON_CHECKOUT_ENABLED"
-).pipe(
-  Config.orElse(() => Config.Boolean("PATRON_CHECKOUT_ENABLED")),
-  Config.withDefault(false)
-);
+).pipe(Config.withDefault(false));
 
 /** New checkout needs the flag and a configured patron product; every page reads this. */
 export const checkoutAvailable = (
