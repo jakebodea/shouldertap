@@ -145,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NotificationCenter.default.addObserver(
       forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
     ) { [weak self] _ in
-      MainActor.assumeIsolated { Task { await self?.patron.refresh() } }
+      MainActor.assumeIsolated { self?.refreshPatron() }
     }
 
     if !account.signedIn {
@@ -159,6 +159,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       await patron.refresh()
       if account.signedIn, let me = account.me, me.profile == nil { welcomeOrOpenPopover() }
     }
+  }
+
+  private func refreshPatron() {
+    Task { await patron.refresh() }
   }
 
   /// Brings this Mac's inbox and sender keys in step with the account.
