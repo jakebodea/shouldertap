@@ -70,7 +70,7 @@ describe("request API context", () => {
           Type: "test",
           id: "request-api",
           env: {},
-          get: () => Effect.succeed(),
+          get: () => Effect.die("Unexpected runtime lookup"),
           set: (id) => Effect.succeed(id),
         }),
         Effect.provideService(Exec, initial)
