@@ -22,6 +22,7 @@ import {
 import type { PatronPlan } from "@/lib/account-flow";
 import { failureMessage } from "@/lib/onboarding";
 import { loadPairings } from "@/lib/pairing";
+import { qrTokenFromFragment } from "@/lib/qr-sign-in";
 import { loadPatronKey, savePatronKey } from "@/lib/sender-style";
 import { useCheckoutEnabled } from "@/lib/use-patron";
 
@@ -690,7 +691,21 @@ const Account = () => {
 export const Route = createFileRoute("/account")({
   component: Account,
   // Read once per visit: the query, or an intent remembered before sign-in.
-  loader: () => ({
-    intent: resolveIntent(localStorage, window.location.search, Date.now()),
-  }),
+  // The Shouldertap app opens this page with a one-time sign-in code in the
+  // fragment (`#<token>`), so this browser starts signed in to the same account.
+  loader: async () => {
+    const handoff = qrTokenFromFragment(window.location.hash);
+    if (handoff) {
+      history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search
+      );
+      // Used or expired: the sign-in form takes over.
+      await account.redeemQrSignIn(handoff, "web").catch(() => null);
+    }
+    return {
+      intent: resolveIntent(localStorage, window.location.search, Date.now()),
+    };
+  },
 });

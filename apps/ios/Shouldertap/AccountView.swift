@@ -10,6 +10,8 @@ struct AccountView: View {
   @State private var usStorefront = false
   @State private var confirmDeletion = false
   @State private var signingInComputer = false
+  @State private var openingPatron = false
+  @Environment(\.openURL) private var openURL
 
   var body: some View {
     Form {
@@ -32,10 +34,11 @@ struct AccountView: View {
         }
       }
       if usStorefront, account.checkoutEnabled {
-        // Purchases happen on the web; this only opens the account page.
+        // Purchases happen on the web; this only opens the account page,
+        // signed in to this account.
         Section("Patron") {
-          Link("Become a patron or manage your membership",
-            destination: Config.web.appending(path: "/account").appending(queryItems: [URLQueryItem(name: "intent", value: "patron")]))
+          Button("Become a patron or manage your membership") { Task { await openPatronPage() } }
+            .disabled(openingPatron)
         }
       }
       Section {
@@ -63,6 +66,23 @@ struct AccountView: View {
     } message: {
       Text("Deletes your account. The people you tap and your inbox stay on this iPhone until you remove them. Cancel an active membership first.")
     }
+  }
+}
+
+extension AccountView {
+  /// The website's account page, with a one-time sign-in code in the
+  /// fragment so the browser starts signed in. Without one (offline, signed
+  /// out), the page asks for an email instead.
+  fileprivate func openPatronPage() async {
+    openingPatron = true
+    defer { openingPatron = false }
+    var page = Config.web.appending(path: "/account").appending(queryItems: [URLQueryItem(name: "intent", value: "patron")])
+    if let handoff = try? await account.createQrSignIn() {
+      var components = URLComponents(url: page, resolvingAgainstBaseURL: false)
+      components?.fragment = handoff.token
+      page = components?.url ?? page
+    }
+    openURL(page)
   }
 }
 

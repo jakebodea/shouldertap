@@ -81,6 +81,13 @@ export const browserDeviceName = (userAgent: string, maxTouchPoints = 0) => {
   return system ? `${browser} on ${system}` : browser;
 };
 
+/**
+ * A phone has no other phone to sign in with: its Shouldertap app hands
+ * this browser a session instead (`/account#<token>`).
+ */
+export const isPhoneBrowser = (userAgent: string) =>
+  /iPhone|Android.+Mobile/u.test(userAgent);
+
 export const OFFLINE_MESSAGE =
   "Couldn't reach Shouldertap. Check your connection and try again.";
 
