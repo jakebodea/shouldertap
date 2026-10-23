@@ -380,8 +380,27 @@ export class AccountClient {
     });
   }
 
+  /** Each account membership with its billing state. */
+  patronStatus() {
+    return this.request<{
+      memberships: {
+        id: string;
+        name: string;
+        status: {
+          patron: {
+            status: string;
+            paidUntil: number | null;
+            canManage: boolean;
+            canSubscribe: boolean;
+          };
+        };
+      }[];
+      checkoutEnabled: boolean;
+    }>("GET", "/account/patron/status");
+  }
+
   /** The billing portal for one of the account's memberships. */
-  managePatron(patronId?: string) {
+  managePatron(patronId: string) {
     return this.request<{ url: string }>("POST", "/account/patron/manage", {
       patronId,
     });

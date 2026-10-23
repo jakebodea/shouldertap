@@ -127,7 +127,9 @@ interface MembershipChoice {
 }
 
 /** Only enable choices that the available billing facts let a person distinguish. */
-export const membershipChoices = (memberships: readonly MembershipChoice[]) => {
+export const membershipChoices = <M extends MembershipChoice>(
+  memberships: readonly M[]
+) => {
   const labels: Record<string, string> = {
     none: "No subscription",
     active: "Active",

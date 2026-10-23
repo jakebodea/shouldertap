@@ -29,7 +29,12 @@ const accountOrigin = import.meta.env.VITE_SERVER_URL;
 interface Resource {
   id: string;
   name: string;
-  billing?: { status: string; paidUntil: number | null };
+  billing?: {
+    status: string;
+    paidUntil: number | null;
+    canManage: boolean;
+    canSubscribe: boolean;
+  };
 }
 
 /** A result line next to the action that caused it. */
@@ -48,8 +53,8 @@ const leaveForStyle = () => {
 
 const PatronPanel = ({
   plan,
-  localPatronId,
   memberships,
+  checkoutEnabled,
   busy,
   canStyle,
   notice,
@@ -59,41 +64,32 @@ const PatronPanel = ({
   onManage,
 }: {
   plan: PatronPlan;
-  localPatronId: string | null;
   memberships: readonly Resource[];
+  checkoutEnabled: boolean;
   busy: boolean;
   canStyle: boolean;
   notice?: string;
   onUse: (patronId: string) => void;
   onSave: () => void;
-  onCheckout: () => void;
-  onManage: (patronId?: string) => void;
+  onCheckout: (patronId?: string) => void;
+  onManage: (patronId: string) => void;
 }) => {
   const style = canStyle ? (
     <a className="pill pill-ink" href="/style" onClick={leaveForStyle}>
       Continue to Style
     </a>
   ) : null;
-  const manage = (patronId?: string) => (
-    <button
-      className="pill"
-      disabled={busy}
-      onClick={() => {
-        onManage(patronId);
-      }}
-      type="button"
-    >
-      Manage billing
-    </button>
+  // Billing belongs to each account membership, whatever this browser holds.
+  const billing = membershipChoices(memberships).filter(
+    (membership) =>
+      membership.billing?.canManage ||
+      (checkoutEnabled && membership.billing?.canSubscribe)
   );
   const body: Record<PatronPlan["kind"], ReactNode> = {
     here: (
       <>
         <p>Your membership is on this browser.</p>
-        <Actions>
-          {style}
-          {manage(localPatronId ?? undefined)}
-        </Actions>
+        <Actions>{style}</Actions>
       </>
     ),
     use: (
@@ -112,7 +108,6 @@ const PatronPanel = ({
           >
             Use membership on this browser
           </button>
-          {manage(plan.kind === "use" ? plan.patronId : undefined)}
         </Actions>
       </>
     ),
@@ -128,17 +123,14 @@ const PatronPanel = ({
               <strong>{membership.name}</strong>
               <p className="text-tone text-sm">{membership.detail}</p>
             </div>
-            <Actions>
-              <button
-                className="pill"
-                disabled={busy || !membership.canChoose}
-                type="button"
-                onClick={() => onUse(membership.id)}
-              >
-                Use this membership
-              </button>
-              {manage(membership.id)}
-            </Actions>
+            <button
+              className="pill"
+              disabled={busy || !membership.canChoose}
+              type="button"
+              onClick={() => onUse(membership.id)}
+            >
+              Use this membership
+            </button>
           </div>
         ))}
         {membershipChoices(memberships).some(
@@ -196,7 +188,9 @@ const PatronPanel = ({
           <button
             className="pill pill-ink"
             disabled={busy}
-            onClick={onCheckout}
+            onClick={() => {
+              onCheckout();
+            }}
             type="button"
           >
             Continue to checkout
@@ -209,6 +203,48 @@ const PatronPanel = ({
   return (
     <DocSection title="Patron">
       {body[plan.kind]}
+      {billing.length ? (
+        <div className="flex flex-col">
+          <h3 className="text-tone text-sm font-bold">Billing</h3>
+          {billing.map((membership) => (
+            <div
+              className="border-line flex flex-wrap items-center justify-between gap-3 border-b py-4"
+              key={membership.id}
+            >
+              <div>
+                <strong>{membership.name}</strong>
+                <p className="text-tone text-sm">{membership.detail}</p>
+              </div>
+              <Actions>
+                {checkoutEnabled && membership.billing?.canSubscribe ? (
+                  <button
+                    className="pill pill-ink"
+                    disabled={busy}
+                    onClick={() => {
+                      onCheckout(membership.id);
+                    }}
+                    type="button"
+                  >
+                    Continue to checkout
+                  </button>
+                ) : null}
+                {membership.billing?.canManage ? (
+                  <button
+                    className="pill"
+                    disabled={busy}
+                    onClick={() => {
+                      onManage(membership.id);
+                    }}
+                    type="button"
+                  >
+                    Manage billing
+                  </button>
+                ) : null}
+              </Actions>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <Notice>{notice}</Notice>
     </DocSection>
   );
@@ -358,7 +394,7 @@ const DeleteSection = ({ onDeleted }: { onDeleted: () => void }) => {
   );
 };
 
-/** The account's patron memberships, with billing facts when ambiguous. */
+/** The account's patron memberships, with their billing facts. */
 const loadMemberships = async (): Promise<Resource[]> => {
   const saved = await fetch(`${accountOrigin}/account/data`, {
     credentials: "include",
@@ -370,20 +406,14 @@ const loadMemberships = async (): Promise<Resource[]> => {
   let billing: {
     memberships: {
       id: string;
-      status: { patron: { status: string; paidUntil: number | null } };
+      status: { patron: NonNullable<Resource["billing"]> };
     }[];
   } | null = null;
-  if (data.patrons.length > 1) {
+  if (data.patrons.length) {
     try {
-      const billingResponse = await fetch(
-        `${accountOrigin}/account/patron/status`,
-        { credentials: "include" }
-      );
-      if (billingResponse.ok) {
-        billing = await billingResponse.json();
-      }
+      billing = await account.patronStatus();
     } catch {
-      /* Keep ambiguous choices disabled when billing is unavailable. */
+      /* Without billing facts, choices stay disabled and billing hidden. */
     }
   }
   return data.patrons.map((item) => ({
@@ -544,8 +574,12 @@ const SignedIn = ({
       key="patron"
       memberships={patrons}
       notice={notice}
-      localPatronId={localPatronId}
-      onCheckout={() => saveMembership(true)}
+      checkoutEnabled={checkoutEnabled}
+      onCheckout={(patronId) =>
+        patronId
+          ? openBilling(() => account.patronCheckout(patronId))
+          : saveMembership(true)
+      }
       onManage={(patronId) => openBilling(() => account.managePatron(patronId))}
       onSave={() => saveMembership()}
       onUse={addMembership}
