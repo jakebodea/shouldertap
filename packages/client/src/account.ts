@@ -388,6 +388,7 @@ export class AccountClient {
         name: string;
         status: {
           patron: {
+            active: boolean;
             status: string;
             paidUntil: number | null;
             canManage: boolean;

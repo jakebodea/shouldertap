@@ -17,7 +17,7 @@ Every client signs in the same way: the person enters their email, gets a six-di
 
 The account is the person. Its profile (name and color, `account_profile`) is asked once; saving it creates the person's inbox with no device. `/account/sync` links a device: it saves the tokens the device already holds to the account, issues a device credential for the person's inbox when the device receives, and issues the device its own sender key for each connection it lacks. Accepting an invite (`/account/accept`) connects both people: a sender in the inviter's inbox for the person accepting and one in theirs for the inviter, each with that person's profile. The two Inbox objects share no transaction, so the reverse half is created first and revoked if redeeming the invite fails.
 
-There is one account page, the website's `/account` (with `/account/device` for approving a device's code). The API origin serves no pages.
+There is one account page, the website's `/account` (with `/account/device` for approving a device's code). The API origin serves no pages. The iPhone app opens it signed in: it makes a one-time QR sign-in code and puts it in the fragment (`/account?intent=patron#<token>`), which the page redeems for this browser before loading. Phone browsers don't offer "Sign in with your phone".
 
 Existing Inbox and SenderPatron credentials remain valid. Signing in does not prove ownership of an existing inbox or purchase. Saving a device's credentials requires both a verified email session and the valid credentials; another account's resources cannot be adopted (sync skips them).
 

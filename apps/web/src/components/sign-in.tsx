@@ -11,6 +11,7 @@ import {
   CODE_LENGTH,
   codeFailureMessage,
   failureMessage,
+  isPhoneBrowser,
   otpDigits,
 } from "@/lib/onboarding";
 import { afterDevicePoll } from "@/lib/qr-sign-in";
@@ -157,14 +158,16 @@ const EmailStep = ({
         >
           {pending ? "Sending…" : "Send code"}
         </button>
-        <button
-          className="pill w-full"
-          disabled={pending}
-          onClick={onPhone}
-          type="button"
-        >
-          Sign in with your phone
-        </button>
+        {isPhoneBrowser(navigator.userAgent) ? null : (
+          <button
+            className="pill w-full"
+            disabled={pending}
+            onClick={onPhone}
+            type="button"
+          >
+            Sign in with your phone
+          </button>
+        )}
         <Terms />
       </div>
     </form>

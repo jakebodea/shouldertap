@@ -10,6 +10,9 @@ struct AccountView: View {
   @State private var usStorefront = false
   @State private var confirmDeletion = false
   @State private var signingInComputer = false
+  @State private var openingPatron = false
+  @State private var patronError: String?
+  @Environment(\.openURL) private var openURL
 
   var body: some View {
     Form {
@@ -32,10 +35,15 @@ struct AccountView: View {
         }
       }
       if usStorefront, account.checkoutEnabled {
-        // Purchases happen on the web; this only opens the account page.
-        Section("Patron") {
-          Link("Become a patron or manage your membership",
-            destination: Config.web.appending(path: "/account").appending(queryItems: [URLQueryItem(name: "intent", value: "patron")]))
+        // Purchases happen on the web; this only opens the account page,
+        // signed in to this account.
+        Section {
+          Button("Become a patron or manage your membership") { Task { await openPatronPage() } }
+            .disabled(openingPatron)
+        } header: {
+          Text("Patron")
+        } footer: {
+          if let patronError { Text(patronError).foregroundStyle(.red) }
         }
       }
       Section {
@@ -62,6 +70,27 @@ struct AccountView: View {
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("Deletes your account. The people you tap and your inbox stay on this iPhone until you remove them. Cancel an active membership first.")
+    }
+  }
+}
+
+extension AccountView {
+  /// The website's account page, with a one-time sign-in code in the
+  /// fragment so the browser opens signed in to this account. Never opens
+  /// without one: Safari may be signed in to someone else.
+  fileprivate func openPatronPage() async {
+    openingPatron = true
+    patronError = nil
+    defer { openingPatron = false }
+    let page = Config.web.appending(path: "/account").appending(queryItems: [URLQueryItem(name: "intent", value: "patron")])
+    do {
+      let handoff = try await account.createQrSignIn()
+      var components = URLComponents(url: page, resolvingAgainstBaseURL: false)
+      components?.fragment = handoff.token
+      guard let signedIn = components?.url else { throw URLError(.badURL) }
+      openURL(signedIn)
+    } catch {
+      patronError = "Couldn’t open your account page. Try again."
     }
   }
 }

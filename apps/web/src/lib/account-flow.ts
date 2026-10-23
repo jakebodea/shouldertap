@@ -61,47 +61,78 @@ export const forgetIntent = (storage: Store) => {
 };
 
 /**
- * What the account page offers for patron support on this browser. A
- * membership already here is never replaced by another one, and checkout is
- * offered only when the server says it is open.
+ * What the account page offers for patron support on this browser. Only an
+ * active membership makes someone a patron: an account can hold a membership
+ * with no subscription (a checkout that was never finished), and that one is
+ * offered for checkout, not for use. A membership already on this browser is
+ * never replaced by another one, and checkout is offered only when the
+ * server says it is open.
  */
 export type PatronPlan =
-  /** This browser holds one of the account's memberships. */
+  /** This browser holds one of the account's active memberships. */
   | { kind: "here" }
-  /** The account has a membership this browser can add. */
+  /** The account has an active membership this browser can add. */
   | { kind: "use"; patronId: string }
-  /** More than one membership requires an explicit choice. */
+  /** More than one active membership requires an explicit choice. */
   | { kind: "choose" }
-  /** This browser has a different membership; it stays. */
-  | { kind: "kept" }
+  /**
+   * This browser holds another membership, which stays. `saved`: it is
+   * already on the account (just not active).
+   */
+  | { kind: "kept"; saved: boolean }
   /** This browser's membership isn't saved to the account yet. */
   | { kind: "save" }
-  | { kind: "checkout" }
+  /**
+   * Not active, and the server won't sell another subscription (paused, or
+   * still being billed): manage it instead.
+   */
+  | { kind: "lapsed" }
+  /** Not a patron: subscribe, reusing the account's unpaid membership. */
+  | { kind: "checkout"; patronId?: string }
   | { kind: "soon" };
 
 export const patronPlan = ({
   localPatronId,
-  accountPatronIds,
+  memberships,
   checkoutEnabled,
 }: {
   localPatronId: string | null;
-  accountPatronIds: readonly string[];
+  /** Billing facts; unknown (billing didn't load) counts as active. */
+  memberships: readonly {
+    id: string;
+    active: boolean;
+    canSubscribe: boolean;
+  }[];
   checkoutEnabled: boolean;
 }): PatronPlan => {
-  if (localPatronId) {
-    if (accountPatronIds.includes(localPatronId)) {
-      return { kind: "here" };
-    }
-    return accountPatronIds.length ? { kind: "kept" } : { kind: "save" };
+  const active = memberships.filter((m) => m.active).map((m) => m.id);
+  const saved = memberships.some((m) => m.id === localPatronId);
+  if (localPatronId && active.includes(localPatronId)) {
+    return { kind: "here" };
   }
-  if (accountPatronIds.length > 1) {
+  // Never replace a membership already on this browser.
+  if (localPatronId && active.length) {
+    return { kind: "kept", saved };
+  }
+  if (localPatronId && !saved) {
+    return { kind: "save" };
+  }
+  if (active.length > 1) {
     return { kind: "choose" };
   }
-  const [first] = accountPatronIds;
+  const [first] = active;
   if (first) {
     return { kind: "use", patronId: first };
   }
-  return checkoutEnabled ? { kind: "checkout" } : { kind: "soon" };
+  // The server sells a subscription only when every membership allows one.
+  if (memberships.some((m) => !m.canSubscribe)) {
+    return { kind: "lapsed" };
+  }
+  if (!checkoutEnabled) {
+    return { kind: "soon" };
+  }
+  const unpaid = localPatronId ?? memberships[0]?.id;
+  return unpaid ? { kind: "checkout", patronId: unpaid } : { kind: "checkout" };
 };
 
 /** Style's patron call to action for a sender without an active membership. */

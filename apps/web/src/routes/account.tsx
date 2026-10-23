@@ -22,6 +22,7 @@ import {
 import type { PatronPlan } from "@/lib/account-flow";
 import { failureMessage } from "@/lib/onboarding";
 import { loadPairings } from "@/lib/pairing";
+import { qrTokenFromFragment } from "@/lib/qr-sign-in";
 import { loadPatronKey, savePatronKey } from "@/lib/sender-style";
 import { useCheckoutEnabled } from "@/lib/use-patron";
 
@@ -31,6 +32,7 @@ interface Resource {
   id: string;
   name: string;
   billing?: {
+    active: boolean;
     status: string;
     paidUntil: number | null;
     canManage: boolean;
@@ -55,7 +57,6 @@ const leaveForStyle = () => {
 const PatronPanel = ({
   plan,
   memberships,
-  checkoutEnabled,
   busy,
   canStyle,
   notice,
@@ -66,7 +67,6 @@ const PatronPanel = ({
 }: {
   plan: PatronPlan;
   memberships: readonly Resource[];
-  checkoutEnabled: boolean;
   busy: boolean;
   canStyle: boolean;
   notice?: string;
@@ -80,22 +80,27 @@ const PatronPanel = ({
       Continue to Style
     </a>
   ) : null;
-  // Billing belongs to each account membership, whatever this browser holds.
+  // Every membership with a subscription can be managed, whatever this
+  // browser holds; the plan above covers starting one.
   const billing = membershipChoices(memberships).filter(
-    (membership) =>
-      membership.billing?.canManage ||
-      (checkoutEnabled && membership.billing?.canSubscribe)
+    (membership) => membership.billing?.canManage
+  );
+  const active = memberships.filter(
+    (membership) => membership.billing?.active ?? true
   );
   const body: Record<PatronPlan["kind"], ReactNode> = {
     here: (
       <>
-        <p>Your membership is on this browser.</p>
+        <p>You’re a patron, and your membership is on this browser.</p>
         <Actions>{style}</Actions>
       </>
     ),
     use: (
       <>
-        <p>Your account has a patron membership.</p>
+        <p>
+          You’re a patron. Use your membership on this browser to send taps in a
+          theme.
+        </p>
         <Actions>
           <button
             className="pill pill-ink"
@@ -114,8 +119,8 @@ const PatronPanel = ({
     ),
     choose: (
       <>
-        <p>Choose the membership to use on this browser.</p>
-        {membershipChoices(memberships).map((membership) => (
+        <p>You’re a patron. Choose the membership to use on this browser.</p>
+        {membershipChoices(active).map((membership) => (
           <div
             className="border-line flex flex-wrap items-center justify-between gap-3 border-t py-4"
             key={membership.id}
@@ -134,7 +139,7 @@ const PatronPanel = ({
             </button>
           </div>
         ))}
-        {membershipChoices(memberships).some(
+        {membershipChoices(active).some(
           (membership) => !membership.canChoose
         ) ? (
           <p>
@@ -147,18 +152,20 @@ const PatronPanel = ({
     kept: (
       <>
         <p>
-          This browser has a different membership from your account. It stays on
-          this browser.
+          You’re a patron, but this browser holds a different membership. It
+          stays on this browser.
         </p>
         <Actions>
-          <button
-            className="pill"
-            disabled={busy}
-            onClick={onSave}
-            type="button"
-          >
-            Save membership to my account
-          </button>
+          {plan.kind === "kept" && !plan.saved ? (
+            <button
+              className="pill"
+              disabled={busy}
+              onClick={onSave}
+              type="button"
+            >
+              Save membership to my account
+            </button>
+          ) : null}
           {style}
         </Actions>
       </>
@@ -182,24 +189,29 @@ const PatronPanel = ({
     checkout: (
       <>
         <p>
-          Patrons can send their taps in a theme, to everyone they tap.
-          $2/month, billed $24 annually.
+          You’re not a patron yet. Patrons can send their taps in a theme, to
+          everyone they tap. $2/month, billed $24 annually.
         </p>
         <Actions>
           <button
             className="pill pill-ink"
             disabled={busy}
             onClick={() => {
-              onCheckout();
+              onCheckout(plan.kind === "checkout" ? plan.patronId : undefined);
             }}
             type="button"
           >
-            Continue to checkout
+            Become a patron
           </button>
         </Actions>
       </>
     ),
-    soon: <p>Patron memberships open soon.</p>,
+    lapsed: (
+      <p>
+        Your membership isn’t active. Manage billing below to restart or fix it.
+      </p>
+    ),
+    soon: <p>You’re not a patron yet. Patron memberships open soon.</p>,
   };
   return (
     <DocSection title="Patron">
@@ -216,32 +228,16 @@ const PatronPanel = ({
                 <strong>{membership.name}</strong>
                 <p className="text-tone text-sm">{membership.detail}</p>
               </div>
-              <Actions>
-                {checkoutEnabled && membership.billing?.canSubscribe ? (
-                  <button
-                    className="pill pill-ink"
-                    disabled={busy}
-                    onClick={() => {
-                      onCheckout(membership.id);
-                    }}
-                    type="button"
-                  >
-                    Continue to checkout
-                  </button>
-                ) : null}
-                {membership.billing?.canManage ? (
-                  <button
-                    className="pill"
-                    disabled={busy}
-                    onClick={() => {
-                      onManage(membership.id);
-                    }}
-                    type="button"
-                  >
-                    Manage billing
-                  </button>
-                ) : null}
-              </Actions>
+              <button
+                className="pill"
+                disabled={busy}
+                onClick={() => {
+                  onManage(membership.id);
+                }}
+                type="button"
+              >
+                Manage billing
+              </button>
             </div>
           ))}
         </div>
@@ -461,7 +457,11 @@ const SignedIn = ({
   const localPatronId = parsePatronKey(patronKey ?? "")?.patronId ?? null;
   const plan = patronPlan({
     localPatronId,
-    accountPatronIds: patrons.map((p) => p.id),
+    memberships: patrons.map((p) => ({
+      id: p.id,
+      active: p.billing?.active ?? true,
+      canSubscribe: p.billing?.canSubscribe ?? false,
+    })),
     checkoutEnabled,
   });
 
@@ -577,7 +577,6 @@ const SignedIn = ({
       key="patron"
       memberships={patrons}
       notice={notice}
-      checkoutEnabled={checkoutEnabled}
       onCheckout={(patronId) =>
         patronId
           ? openBilling(() => account.patronCheckout(patronId))
@@ -617,9 +616,10 @@ const SignedIn = ({
 };
 
 const Account = () => {
-  const { intent } = Route.useLoaderData();
+  const { intent, handoffFailed } = Route.useLoaderData();
   const [session, setSession] = useState<Session | "loading">("loading");
   const [color, setColor] = useState<PersonColor>("cobalt");
+  const [confirmAccount, setConfirmAccount] = useState(handoffFailed);
   const refresh = useCallback(async () => {
     setSession("loading");
     setSession(await loadSession());
@@ -637,6 +637,40 @@ const Account = () => {
     return (
       <DocPage title="Your account.">
         <output className="text-tone block py-8">Checking your sign-in…</output>
+      </DocPage>
+    );
+  }
+  if (confirmAccount && session.kind === "signed-in") {
+    return (
+      <DocPage title="Your account.">
+        <DocSection title="That sign-in from the app expired">
+          <p>
+            This browser is signed in as {session.me.email}. Continue with that
+            account, or sign out and sign in again.
+          </p>
+          <Actions>
+            <button
+              className="pill pill-ink"
+              onClick={() => {
+                setConfirmAccount(false);
+              }}
+              type="button"
+            >
+              Continue as {session.me.email}
+            </button>
+            <button
+              className="pill"
+              onClick={async () => {
+                setConfirmAccount(false);
+                await account.signOut().catch(() => null);
+                signedOut();
+              }}
+              type="button"
+            >
+              Sign out
+            </button>
+          </Actions>
+        </DocSection>
       </DocPage>
     );
   }
@@ -690,7 +724,28 @@ const Account = () => {
 export const Route = createFileRoute("/account")({
   component: Account,
   // Read once per visit: the query, or an intent remembered before sign-in.
-  loader: () => ({
-    intent: resolveIntent(localStorage, window.location.search, Date.now()),
-  }),
+  // The Shouldertap app opens this page with a one-time sign-in code in the
+  // fragment (`#<token>`), so this browser starts signed in to the same account.
+  loader: async () => {
+    const handoff = qrTokenFromFragment(window.location.hash);
+    let handoffFailed = false;
+    if (handoff) {
+      history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search
+      );
+      try {
+        await account.redeemQrSignIn(handoff, "web");
+      } catch {
+        // Used or expired. Never fall through to whoever this browser was
+        // signed in as before: the page asks first.
+        handoffFailed = true;
+      }
+    }
+    return {
+      intent: resolveIntent(localStorage, window.location.search, Date.now()),
+      handoffFailed,
+    };
+  },
 });
