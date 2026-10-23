@@ -5,10 +5,11 @@ import { DocPage, DocSection, EmailLink } from "@/components/document";
 // Keep this in step with what the code stores: apps/server/src/schema.ts,
 // apps/server/src/retention.ts, apps/server/src/Inbox.ts (limits),
 // apps/server/src/TrialLedger.ts (one trial per Mac),
-// apps/web/src/lib/pairing.ts, apps/web/src/lib/use-sender.ts, and the Mac app.
+// apps/web/src/lib/pairing.ts, apps/web/src/lib/use-sender.ts,
+// apps/server/src/analytics.ts (what goes to PostHog), and the Mac app.
 const PrivacyComponent = () => (
   <DocPage
-    effective="October 21, 2026"
+    effective="October 23, 2026"
     intro="Shouldertap is run by Jake Bodea, an individual. This page explains what Shouldertap stores, why, and who can see it. It describes how the service works today; if that changes, this page changes first."
     title="Privacy Policy"
   >
@@ -20,7 +21,11 @@ const PrivacyComponent = () => (
           subscriptions require an account. We also receive email addresses
           through support and billing.
         </li>
-        <li>No analytics, advertising, or tracking scripts.</li>
+        <li>
+          No advertising or tracking scripts. Our servers count product events,
+          like a tap being sent, in PostHog using random IDs only: never your
+          name, email address, or messages.
+        </li>
         <li>
           We store what the service needs to work: names, colors, the taps you
           send, and the answers to them.
@@ -225,6 +230,17 @@ const PrivacyComponent = () => (
           <b>Apple Push Notification service</b> delivers taps to a linked
           iPhone. Apple receives the sender&apos;s name and color and the
           tap&apos;s text to show it on the phone.
+        </li>
+        <li>
+          <b>PostHog</b> receives product events from our servers, not from your
+          browser or device: when an account or inbox is created, an invite is
+          accepted, a tap is sent or answered (and which quick reply or a text
+          reply was used, but not its text), and patron subscription changes.
+          Each event carries only random IDs (account, inbox, sender, device,
+          tap), whether a tap used a theme, the device type, and the time.
+          Names, email addresses, tap text and replies are never sent, nor is
+          your IP address. We use these events to understand how Shouldertap is
+          used and to notify ourselves of sign-ups and subscriptions.
         </li>
         <li>
           Support mail is routed through Cloudflare and forwarded to Gmail,

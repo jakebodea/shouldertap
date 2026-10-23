@@ -10,6 +10,7 @@ import type { CredentialGrant, PersonColor } from "@shouldertap/domain";
 import * as Effect from "effect/Effect";
 
 import { accountResources, claimAccountResource } from "./account-identity";
+import type { Track } from "./analytics";
 import type { InboxRpc } from "./Inbox";
 
 /** Account-first onboarding (docs/onboarding.md): the account is the person,
@@ -18,6 +19,11 @@ import type { InboxRpc } from "./Inbox";
 interface Dependencies {
   db: D1Database;
   inboxes: { getByName: (id: string) => InboxRpc };
+}
+
+/** Actions that create people or connections report them. */
+interface TrackedDependencies extends Dependencies {
+  track: Track;
 }
 
 export interface Profile {
@@ -141,7 +147,7 @@ const parseProfile = (input: Record<string, unknown>) => {
 };
 
 export const saveProfile = Effect.fn(function* saveProfile(
-  { db, inboxes }: Dependencies,
+  { db, inboxes, track }: TrackedDependencies,
   userId: string,
   input: Record<string, unknown>
 ) {
@@ -169,9 +175,15 @@ export const saveProfile = Effect.fn(function* saveProfile(
     );
   } else {
     const inboxId = yield* accountInboxId(userId);
-    yield* inboxes
+    const { created } = yield* inboxes
       .getByName(inboxId)
       .initializeForAccount(inboxId, profile.name);
+    if (created) {
+      yield* track(
+        { name: "inbox_created", inboxId, userId, platform: null },
+        Date.now()
+      );
+    }
     yield* claimAccountResource(db, userId, {
       kind: "inbox",
       id: inboxId,
@@ -390,7 +402,7 @@ export const invitePreview = Effect.fn(function* invitePreview(
  * removed again if redeeming the invite fails.
  */
 export const acceptInvite = Effect.fn(function* acceptInvite(
-  { db, inboxes }: Dependencies,
+  { db, inboxes, track }: TrackedDependencies,
   userId: string,
   input: Record<string, unknown>
 ) {
@@ -452,6 +464,17 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
       name: grant.recipientName,
     });
     sender = { id, grant, name: profile.name, color: profile.color };
+    yield* track(
+      {
+        name: "invite_redeemed",
+        inboxId: code.inboxId,
+        credentialId: grant.credentialId,
+        kind: grant.kind,
+        userId,
+        platform: null,
+      },
+      Date.now()
+    );
   }
   if (reverse && inviter) {
     yield* claimAccountResource(db, inviter.userId, {
@@ -492,7 +515,7 @@ export const removePerson = Effect.fn(function* removePerson(
 
 /** Route actions for docs/onboarding.md; null when the path isn't one. */
 export const peopleAction = (
-  deps: Dependencies,
+  deps: TrackedDependencies,
   userId: string,
   action: string,
   body: unknown
