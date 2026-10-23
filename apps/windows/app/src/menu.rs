@@ -16,6 +16,7 @@ use shouldertap_core::{
 
 use crate::assets::{Icon, MARK_PATH};
 use crate::config;
+use crate::patron;
 use crate::platform::{self, HOME_SIZE, MENU_WIDTH, TrayAnchor};
 use crate::qr::qr_code;
 use crate::send::{SendTarget, latest_status};
@@ -286,6 +287,31 @@ impl MenuView {
                 }
             },
         );
+    }
+
+    /// Patron checkout or billing in the browser.
+    fn open_patron_page(&mut self, manage: bool, cx: &mut Context<Self>) {
+        self.plan_busy = true;
+        self.plan_error = None;
+        self.plan_notice = None;
+        let patrons = self.model.read(cx).patron.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { if manage { patrons.manage() } else { patrons.checkout() } });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.plan_busy = false;
+                match result {
+                    Ok(url) => cx.open_url(&url),
+                    Err(error) if error.code == ErrorCode::Conflict => this.plan_notice = Some(error.message),
+                    Err(error) => this.plan_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     // Pairing
@@ -1059,25 +1085,71 @@ impl MenuView {
             .into_any_element()
     }
 
+    /// Patron themes: become a patron or manage it, choose the style taps go
+    /// in, and earlier receiver-owned support as it was.
     fn support(&mut self, s: Surface, patron: Option<&Patron>, cx: &mut Context<Self>) -> AnyElement {
-        let mut actions: Vec<AnyElement> = vec![
+        let model = self.model.read(cx);
+        let signed_in = model.account_state.signed_in;
+        let state = model.patron_state.clone();
+        let busy = self.plan_busy;
+        let mut lines: Vec<AnyElement> = Vec::new();
+        if !signed_in {
+            lines.push(muted(s, "Sign in to become a patron.").into_any_element());
+        } else if state.active {
+            lines.push(muted(s, "You're a patron. Thank you.").into_any_element());
+            if let Some(renewal) = state.membership.as_ref().and_then(patron::renewal) {
+                lines.push(muted(s, &renewal).into_any_element());
+            }
+            lines.push(
+                menu_button(
+                    s,
+                    "manage-billing",
+                    "Manage billing",
+                    None,
+                    Kind::Secondary,
+                    false,
+                    busy,
+                )
+                .when(!busy, |button| {
+                    button.on_click(cx.listener(|this, _, _, cx| this.open_patron_page(true, cx)))
+                })
+                .into_any_element(),
+            );
+        } else {
+            lines.push(
+                muted(
+                    s,
+                    "Shouldertap is free, kept running by patrons. Patrons' taps can arrive as a front page, a poster, a console or a handwritten note.",
+                )
+                .into_any_element(),
+            );
+            if state.checkout_enabled {
+                lines.push(
+                    menu_button(s, "become-patron", "Become a patron", None, Kind::Primary, false, busy)
+                        .when(!busy, |button| {
+                            button.on_click(cx.listener(|this, _, _, cx| this.open_patron_page(false, cx)))
+                        })
+                        .into_any_element(),
+                );
+            } else {
+                lines.push(muted(s, "Patron memberships open soon.").into_any_element());
+            }
+        }
+        lines.push(
             menu_button(
                 s,
-                "patron-options",
-                "Explore patron themes",
+                "choose-style",
+                "Choose tap style",
                 None,
                 Kind::Secondary,
                 false,
                 false,
             )
-            .on_click(|_, _, cx| {
-                let web = config::endpoints().web;
-                cx.open_url(&format!("{}/account?intent=patron", web.trim_end_matches('/')));
-            })
+            .on_click(|_, _, cx| Shell::open_style(cx))
             .into_any_element(),
-        ];
+        );
         if patron.is_some_and(|p| p.can_manage) {
-            actions.push(
+            lines.push(
                 menu_button(
                     s,
                     "manage-support",
@@ -1085,7 +1157,7 @@ impl MenuView {
                     None,
                     Kind::Plain,
                     false,
-                    self.plan_busy,
+                    busy,
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.manage_support(cx)))
                 .into_any_element(),
@@ -1096,11 +1168,7 @@ impl MenuView {
             .flex_col()
             .gap(px(6.))
             .child(div().font_weight(FontWeight::SEMIBOLD).child("Patron themes"))
-            .child(muted(
-                s,
-                "Choose and send patron themes from the website. Receiving and answering taps is always free.",
-            ))
-            .children(actions)
+            .children(lines)
             .children(self.plan_messages(s))
             .into_any_element()
     }

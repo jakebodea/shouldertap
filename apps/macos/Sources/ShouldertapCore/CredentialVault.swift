@@ -58,3 +58,25 @@ public struct KeychainVault: CredentialVault {
     SecItemDelete(match as CFDictionary)
   }
 }
+
+/// One owner-only file, for builds that can't use the Keychain without a
+/// prompt after every update (ad-hoc signed).
+public struct FileVault: CredentialVault {
+  private let url: URL
+
+  public init(url: URL) { self.url = url }
+
+  public func read() -> String? {
+    (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+  }
+
+  public func write(_ token: String) throws {
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(token.utf8).write(to: url, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+  }
+
+  public func delete() {
+    try? FileManager.default.removeItem(at: url)
+  }
+}

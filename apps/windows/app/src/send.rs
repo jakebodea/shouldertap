@@ -2,21 +2,25 @@
 //! ComposeView (apps/web's tap.tsx). The sender's color frames it
 //! (docs/design.md, "Sender (Mac and Windows)"): people as chips on the
 //! frame's top edge with Add someone beside them, and the composer or
-//! accepting an invite (docs/onboarding.md) on the paper page.
+//! accepting an invite (docs/onboarding.md) on the paper page. Under Send
+//! tap, the style taps go in: patron themes (docs/design.md, "Tap themes"),
+//! chosen in the Tap style sheet.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, FontWeight, Hsla, MouseButton, Render, SharedString,
-    Subscription, Window, div, prelude::*, px, svg,
+    Subscription, Task, Window, div, prelude::*, px, svg,
 };
 use shouldertap_core::{
-    AccountStore, ApiError, InvitePreview, LiveStatus, MAX_TAP_LENGTH, OutgoingTap, PersonColor, ResponseKind,
-    SenderSession, SenderState, SenderStore, Tap, TapState, Timestamp, invite_code, now_ms, token_inbox_id,
+    AccountStore, ApiError, InvitePreview, LiveStatus, MAX_TAP_LENGTH, OutgoingTap, PatronStore, PersonColor,
+    ResponseKind, SenderSession, SenderState, SenderStore, Tap, TapState, TapTheme, Timestamp, invite_code, now_ms,
+    token_inbox_id,
 };
 
 use crate::assets::{Icon, MARK_PATH};
+use crate::patron;
 use crate::shell::{Model, Shell};
 use crate::text_field::{TextField, TextFieldEvent};
 use crate::theme::{self, BRICOLAGE, paper};
@@ -27,6 +31,8 @@ use crate::welcome::WelcomeStep;
 pub enum SendTarget {
     Person(String),
     Add,
+    /// The Tap style sheet, over whoever's composer shows.
+    Style,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,6 +50,13 @@ enum Focus {
 
 /// The countdown appears this close to the limit.
 const COUNTDOWN_FROM: usize = 40;
+/// A dismissed nudge fades this long (seconds).
+const NUDGE_FADE: f32 = 0.18;
+/// Thumbnails of the overlay, a 1440×900 display scaled down.
+const THUMB_W: f32 = 88.;
+const THUMB_H: f32 = 55.;
+/// Long after any arrival: a settled theme.
+const SETTLED: f32 = 10.;
 
 pub struct SendView {
     model: Entity<Model>,
@@ -68,11 +81,28 @@ pub struct SendView {
     action_error: Option<String>,
     focus: FocusHandle,
     pending_focus: Option<Focus>,
+    // Patron themes
+    /// A tap went out from this window: a nudge may follow.
+    sent_here: bool,
+    /// When the nudge was dismissed, while it fades.
+    nudge_fade: Option<Instant>,
+    /// The Tap style sheet shows in place of the composer.
+    style_open: bool,
+    style_selected: TapTheme,
+    /// When the sheet's large preview last arrived (Replay restarts it).
+    style_started: Instant,
+    /// When the Style row's cycle started; its redraws.
+    cycle_started: Instant,
+    _cycle: Option<Task<()>>,
+    /// The previews' reply field, never shown.
+    preview_reply: Entity<TextField>,
+    patron_busy: bool,
+    patron_error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl SendView {
-    pub fn new(model: Entity<Model>, target: SendTarget, cx: &mut Context<Self>) -> Self {
+    pub fn new(model: Entity<Model>, target: SendTarget, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let field = |cx: &mut Context<Self>, placeholder: &str, limit: usize| {
             let placeholder = placeholder.to_string();
             cx.new(move |cx| TextField::new(cx, placeholder, limit).colors(paper::tone(), paper::ink()))
@@ -83,8 +113,15 @@ impl SendView {
                 .colors(paper::tone(), paper::ink())
         });
         let invite = field(cx, "Paste the invite link they sent you", 512);
+        let preview_reply = field(cx, "", 0);
         let subscriptions = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
+            // Back from the browser (a checkout, say): where the membership stands.
+            cx.observe_window_activation(window, |this: &mut Self, window, cx| {
+                if window.is_window_active() {
+                    this.model.read(cx).refresh_patron();
+                }
+            }),
             cx.subscribe(&composer, |this, _, event, cx| match event {
                 TextFieldEvent::Submit => this.send(cx),
                 TextFieldEvent::Changed => {
@@ -109,6 +146,7 @@ impl SendView {
             }
         })
         .detach();
+        let cycle = (!patron::reduces_motion(model.read(cx))).then(|| patron::cycle_ticks(cx));
         let mut view = Self {
             model,
             selected: None,
@@ -126,6 +164,16 @@ impl SendView {
             action_error: None,
             focus: cx.focus_handle(),
             pending_focus: None,
+            sent_here: false,
+            nudge_fade: None,
+            style_open: false,
+            style_selected: TapTheme::Default,
+            style_started: Instant::now(),
+            cycle_started: Instant::now(),
+            _cycle: cycle,
+            preview_reply,
+            patron_busy: false,
+            patron_error: None,
             _subscriptions: subscriptions,
         };
         view.show(target, cx);
@@ -140,6 +188,10 @@ impl SendView {
         self.model.read(cx).account.clone()
     }
 
+    fn patron(&self, cx: &App) -> PatronStore {
+        self.model.read(cx).patron.clone()
+    }
+
     /// Your own color (picked once, on the account), framing the window
     /// while there's no one to tap.
     fn own_color(&self, cx: &App) -> PersonColor {
@@ -151,6 +203,12 @@ impl SendView {
         match target {
             SendTarget::Person(id) => self.select(id, cx),
             SendTarget::Add => self.start_adding(cx),
+            SendTarget::Style => {
+                if self.adding {
+                    self.cancel_adding(cx);
+                }
+                self.open_style(cx);
+            }
         }
     }
 
@@ -206,6 +264,7 @@ impl SendView {
             self.invite.update(cx, |field, cx| field.set_text(code.trim(), cx));
         }
         self.adding = true;
+        self.style_open = false;
         self.accept_error = None;
         self.confirming = None;
         self.pending_focus = Some(Focus::Invite);
@@ -256,11 +315,13 @@ impl SendView {
         if draft.trim().is_empty() {
             return;
         }
-        match self.senders(cx).send(session.id(), &draft) {
+        let theme = self.model.read(cx).patron_state.sending_theme();
+        match self.senders(cx).send(session.id(), &draft, theme) {
             Ok(()) => {
                 self.composer.update(cx, |field, cx| field.clear(cx));
                 self.drafts.remove(session.id());
                 self.send_error = None;
+                self.sent_here = true;
             }
             Err(error) => self.send_error = Some(error.to_string()),
         }
@@ -429,7 +490,8 @@ impl Render for SendView {
             .map(SenderSession::color)
             .unwrap_or_else(|| self.own_color(cx));
         let page: Vec<AnyElement> = match &current {
-            Some(session) => self.composer_page(session, &state, cx),
+            Some(session) if self.style_open => self.style_page(session, window, cx),
+            Some(session) => self.composer_page(session, &state, window, cx),
             None => self.accept_page(&state, frame, cx),
         };
         div()
@@ -529,6 +591,7 @@ impl SendView {
         &mut self,
         session: &SenderSession,
         state: &SenderState,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let recipient = session.pairing.recipient_name.clone();
@@ -607,9 +670,13 @@ impl SendView {
                         .child("Ctrl+Enter sends"),
                 )
                 .when_some(self.send_error.clone(), |el, error| el.child(danger_text(error)))
+                .child(self.style_row(session, &draft, window, cx))
                 .into_any_element(),
         );
 
+        if let Some(nudge) = self.nudge(color, window, cx) {
+            page.push(nudge);
+        }
         page.push(self.recent(session, cx));
         page.push(self.options(session, cx));
         page
@@ -906,6 +973,417 @@ impl SendView {
             )
             .when_some(self.action_error.clone(), |el, error| el.child(danger_text(error)))
             .into_any_element()
+    }
+}
+
+// Patron themes
+
+impl SendView {
+    fn open_style(&mut self, cx: &mut Context<Self>) {
+        self.style_open = true;
+        self.style_selected = self.model.read(cx).patron_state.sending_theme();
+        self.style_started = Instant::now();
+        self.patron_error = None;
+        self.model.read(cx).refresh_patron();
+        cx.notify();
+    }
+
+    /// Development snapshots: as if a tap just went out from here, and with
+    /// a theme picked in the Style sheet.
+    #[cfg(not(windows))]
+    pub(crate) fn snapshot(&mut self, sent: bool, style: Option<TapTheme>) {
+        self.sent_here = sent;
+        if let Some(theme) = style {
+            self.style_open = true;
+            self.style_selected = theme;
+        }
+    }
+
+    /// Checkout in the browser; coming back refreshes the membership.
+    fn become_patron(&mut self, cx: &mut Context<Self>) {
+        if self.patron_busy {
+            return;
+        }
+        self.patron_busy = true;
+        self.patron_error = None;
+        let patrons = self.patron(cx);
+        let task = cx.background_executor().spawn(async move { patrons.checkout() });
+        self.open_in_browser(task, cx);
+    }
+
+    fn manage_billing(&mut self, cx: &mut Context<Self>) {
+        if self.patron_busy {
+            return;
+        }
+        self.patron_busy = true;
+        self.patron_error = None;
+        let patrons = self.patron(cx);
+        let task = cx.background_executor().spawn(async move { patrons.manage() });
+        self.open_in_browser(task, cx);
+    }
+
+    fn open_in_browser(&mut self, task: Task<Result<String, ApiError>>, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.patron_busy = false;
+                match result {
+                    Ok(url) => cx.open_url(&url),
+                    Err(error) => this.patron_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Dismissed or acted on: counts as shown, then fades.
+    fn dismiss_nudge(&mut self, cx: &mut Context<Self>) {
+        self.patron(cx).nudge_shown();
+        let reduce = patron::reduces_motion(self.model.read(cx));
+        self.nudge_fade = (!reduce).then(Instant::now);
+        cx.notify();
+    }
+
+    /// The Style row: a live thumbnail of the draft in the theme it goes in,
+    /// or the patron themes cycling while it goes in Default.
+    fn style_row(
+        &mut self,
+        session: &SenderSession,
+        draft: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let model = self.model.read(cx);
+        let chosen = model.patron_state.sending_theme();
+        let reduce = patron::reduces_motion(model);
+        let (shown, elapsed, title, subtitle) = if chosen.is_paid() {
+            (
+                chosen,
+                SETTLED,
+                format!("Style: {}", chosen.label()),
+                "How everyone you tap sees it",
+            )
+        } else {
+            let (shown, elapsed) = patron::cycle_at(self.cycle_started, reduce);
+            (shown, elapsed, format!("Send it as {}", shown.label()), "Patron themes")
+        };
+        let body = if draft.trim().is_empty() {
+            patron::SAMPLE
+        } else {
+            draft.trim()
+        };
+        let thumbnail = patron::preview(
+            shown,
+            patron::sample(&session.pairing.sender_name, session.color(), body),
+            THUMB_W,
+            THUMB_H,
+            elapsed,
+            reduce,
+            &self.preview_reply,
+            8.,
+            window,
+            cx,
+        );
+        div()
+            .id("style-row")
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .p(px(8.))
+            .rounded(px(16.))
+            .bg(paper::faint())
+            .cursor_pointer()
+            .hover(|style| style.bg(paper::line()))
+            .on_click(cx.listener(|this, _, _, cx| this.open_style(cx)))
+            .child(thumbnail)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .child(div().font_weight(FontWeight::BOLD).text_size(px(15.)).child(title))
+                    .child(tone_text(subtitle).text_size(px(13.))),
+            )
+            .child(
+                div()
+                    .pr(px(8.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(paper::tone())
+                    .child("›"),
+            )
+            .into_any_element()
+    }
+
+    /// After a send, now and then: a quiet ask. Never on a received tap.
+    fn nudge(&mut self, color: PersonColor, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let opacity = match self.nudge_fade {
+            Some(at) => {
+                let t = at.elapsed().as_secs_f32() / NUDGE_FADE;
+                if t >= 1. {
+                    self.nudge_fade = None;
+                    return None;
+                }
+                window.request_animation_frame();
+                1. - t
+            }
+            None if self.sent_here && self.model.read(cx).patron_state.nudge_due() => 1.,
+            None => return None,
+        };
+        let fading = self.nudge_fade.is_some();
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .p(px(16.))
+                .rounded(px(16.))
+                .bg(paper::faint())
+                .opacity(opacity)
+                .child(
+                    div()
+                        .font_weight(FontWeight::BOLD)
+                        .text_size(px(17.))
+                        .child("Enjoying Shouldertap?"),
+                )
+                .child(tone_text(
+                    "It's free, and patrons keep it that way. If you'd like to chip in $2 a month, your taps can arrive in Broadsheet, Billboard, Terminal or Note.",
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(
+                            pill("nudge-patron", "Become a patron", None, Some(color), fading).when(!fading, |pill| {
+                                pill.on_click(cx.listener(|this, _, _, cx| {
+                                    this.become_patron(cx);
+                                    this.dismiss_nudge(cx);
+                                }))
+                            }),
+                        )
+                        .child(
+                            div()
+                                .id("nudge-not-now")
+                                .px(px(12.))
+                                .font_weight(FontWeight::BOLD)
+                                .text_size(px(14.))
+                                .text_color(paper::tone())
+                                .when(!fading, |button| {
+                                    button
+                                        .cursor_pointer()
+                                        .hover(|style| style.text_color(paper::ink()))
+                                        .on_click(cx.listener(|this, _, _, cx| this.dismiss_nudge(cx)))
+                                })
+                                .child("Not now"),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// Tap style: how your taps look on everyone's screens, chosen here.
+    fn style_page(&mut self, session: &SenderSession, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let model = self.model.read(cx);
+        let state = model.patron_state.clone();
+        let signed_in = model.account_state.signed_in;
+        let reduce = patron::reduces_motion(model);
+        let color = session.color();
+        let name = session.pairing.sender_name.clone();
+        let selected = self.style_selected;
+        let in_use = state.sending_theme();
+
+        let width = (f32::from(window.viewport_size().width) - 20. - 48.).max(240.);
+        let preview = patron::preview(
+            selected,
+            patron::sample(&name, color, patron::SAMPLE),
+            width,
+            width * 900. / 1440.,
+            self.style_started.elapsed().as_secs_f32(),
+            reduce,
+            &self.preview_reply,
+            14.,
+            window,
+            cx,
+        );
+        let mut page: Vec<AnyElement> = vec![
+            page_heading(
+                "Tap style",
+                "How your taps look on the screens of everyone you tap. They never pay to see it.",
+            ),
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .child(preview)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .child(div().flex_1().font_weight(FontWeight::BOLD).child(selected.label()))
+                        .child(pill("style-replay", "Replay", None, None, false).on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.style_started = Instant::now();
+                                cx.notify();
+                            },
+                        ))),
+                )
+                .into_any_element(),
+        ];
+
+        let mut rows = div().flex().flex_col();
+        for theme in TapTheme::ALL {
+            let mut subtitle = patron::subtitle(theme).to_string();
+            if theme.is_paid() && !state.active {
+                subtitle.push_str(" · Patrons");
+            }
+            if theme == in_use {
+                subtitle.push_str(" · in use");
+            }
+            let thumbnail = patron::preview(
+                theme,
+                patron::sample(&name, color, patron::SAMPLE),
+                THUMB_W,
+                THUMB_H,
+                SETTLED,
+                true,
+                &self.preview_reply,
+                8.,
+                window,
+                cx,
+            );
+            let chosen = theme == selected;
+            rows = rows.child(
+                div()
+                    .id(SharedString::from(format!("style-{}", theme.label())))
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .p(px(8.))
+                    .rounded(px(16.))
+                    .border_2()
+                    .border_color(if chosen {
+                        paper::ink().into()
+                    } else {
+                        gpui::transparent_black()
+                    })
+                    .cursor_pointer()
+                    .hover(|style| style.bg(paper::faint()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.style_selected = theme;
+                        this.style_started = Instant::now();
+                        cx.notify();
+                    }))
+                    .child(thumbnail)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .child(div().font_weight(FontWeight::BOLD).child(theme.label()))
+                            .child(tone_text(&subtitle).text_size(px(13.))),
+                    ),
+            );
+        }
+        page.push(rows.into_any_element());
+
+        let label = selected.label();
+        let busy = self.patron_busy;
+        let action: AnyElement = if selected == in_use {
+            div()
+                .font_weight(FontWeight::BOLD)
+                .child(format!("Your taps use {label}."))
+                .into_any_element()
+        } else if state.can_use(selected) {
+            pill("style-use", &format!("Use {label}"), None, Some(color), false)
+                .w_full()
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.patron(cx).set_theme(selected);
+                    cx.notify();
+                }))
+                .into_any_element()
+        } else if state.checkout_enabled && signed_in {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(
+                    pill(
+                        "style-become-patron",
+                        &format!("Become a patron to use {label}"),
+                        None,
+                        Some(color),
+                        busy,
+                    )
+                    .w_full()
+                    .when(!busy, |pill| {
+                        pill.on_click(cx.listener(|this, _, _, cx| this.become_patron(cx)))
+                    }),
+                )
+                .child(tone_text(patron::STYLE_PRICE).text_size(px(13.)))
+                .into_any_element()
+        } else if !signed_in {
+            tone_text("Sign in to become a patron.").into_any_element()
+        } else {
+            tone_text("Patron memberships open soon.").into_any_element()
+        };
+        page.push(action);
+
+        let membership: AnyElement = if state.active {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .font_weight(FontWeight::BOLD)
+                        .child("Thank you for being a patron."),
+                )
+                .children(
+                    state
+                        .membership
+                        .as_ref()
+                        .and_then(patron::renewal)
+                        .map(|renewal| tone_text(&renewal)),
+                )
+                .child(div().flex().pt(px(4.)).child(
+                    pill("style-manage", "Manage billing", None, None, busy).when(!busy, |pill| {
+                        pill.on_click(cx.listener(|this, _, _, cx| this.manage_billing(cx)))
+                    }),
+                ))
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .children(patron::PERKS.map(tone_text))
+                .into_any_element()
+        };
+        page.push(membership);
+        if let Some(error) = self.patron_error.clone() {
+            page.push(danger_text(error).into_any_element());
+        }
+        page.push(
+            div()
+                .flex()
+                .child(
+                    pill("style-done", "Done", None, Some(color), false)
+                        .flex_1()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.style_open = false;
+                            this.pending_focus = Some(Focus::Composer);
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+        );
+        page
     }
 }
 
@@ -1388,13 +1866,20 @@ impl Shell {
                     app_id: Some(crate::config::APP_ID.into()),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|cx| SendView::new(model, target, cx)),
+                |window, cx| cx.new(|cx| SendView::new(model, target, window, cx)),
             )
             .ok();
         if let Some(handle) = handle {
             let _ = handle.update(cx, |_, window, _| window.activate_window());
         }
         cx.global_mut::<Shell>().send = handle;
+    }
+
+    /// Settings → Choose tap style: the Style sheet, or the Send window
+    /// when there's no one to tap yet.
+    pub fn open_style(cx: &mut App) {
+        let nobody = cx.global::<Shell>().model.read(cx).sender_state.sessions.is_empty();
+        Shell::open_send(if nobody { SendTarget::Add } else { SendTarget::Style }, cx);
     }
 }
 
@@ -1453,6 +1938,7 @@ mod tests {
             created_at: NOW,
             failed: false,
             error: None,
+            theme: None,
         };
         let failed = OutgoingTap {
             failed: true,

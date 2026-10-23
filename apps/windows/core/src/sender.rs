@@ -89,6 +89,15 @@ pub struct OutgoingTap {
     /// Why the server refused it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The theme it was sent in; missing (saved by an older version) is Default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<TapTheme>,
+}
+
+impl OutgoingTap {
+    pub fn theme(&self) -> TapTheme {
+        self.theme.unwrap_or_default()
+    }
 }
 
 /// Where a PC keeps its sender pairings and unsent taps across restarts.
@@ -178,7 +187,10 @@ struct Inner {
     lives: Mutex<HashMap<String, LiveConnection>>,
     /// Request ids being sent right now, so a resync doesn't send one twice.
     in_flight: Mutex<HashSet<String>>,
+    /// This device's patron key: themed taps carry it (`PatronStore`).
+    patron_key: Mutex<Option<String>>,
     on_change: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    on_delivered: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl SenderStore {
@@ -191,7 +203,9 @@ impl SenderStore {
                 generation: AtomicU64::new(0),
                 lives: Mutex::new(HashMap::new()),
                 in_flight: Mutex::new(HashSet::new()),
+                patron_key: Mutex::new(None),
                 on_change: Mutex::new(None),
+                on_delivered: Mutex::new(None),
             }),
         }
     }
@@ -203,6 +217,17 @@ impl SenderStore {
 
     pub fn state(&self) -> SenderState {
         self.inner.state.lock().unwrap().clone()
+    }
+
+    /// Called (on any thread) each time the server accepts a tap from this PC.
+    pub fn on_delivered(&self, callback: impl Fn() + Send + Sync + 'static) {
+        *self.inner.on_delivered.lock().unwrap() = Some(Arc::new(callback));
+    }
+
+    /// The key themed taps prove a patron membership with; None sends every
+    /// tap in Default.
+    pub fn set_patron_key(&self, key: Option<String>) {
+        *self.inner.patron_key.lock().unwrap() = key;
     }
 
     /// Loads saved pairings and connects each.
@@ -246,9 +271,10 @@ impl SenderStore {
 
     // Sending
 
-    /// Queue a tap and deliver it. Fails only for drafts the server would
-    /// refuse anyway; network trouble leaves it in the outbox to retry.
-    pub fn send(&self, id: &str, body: &str) -> Result<(), SendError> {
+    /// Queue a tap in `theme` and deliver it. Fails only for drafts the
+    /// server would refuse anyway; network trouble leaves it in the outbox to
+    /// retry. A theme other than Default goes with the patron key, if any.
+    pub fn send(&self, id: &str, body: &str, theme: TapTheme) -> Result<(), SendError> {
         let trimmed = body.trim();
         if trimmed.is_empty() {
             return Err(SendError::Empty);
@@ -262,6 +288,7 @@ impl SenderStore {
             created_at: now_ms(),
             failed: false,
             error: None,
+            theme: theme.is_paid().then_some(theme),
         };
         let queued = item.clone();
         if self.inner.update_outbox(id, move |outbox| outbox.insert(0, queued)) {
@@ -270,16 +297,17 @@ impl SenderStore {
         Ok(())
     }
 
-    /// A failed send, again, as a fresh request (like the web's "Try again").
+    /// A failed send, again, as a fresh request in the same theme (like the
+    /// web's "Try again").
     pub fn retry(&self, id: &str, request_id: &str) {
-        let body = self
+        let item = self
             .state()
             .session(id)
             .and_then(|session| session.outbox.iter().find(|item| item.request_id == request_id))
-            .map(|item| item.body.clone());
-        if let Some(body) = body {
+            .cloned();
+        if let Some(item) = item {
             self.discard(id, request_id);
-            let _ = self.send(id, &body);
+            let _ = self.send(id, &item.body, item.theme());
         }
     }
 
@@ -507,13 +535,18 @@ impl Inner {
         }
         let inner = self.clone();
         let id = id.to_string();
+        let patron_key = self.patron_key.lock().unwrap().clone();
         std::thread::spawn(move || {
-            match api.send_tap(&item.request_id, &item.body) {
+            match api.send_tap(&item.request_id, &item.body, item.theme(), patron_key.as_deref()) {
                 Ok(tap) => {
                     inner.update_outbox(&id, |outbox| {
                         outbox.retain(|queued| queued.request_id != item.request_id)
                     });
                     inner.merge(&id, tap);
+                    let delivered = inner.on_delivered.lock().unwrap().clone();
+                    if let Some(delivered) = delivered {
+                        delivered();
+                    }
                 }
                 Err(error) if error.code == ErrorCode::Unauthorized => inner.revoked(&id),
                 // Transient failures stay queued and go again on the next

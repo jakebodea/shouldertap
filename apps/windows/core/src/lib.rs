@@ -8,6 +8,7 @@ pub mod api;
 pub mod fingerprint;
 pub mod live;
 pub mod models;
+pub mod patron;
 pub mod persistence;
 pub mod sender;
 pub mod store;
@@ -18,7 +19,12 @@ pub use api::{
 };
 pub use live::{LiveStatus, merge_snapshot, merge_tap};
 pub use models::*;
-pub use persistence::{CredentialVault, FileVault, LocalPersistence, LocalSenderPersistence, SenderVaults};
+pub use patron::{
+    NUDGE_MILESTONES, PatronConfig, PatronPersistence, PatronSettings, PatronState, PatronStore, nudge_due,
+};
+pub use persistence::{
+    CredentialVault, FileVault, LocalPatronPersistence, LocalPersistence, LocalSenderPersistence, SenderVaults,
+};
 pub use sender::{
     OutgoingTap, SendError, SenderConfig, SenderPairing, SenderPersistence, SenderSession, SenderState, SenderStore,
     new_request_id,

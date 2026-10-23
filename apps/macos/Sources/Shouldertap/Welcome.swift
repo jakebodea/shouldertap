@@ -4,7 +4,8 @@ import SwiftUI
 
 /// The first run (docs/onboarding.md, "The flow"): a centered window framed
 /// in Cobalt, while the real menu bar icon knocks.
-/// Welcome → email → code → you (name and color, once) → ready. Shown on
+/// Welcome → email → code → you (name and color, once) → patron (when
+/// memberships are open) → ready. Shown on
 /// first launch, and again from the menu until this Mac is signed in.
 @MainActor
 final class WelcomeController: NSObject, NSWindowDelegate {
@@ -28,7 +29,7 @@ final class WelcomeController: NSObject, NSWindowDelegate {
   /// `finished` runs once the welcome is dismissed, `setUp` true when the
   /// menu should open next.
   func show(
-    account: AccountStore, sync: @escaping @MainActor () async -> Void,
+    account: AccountStore, patron: PatronStore, sync: @escaping @MainActor () async -> Void,
     finished: @escaping (_ setUp: Bool) -> Void
   ) {
     guard window == nil else { return }
@@ -47,7 +48,7 @@ final class WelcomeController: NSObject, NSWindowDelegate {
     window.isReleasedWhenClosed = false
     window.delegate = self
     let model = WelcomeModel(
-      account: account, sync: sync,
+      account: account, patron: patron, sync: sync,
       dismiss: { [weak self] setUp in self?.dismiss(setUp: setUp) })
     window.contentView = Self.host(model)
     window.setContentSize(Self.size)
@@ -109,7 +110,7 @@ final class WelcomeController: NSObject, NSWindowDelegate {
 
 @MainActor @Observable
 final class WelcomeModel {
-  enum Step { case welcome, email, code, phone, you, ready }
+  enum Step { case welcome, email, code, phone, you, patron, ready }
 
   /// "Sign in with your phone": this Mac's device sign-in code, waiting for
   /// a signed-in iPhone to scan and approve it.
@@ -133,14 +134,17 @@ final class WelcomeModel {
   var resent = false
   var phone = PhoneSignIn.starting
   let account: AccountStore
+  let patron: PatronStore
   @ObservationIgnored let sync: @MainActor () async -> Void
   @ObservationIgnored private let close: (_ setUp: Bool) -> Void
   @ObservationIgnored private var phoneTask: Task<Void, Never>?
 
   init(
-    account: AccountStore, sync: @escaping @MainActor () async -> Void, dismiss: @escaping (_ setUp: Bool) -> Void
+    account: AccountStore, patron: PatronStore, sync: @escaping @MainActor () async -> Void,
+    dismiss: @escaping (_ setUp: Bool) -> Void
   ) {
     self.account = account
+    self.patron = patron
     self.sync = sync
     self.close = dismiss
     // Signed in without a name and color yet: straight to You.
@@ -154,7 +158,7 @@ final class WelcomeModel {
   }
 
   /// The frame takes the person's color once they pick one.
-  var frameColor: PersonColor { step == .you || step == .ready ? color : .cobalt }
+  var frameColor: PersonColor { step == .you || step == .patron || step == .ready ? color : .cobalt }
 
   func go(_ next: Step) {
     account.error = nil
@@ -277,7 +281,8 @@ final class WelcomeModel {
     Task {
       guard await account.saveProfile(name: name, color: color) else { return }
       await sync()
-      go(.ready)
+      await patron.refresh()
+      go(patron.checkoutEnabled && !patron.active ? .patron : .ready)
     }
   }
 }
@@ -340,7 +345,7 @@ struct WelcomeView: View {
         .font(.custom(Bricolage.extraBoldName, fixedSize: 18))
         .tracking(-0.035 * 18)
       Spacer(minLength: 0)
-      if model.step != .welcome, model.step != .ready {
+      if model.step != .welcome, model.step != .patron, model.step != .ready {
         Button("Later") { model.dismiss(false) }
           .buttonStyle(.plain)
           .font(Bricolage.bold(14))
@@ -361,6 +366,7 @@ struct WelcomeView: View {
       case .code: CodeStep(model: model)
       case .phone: PhoneStep(model: model)
       case .you: YouStep(model: model)
+      case .patron: PatronStep(model: model)
       case .ready: ReadyStep(model: model)
       }
     }
@@ -605,6 +611,59 @@ private struct YouStep: View {
         .disabled(model.account.busy || model.name.trimmingCharacters(in: .whitespaces).isEmpty)
     }
     .onAppear { focused = true }
+  }
+}
+
+/// A light word about membership, once, right after they've made their
+/// tap theirs: their own tap, in each patron theme.
+private struct PatronStep: View {
+  let model: WelcomeModel
+  @State private var cycle = ThemeCycle()
+
+  private var name: String {
+    let trimmed = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? "You" : trimmed
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      MessageText(text: "Help keep Shouldertap free.", size: 46)
+      HStack(alignment: .top, spacing: 32) {
+        Lede(
+          "Shouldertap is free for everyone, kept running by patrons. If you'd like to chip in, your taps can arrive as a front page, a poster, a console or a handwritten note. The people you tap never pay to see them."
+        )
+        VStack(alignment: .leading, spacing: 8) {
+          ThemePreview(
+            theme: cycle.theme, name: name, color: model.color, message: "Dinner's ready.", width: 340,
+            cornerRadius: 12
+          )
+          .shadow(color: .black.opacity(0.18), radius: 12, y: 8)
+          Text("\(cycle.theme.label): \(cycle.theme.sub.lowercased())")
+            .font(Bricolage.medium(14)).foregroundStyle(Paper.tone)
+        }
+        .padding(.top, 22)
+      }
+      ErrorLine(model.patron.error)
+      Spacer(minLength: 16)
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(spacing: 10) {
+          Pill(label: "Become a patron", fill: model.color, compact: true) {
+            Task {
+              guard let url = await model.patron.checkoutURL() else { return }
+              NSWorkspace.shared.open(url)
+              model.go(.ready)
+            }
+          }
+          .disabled(model.patron.busy)
+          Pill(label: "Maybe later", hint: "esc", compact: true) { model.go(.ready) }
+            .keyboardShortcut(.cancelAction)
+        }
+        Text("$2/month, billed $24 a year, plus tax. You can do this later from Settings.")
+          .font(Bricolage.medium(13)).foregroundStyle(Paper.tone)
+      }
+    }
+    .onAppear { cycle.start() }
+    .onDisappear { cycle.stop() }
   }
 }
 

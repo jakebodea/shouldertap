@@ -42,6 +42,11 @@ pub fn account_vault() -> Box<dyn CredentialVault> {
     Box::new(FileVault::new(crate::config::data_dir().join("account.secret")))
 }
 
+/// The patron key in an owner-only file while developing.
+pub fn patron_vault() -> Box<dyn CredentialVault> {
+    Box::new(FileVault::new(crate::config::data_dir().join("patron.secret")))
+}
+
 /// Sender tokens stay in the owner-only `senders.secret` while developing.
 pub fn sender_vaults() -> Option<SenderVaults> {
     None

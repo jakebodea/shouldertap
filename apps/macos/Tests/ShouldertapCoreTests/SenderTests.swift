@@ -167,6 +167,46 @@ private func makeStore(_ persistence: MemorySenderPersistence, handler: @escapin
     #expect(persistence.loadOutbox(credentialId: "s1s1s1s1").isEmpty)
   }
 
+  @Test func aPatronsTapCarriesTheThemeAndKey() async throws {
+    let persistence = MemorySenderPersistence(pairings: [pairing()])
+    let store = makeStore(persistence) { request in
+      guard request.url!.path == "/v1/taps" else { return (503, "") }
+      let payload = body(request)
+      #expect(payload["theme"] == "broadsheet")
+      #expect(payload["patronKey"] == "stp1.patron01.key00001.secret")
+      return (201, sentTap(payload["body"] ?? ""))
+    }
+    store.style = { SendStyle(theme: .broadsheet, patronKey: "stp1.patron01.key00001.secret") }
+    store.start()
+    let session = try #require(store.sessions.first)
+    try session.send("Dinner's ready")
+    #expect(session.outbox.first?.theme == .broadsheet)
+    #expect(await eventually { session.taps.first?.body == "Dinner's ready" })
+  }
+
+  @Test func withoutAKeyATapGoesInDefault() async throws {
+    let persistence = MemorySenderPersistence(pairings: [pairing()])
+    let store = makeStore(persistence) { request in
+      guard request.url!.path == "/v1/taps" else { return (503, "") }
+      let payload = body(request)
+      #expect(payload["theme"] == nil)
+      #expect(payload["patronKey"] == nil)
+      return (201, sentTap(payload["body"] ?? ""))
+    }
+    store.style = { SendStyle(theme: .note, patronKey: nil) }
+    store.start()
+    let session = try #require(store.sessions.first)
+    try session.send("Call me")
+    #expect(await eventually { session.taps.first?.body == "Call me" })
+  }
+
+  @Test func outboxesSavedBeforeThemesStillDecode() throws {
+    let saved = #"{"requestId":"r1","body":"Hi","createdAt":1,"failed":false}"#
+    let item = try JSONDecoder().decode(OutgoingTap.self, from: Data(saved.utf8))
+    #expect(item.theme == nil)
+    #expect(item.body == "Hi")
+  }
+
   @Test func rejectsEmptyAndOverlongDrafts() throws {
     let store = makeStore(MemorySenderPersistence(pairings: [pairing()])) { _ in (503, "") }
     store.start()

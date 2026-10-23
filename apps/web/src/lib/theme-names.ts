@@ -1,3 +1,4 @@
+import { TAP_THEMES } from "@shouldertap/domain";
 import type { TapTheme } from "@shouldertap/domain";
 
 /** What the sender sees each theme called. */
@@ -8,3 +9,8 @@ export const THEME_NAMES: Record<TapTheme, { name: string; sub: string }> = {
   terminal: { name: "Terminal", sub: "A phosphor console" },
   note: { name: "Note", sub: "Handwritten, taped down" },
 };
+
+/** The themes a patron's taps can use, in the order they're shown off. */
+export const PATRON_THEMES: readonly TapTheme[] = TAP_THEMES.filter(
+  (theme) => theme !== "default"
+);

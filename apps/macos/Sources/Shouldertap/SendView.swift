@@ -9,12 +9,21 @@ import SwiftUI
 final class SendController {
   private let store: SenderStore
   private let account: AccountStore
+  private let patron: PatronStore
   private let selection = SendSelection()
   private var window: NSWindow?
 
-  init(store: SenderStore, account: AccountStore) {
+  init(store: SenderStore, account: AccountStore, patron: PatronStore) {
     self.store = store
     self.account = account
+    self.patron = patron
+  }
+
+  /// Tap style, over whoever was last tapped (or the invite form when there's
+  /// nobody yet).
+  func showStyle() {
+    show(personId: selection.person ?? store.sessions.last?.id)
+    if !selection.adding { selection.styling = true }
   }
 
   /// `personId` nil opens the invite form.
@@ -33,7 +42,8 @@ final class SendController {
       window.title = "Tap someone"
       window.titlebarAppearsTransparent = true
       window.isReleasedWhenClosed = false
-      window.contentView = NSHostingView(rootView: SendView(store: store, account: account, selection: selection))
+      window.contentView = NSHostingView(
+        rootView: SendView(store: store, account: account, patron: patron, selection: selection))
       window.contentMinSize = NSSize(width: 440, height: 480)
       window.center()
       self.window = window
@@ -48,6 +58,8 @@ final class SendController {
 final class SendSelection {
   var person: String?
   var adding = false
+  /// The Tap style sheet is up.
+  var styling = false
 }
 
 /// The sender's color frames the window, like the iPhone and Safari: people
@@ -55,6 +67,7 @@ final class SendSelection {
 struct SendView: View {
   let store: SenderStore
   let account: AccountStore
+  let patron: PatronStore
   let selection: SendSelection
   @State private var pairColor = PersonColor.cobalt
 
@@ -75,7 +88,8 @@ struct SendView: View {
             selection.adding = false
           }
         } else if let current {
-          Composer(session: current, store: store, account: account).id(current.id)
+          Composer(session: current, store: store, account: account, patron: patron, selection: selection)
+            .id(current.id)
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -306,6 +320,8 @@ private struct Composer: View {
   let session: SenderSession
   let store: SenderStore
   let account: AccountStore
+  let patron: PatronStore
+  @Bindable var selection: SendSelection
 
   @State private var draft = ""
   @State private var confirmUnpair = false
@@ -316,6 +332,8 @@ private struct Composer: View {
 
   private var recipient: String { session.pairing.recipientName }
   private var trimmed: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
+  /// The draft in the style previews, or a sample before there is one.
+  private var previewMessage: String { trimmed.isEmpty ? "Dinner's ready." : trimmed }
 
   var body: some View {
     ScrollView {
@@ -356,6 +374,13 @@ private struct Composer: View {
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(trimmed.isEmpty)
           }
+          StyleRow(
+            patron: patron, name: session.pairing.senderName, color: session.color, message: previewMessage
+          ) { selection.styling = true }
+        }
+
+        if patron.nudgeDue {
+          PatronNudgeCard(patron: patron, color: session.color)
         }
 
         recent
@@ -365,6 +390,11 @@ private struct Composer: View {
       .padding(24)
     }
     .onAppear { focused = true }
+    .sheet(isPresented: $selection.styling) {
+      StyleSheet(
+        patron: patron, name: session.pairing.senderName, color: session.color, message: previewMessage
+      ) { selection.styling = false }
+    }
     .confirmationDialog("Stop tapping \(recipient)?", isPresented: $confirmUnpair, titleVisibility: .visible) {
       Button("Remove", role: .destructive) {
         Task {

@@ -378,6 +378,36 @@ public final class AccountStore {
     }
   }
 
+  // MARK: Patron membership
+
+  /// `GET /account/patron/status`: the account's memberships and whether new
+  /// ones can start.
+  public func patronStatus() async throws -> AccountPatrons {
+    try await request("GET", "/account/patron/status")
+  }
+
+  private struct Link: Decodable { let url: URL }
+
+  /// Where to pay for a membership, opened in the browser.
+  public func patronCheckout() async throws -> URL {
+    let link: Link = try await request("POST", "/account/patron/checkout", body: [String: String]())
+    return link.url
+  }
+
+  /// The billing portal for the account's membership.
+  public func patronManage() async throws -> URL {
+    let link: Link = try await request("POST", "/account/patron/manage", body: [String: String]())
+    return link.url
+  }
+
+  private struct PatronGrant: Decodable { let key: String }
+
+  /// A patron key of this device's own for one of the account's memberships.
+  public func restorePatronKey(id: String) async throws -> String {
+    let grant: PatronGrant = try await request("POST", "/account/restore", body: ["kind": "patron", "id": id])
+    return grant.key
+  }
+
   // MARK: Leaving
 
   public func deleteAccount() async {

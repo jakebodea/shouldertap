@@ -118,7 +118,7 @@ fn phosphor(color: PersonColor) -> Hsla {
 
 /// Designs are drawn for 1440×900.
 pub fn design_scale(width: f32, height: f32) -> f32 {
-    (width / 1440.).min(height / 900.).clamp(0.2, 1.6)
+    (width / 1440.).min(height / 900.).clamp(0.05, 1.6)
 }
 
 fn narrow(width: f32, height: f32) -> bool {

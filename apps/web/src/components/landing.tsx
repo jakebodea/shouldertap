@@ -9,7 +9,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { swatches } from "@shouldertap/domain";
-import type { PersonColor } from "@shouldertap/domain";
+import type { PersonColor, TapTheme } from "@shouldertap/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
@@ -19,9 +19,12 @@ import { MacDownloadLink } from "@/components/mac-download-link";
 import { Mark, Wordmark } from "@/components/mark";
 import { PageShell } from "@/components/page-shell";
 import { Swept } from "@/components/swept";
+import { TapPreview } from "@/components/tap-preview/tap-preview";
+import type { PreviewTap } from "@/components/tap-preview/themes";
 import { WipeEdges } from "@/components/wipe-edges";
 import { useThemeColor } from "@/lib/frame";
 import { loadPairing } from "@/lib/pairing";
+import { PATRON_THEMES, THEME_NAMES } from "@/lib/theme-names";
 
 // Illustrative household: the demo's names and messages are not real users.
 interface Scene {
@@ -310,37 +313,106 @@ const Consent = () => {
   );
 };
 
-/** Creem's review requires the price to be easy to find on the site. */
-const Pricing = () => (
-  <section
-    aria-labelledby="pricing"
-    className="flex scroll-mt-4 flex-col gap-10 px-6 py-20 md:px-[72px] md:py-28"
-  >
-    <h2
-      className="max-w-[16ch] text-[2.75rem] leading-[0.98] font-extrabold tracking-[-0.04em] text-balance md:text-[4.5rem]"
-      id="pricing"
+/**
+ * The patron offer, shown rather than described: whoever is tapping in the
+ * hero arrives here in a patron theme, a different one each scene, and the
+ * visitor can pin any of them. Creem's review requires the price to be easy
+ * to find on the site.
+ */
+const Patrons = ({ scene, index }: { scene: Scene; index: number }) => {
+  const [pinned, setPinned] = useState<TapTheme | null>(null);
+  const theme =
+    pinned ?? PATRON_THEMES[index % PATRON_THEMES.length] ?? "broadsheet";
+  // The tap's clock: when the section first drew, restamped on each pick.
+  const [at, setAt] = useState(() => new Date());
+  const tap = useMemo<PreviewTap>(
+    () => ({ sender: scene.who, text: scene.message, color: scene.color, at }),
+    [scene, at]
+  );
+  return (
+    <section
+      aria-labelledby="pricing"
+      className="flex scroll-mt-4 flex-col gap-10 px-6 py-20 md:gap-14 md:px-[72px] md:py-28"
     >
-      Free to use. Supported by patrons.
-    </h2>
-    <div className="grid gap-10 md:grid-cols-[auto_1fr] md:gap-16">
-      <div className="flex flex-col gap-2">
-        <p className="text-[4rem] leading-none font-extrabold tracking-[-0.045em] md:text-[5.5rem]">
-          $2<span className="text-tone text-[0.4em]">/month</span>
-        </p>
-        <p className="text-tone text-[1.0625rem] md:text-lg">
-          Optional patron support, billed $24 annually in USD, plus applicable
-          tax.
-          <br />
-          Renews annually until canceled.
+      <div className="flex flex-col gap-5">
+        <h2
+          className="max-w-[16ch] text-[2.75rem] leading-[0.98] font-extrabold tracking-[-0.04em] text-balance md:text-[4.5rem]"
+          id="pricing"
+        >
+          Free to use. Patrons tap in style.
+        </h2>
+        <p className="text-tone max-w-[40ch] text-[1.0625rem] leading-relaxed md:text-lg">
+          Patrons send every tap as a front page, a poster, a console or a
+          handwritten note, to everyone they tap. The people they tap never pay
+          to see it.
         </p>
       </div>
-      <p className="max-w-xl text-[1.0625rem] leading-relaxed md:text-lg">
-        Patrons help cover running costs and can send their taps in a theme, to
-        everyone they tap. The people they tap never pay to see it.
-      </p>
-    </div>
-  </section>
-);
+      <div className="grid gap-8 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:gap-14">
+        <figure className="flex flex-col gap-3">
+          <TapPreview
+            className="w-full rounded-[14px] shadow-[0_1px_2px_rgb(0_0_0/0.06),0_24px_48px_-24px_rgb(0_0_0/0.45)]"
+            replay={index}
+            tap={tap}
+            theme={theme}
+          />
+          <figcaption className="text-tone text-[0.9375rem]">
+            <b className="text-ink">{scene.who}</b>&rsquo;s tap in{" "}
+            {THEME_NAMES[theme].name}, as it covers {RECIPIENT}&rsquo;s Mac.
+          </figcaption>
+        </figure>
+        <div className="flex flex-col gap-8">
+          <ul aria-label="Patron themes" className="flex flex-col gap-2">
+            {PATRON_THEMES.map((item) => (
+              <li key={item}>
+                <button
+                  aria-pressed={theme === item}
+                  className={`flex w-full items-center gap-3 rounded-2xl p-2 pr-3 text-left transition-shadow ${
+                    theme === item
+                      ? "shadow-[inset_0_0_0_2px_var(--ink)]"
+                      : "shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--tone)]"
+                  }`}
+                  onClick={() => {
+                    setPinned(item);
+                    setAt(new Date());
+                  }}
+                  type="button"
+                >
+                  <TapPreview
+                    className="w-[88px] shrink-0 rounded-[6px]"
+                    replay={0}
+                    tap={tap}
+                    theme={item}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-[1.0625rem] leading-tight font-bold">
+                      {THEME_NAMES[item].name}
+                    </span>
+                    <span className="text-tone block text-[0.875rem] leading-snug">
+                      {THEME_NAMES[item].sub}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-col gap-2">
+            <p className="text-[4rem] leading-none font-extrabold tracking-[-0.045em] md:text-[5rem]">
+              $2<span className="text-tone text-[0.4em]">/month</span>
+            </p>
+            <p className="text-tone text-[1.0625rem] leading-snug">
+              Optional patron support, billed $24 annually in USD, plus
+              applicable tax. Renews annually until canceled.
+            </p>
+            <p className="text-[1.0625rem] leading-snug">
+              Sending, receiving and answering stay free for everyone. Patrons
+              help cover the running costs.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
 
 const Close = () => (
   <section className="flex flex-col gap-10 px-6 pt-24 pb-10 md:px-[72px] md:pt-36">
@@ -655,7 +727,7 @@ export const Landing = () => {
           scene={scene}
         />
         <Consent />
-        <Pricing />
+        <Patrons index={index} scene={scene} />
         <Close />
       </main>
     </PageShell>

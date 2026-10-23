@@ -48,6 +48,22 @@ enum Config {
     return KeychainVault(service: Bundle.main.bundleIdentifier ?? "app.shouldertap.mac")
   }
 
+  /// This Mac's patron key: the Keychain for Developer ID builds, an
+  /// owner-only file otherwise (see `vault`).
+  static var patronVault: any CredentialVault {
+    if vault != nil {
+      return KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".patron")
+    }
+    #if DEBUG
+      let folder = "Shouldertap Debug"
+    #else
+      let folder = "Shouldertap"
+    #endif
+    return FileVault(
+      url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appending(path: folder, directoryHint: .isDirectory).appending(path: "patron"))
+  }
+
   /// Debug builds keep their own pairing (and, via their own bundle id, their
   /// own defaults) so testing never touches the installed app's.
   static var persistence: LocalPersistence {
@@ -85,7 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// Everyone this Mac can tap; independent of its own inbox, so a Mac can
   /// send without receiving, like an iPhone.
   private let senders = SenderStore(server: Config.endpoints.server, persistence: Config.senderPersistence)
-  private lazy var sendWindow = SendController(store: senders, account: account)
+  private lazy var sendWindow = SendController(store: senders, account: account, patron: patron)
+  /// The sender's membership: themes for the taps this Mac sends.
+  private lazy var patron = PatronStore(account: account, vault: Config.patronVault)
   private lazy var overlays = OverlayController(store: store)
   private lazy var appearance = AppearanceController(store: store)
   /// Owned by the app, not the popover or the welcome: the person this Mac
@@ -119,8 +137,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The inbox socket says connections changed: new keys wait on the account.
     store.onCredentialsChanged = { [weak self] in Task { await self?.sync() } }
     // Receiving runs on whatever this Mac already holds, signed in or not.
+    senders.style = { [weak self] in self?.patron.style ?? SendStyle() }
+    senders.onSent = { [weak self] _ in self?.patron.recordSend() }
     store.start()
     senders.start()
+    // Back from checkout in the browser: the membership may have started.
+    NotificationCenter.default.addObserver(
+      forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { Task { await self?.patron.refresh() } }
+    }
 
     if !account.signedIn {
       // Not signed in: welcome them the first time, then open the menu so
@@ -130,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     Task {
       await account.refresh()
       await sync()
+      await patron.refresh()
       if account.signedIn, let me = account.me, me.profile == nil { welcomeOrOpenPopover() }
     }
   }
@@ -150,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     popover.performClose(nil)
     // The real icon knocks while the welcome is up, so they know where it lives.
     knock.pending = true
-    welcome.show(account: account, sync: { [weak self] in await self?.sync() }) {
+    welcome.show(account: account, patron: patron, sync: { [weak self] in await self?.sync() }) {
       [weak self] setUp in
       guard let self else { return }
       knock.pending = store.activeTap != nil
@@ -180,10 +207,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if popover.contentViewController == nil {
       let controller = NSHostingController(
         rootView: MenuView(
-          store: store, senders: senders, updates: updates, account: account,
+          store: store, senders: senders, updates: updates, account: account, patron: patron,
           openAppearance: { [weak self] in
             self?.popover.performClose(nil)
             self?.appearance.show()
+          },
+          openStyle: { [weak self] in
+            self?.popover.performClose(nil)
+            self?.sendWindow.showStyle()
           },
           openOnboarding: { [weak self] in self?.showWelcome() },
           openSend: { [weak self] personId in
@@ -196,7 +227,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     // One GET: picks up a purchase made while the live event was missed.
     store.refresh()
-    Task { await sync() }
+    Task {
+      await sync()
+      await patron.refresh()
+    }
     NSApp.activate(ignoringOtherApps: true)
     popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     popover.contentViewController?.view.window?.makeKey()
