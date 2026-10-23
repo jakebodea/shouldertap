@@ -17,6 +17,8 @@ export interface AccountAuthOptions {
   origin: string;
   webOrigin?: string;
   email?: AccountEmailBinding;
+  /** Told about each new account, after it's stored (analytics). */
+  onAccountCreated?: (user: { id: string; createdAt: Date }) => Promise<void>;
 }
 
 export const accountAuthOptions = ({
@@ -25,6 +27,7 @@ export const accountAuthOptions = ({
   origin,
   webOrigin,
   email,
+  onAccountCreated,
 }: AccountAuthOptions) =>
   ({
     appName: "Shouldertap",
@@ -40,6 +43,9 @@ export const accountAuthOptions = ({
     session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
     rateLimit: { enabled: true, storage: "database", window: 60, max: 60 },
     user: { deleteUser: { enabled: true } },
+    databaseHooks: onAccountCreated
+      ? { user: { create: { after: (user) => onAccountCreated(user) } } }
+      : undefined,
     plugins: [
       // Every current client signs in with a code typed (or autofilled) in
       // the app itself, or with a QR code: a signed-in device shows one for

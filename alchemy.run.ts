@@ -42,8 +42,9 @@ export default Alchemy.Stack(
         )
       : Layer.mergeAll(Cloudflare.providers(), Alchemy.RandomProvider()),
     state: Cloudflare.state(),
-    // App secrets (SUPPORT_FORWARD_TO, CREEM_*, APNS_*) from Infisical, read
-    // through Config; see stacks/secrets.ts for which project each stage uses.
+    // App secrets (SUPPORT_FORWARD_TO, CREEM_*, APNS_*, POSTHOG_PROJECT_TOKEN)
+    // from Infisical, read through Config; see stacks/secrets.ts for which
+    // project each stage uses.
     secrets: stageSecrets,
   },
   Effect.gen(function* stack() {
