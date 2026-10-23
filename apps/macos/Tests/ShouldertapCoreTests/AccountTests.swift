@@ -34,18 +34,6 @@ private final class Log: @unchecked Sendable {
   var value: [String] { lock.withLock { lines } }
 }
 
-/// Each request's path and whether URLSession may attach or save cookies
-/// for it (a stub protocol never sees the Cookie header itself).
-private final class Cookies: @unchecked Sendable {
-  private let lock = NSLock()
-  private var lines: [String] = []
-  func record(_ request: URLRequest) {
-    let cookies = request.httpShouldHandleCookies ? "cookies" : "no cookies"
-    lock.withLock { lines.append("\(request.url!.path) \(cookies)") }
-  }
-  var value: [String] { lock.withLock { lines } }
-}
-
 private final class Bodies: @unchecked Sendable {
   private let lock = NSLock()
   private var bodies: [String: NSDictionary] = [:]
@@ -421,22 +409,30 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     ])
   }
 
-  /// The server refuses a cookie without an Origin, which only browsers send;
-  /// a session cookie saved from a sign-in response must never ride along.
+  /// The server refuses a cookie without an Origin, which only browsers send:
+  /// the bearer is the session, and no cookie is sent or kept.
   @Test func sendsTheBearerButNeverASessionCookie() async throws {
-    let cookies = Cookies()
-    let account = try await signedIn { request in
-      cookies.record(request)
-      switch request.url!.path {
-      case "/api/auth/qr-sign-in/create":
-        return (200, #"{"token":"Ab12Cd34Ef56Gh78","url":"https://shouldertap.app/qr#Ab12Cd34Ef56Gh78","expiresAt":1790000000000}"#)
-      default: return (200, jakeMe)
-      }
+    let server = try await LocalServer { head in
+      head.hasPrefix("POST /api/auth/qr-sign-in/create ")
+        ? (["Set-Cookie: session_token=fresh; Path=/"], #"{"token":"Ab12Cd34Ef56Gh78","url":"https://shouldertap.app/qr#Ab12Cd34Ef56Gh78","expiresAt":1790000000000}"#)
+        : (["Set-Cookie: session_token=fresh; Path=/"], jakeMe)
     }
-    _ = try await account.createQrSignIn()
-    #expect(cookies.value == [
-      "/v1/patrons/availability no cookies", "/account/me no cookies", "/api/auth/qr-sign-in/create no cookies",
-    ])
+    defer { server.stop() }
+    let config = URLSessionConfiguration.ephemeral
+    let jar = config.httpCookieStorage!
+    jar.setCookie(HTTPCookie(properties: [.domain: "127.0.0.1", .path: "/", .name: "session_token", .value: "saved"])!)
+    let vault = MemoryVault()
+    try vault.write("account-session")
+    let account = AccountStore(server: server.url, vault: vault, session: URLSession(configuration: config))
+
+    let qr = try await account.createQrSignIn()
+
+    let create = try #require(server.requests.first { $0.hasPrefix("POST /api/auth/qr-sign-in/create ") })
+    let headers = create.lowercased()
+    #expect(qr.token == "Ab12Cd34Ef56Gh78")
+    #expect(headers.contains("authorization: bearer account-session"))
+    #expect(!headers.contains("cookie:"))
+    #expect(jar.cookies?.map(\.value) == ["saved"])
   }
 
   @Test func aComputerWaitsSlowsDownThenSignsInOnceThePhoneApproves() async throws {
