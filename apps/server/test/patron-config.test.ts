@@ -40,6 +40,7 @@ describe("patron checkout configuration", () => {
         )
       )
     );
+    // oxlint-disable-next-line vitest/prefer-to-be-falsy -- undefined must fail this boolean configuration contract.
     expect(result).toBe(false);
   });
 });
