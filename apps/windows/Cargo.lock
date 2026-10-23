@@ -4400,7 +4400,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "shouldertap"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4421,7 +4421,7 @@ dependencies = [
 
 [[package]]
 name = "shouldertap-core"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "getrandom 0.3.4",
  "native-tls",
