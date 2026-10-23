@@ -459,10 +459,7 @@ public final class AccountStore {
   private struct Availability: Decodable { let checkoutEnabled: Bool }
   /// Public and unauthenticated: never sends the account session.
   private func loadAvailability() async {
-    let url = server.appending(path: "/v1/patrons/availability")
-    guard let (bytes, response) = try? await session.data(from: url),
-      (response as? HTTPURLResponse)?.statusCode == 200,
-      let availability = try? JSONDecoder().decode(Availability.self, from: bytes)
+    guard let availability: Availability = try? await request("GET", "/v1/patrons/availability", auth: false)
     else { return }
     checkoutEnabled = availability.checkoutEnabled
   }
@@ -473,12 +470,16 @@ public final class AccountStore {
     try await request(method, path, body: Optional<[String: String]>.none, query: query, auth: auth)
   }
 
+  /// Every account call goes through here, so none carries a cookie.
   private func request<T: Decodable, B: Encodable>(
     _ method: String, _ path: String, body: B?, query: [URLQueryItem] = [], auth: Bool = true
   ) async throws -> T {
     var url = server.appending(path: path)
     if !query.isEmpty { url.append(queryItems: query) }
     var request = URLRequest(url: url); request.httpMethod = method; request.timeoutInterval = 20
+    // The bearer is the session. A cookie saved from a sign-in response would
+    // make the server treat this as a browser and refuse POSTs without an Origin.
+    request.httpShouldHandleCookies = false
     if let body { request.httpBody = try JSONEncoder().encode(body); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
     if auth, let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
     let (bytes, response): (Data, URLResponse)

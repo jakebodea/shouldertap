@@ -90,7 +90,7 @@ extension AccountView {
       guard let signedIn = components?.url else { throw URLError(.badURL) }
       openURL(signedIn)
     } catch {
-      patronError = "Couldn’t open your account page. Try again."
+      patronError = error.localizedDescription
     }
   }
 }

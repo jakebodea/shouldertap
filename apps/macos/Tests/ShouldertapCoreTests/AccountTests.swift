@@ -34,6 +34,18 @@ private final class Log: @unchecked Sendable {
   var value: [String] { lock.withLock { lines } }
 }
 
+/// Each request's path and whether URLSession may attach or save cookies
+/// for it (a stub protocol never sees the Cookie header itself).
+private final class Cookies: @unchecked Sendable {
+  private let lock = NSLock()
+  private var lines: [String] = []
+  func record(_ request: URLRequest) {
+    let cookies = request.httpShouldHandleCookies ? "cookies" : "no cookies"
+    lock.withLock { lines.append("\(request.url!.path) \(cookies)") }
+  }
+  var value: [String] { lock.withLock { lines } }
+}
+
 private final class Bodies: @unchecked Sendable {
   private let lock = NSLock()
   private var bodies: [String: NSDictionary] = [:]
@@ -406,6 +418,24 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     #expect(log.value.suffix(2) == [
       "POST /api/auth/qr-sign-in/create Bearer account-session",
       "POST /api/auth/qr-sign-in/status Bearer account-session",
+    ])
+  }
+
+  /// The server refuses a cookie without an Origin, which only browsers send;
+  /// a session cookie saved from a sign-in response must never ride along.
+  @Test func sendsTheBearerButNeverASessionCookie() async throws {
+    let cookies = Cookies()
+    let account = try await signedIn { request in
+      cookies.record(request)
+      switch request.url!.path {
+      case "/api/auth/qr-sign-in/create":
+        return (200, #"{"token":"Ab12Cd34Ef56Gh78","url":"https://shouldertap.app/qr#Ab12Cd34Ef56Gh78","expiresAt":1790000000000}"#)
+      default: return (200, jakeMe)
+      }
+    }
+    _ = try await account.createQrSignIn()
+    #expect(cookies.value == [
+      "/v1/patrons/availability no cookies", "/account/me no cookies", "/api/auth/qr-sign-in/create no cookies",
     ])
   }
 
