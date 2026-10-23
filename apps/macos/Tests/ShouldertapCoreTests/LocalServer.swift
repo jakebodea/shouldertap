@@ -22,9 +22,13 @@ final class LocalServer: @unchecked Sendable {
       connection.start(queue: self.queue)
       self.read(connection, Data(), reply)
     }
-    await withCheckedContinuation { (ready: CheckedContinuation<Void, Never>) in
-      listener.stateUpdateHandler = { state in
-        if case .ready = state { ready.resume() }
+    try await withCheckedThrowingContinuation { (ready: CheckedContinuation<Void, any Error>) in
+      listener.stateUpdateHandler = { [listener] state in
+        switch state {
+        case .ready: listener.stateUpdateHandler = nil; ready.resume()
+        case .failed(let error): listener.stateUpdateHandler = nil; ready.resume(throwing: error)
+        default: break
+        }
       }
       listener.start(queue: queue)
     }
