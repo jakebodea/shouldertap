@@ -50,7 +50,7 @@ import {
 } from "./Creem";
 import { Inbox, InboxLive } from "./Inbox";
 import { DEFAULT_THEME, themeForSend } from "./presentation";
-import { requestApiConstruction } from "./request-api";
+import { RequestBackground, withRequestBackground } from "./request-api";
 import { SenderPatron, SenderPatronLive } from "./SenderPatron";
 import { TrialLedger, TrialLedgerLive } from "./TrialLedger";
 
@@ -150,30 +150,30 @@ export default class Server extends Cloudflare.Worker<Server>()(
     const posthogToken = yield* Config.option(
       Config.String("POSTHOG_PROJECT_TOKEN")
     );
-    const exec = yield* Cloudflare.Workers.WorkerExecutionContext;
     /** Reports after the response is sent; never delays or fails it. */
     const track: Track = (event, at) =>
       Option.match(posthogToken, {
         onNone: () => Effect.void,
         onSome: (token) =>
-          exec
-            .waitUntil(
-              Effect.tryPromise(() =>
-                analyticsPerson(accountEnv.ACCOUNT_DB, event)
-              ).pipe(
-                Effect.flatMap((personId) =>
-                  capture(token, event, at, personId)
-                ),
-                Effect.catchCause(() =>
-                  Effect.logWarning("Could not report product event")
+          RequestBackground.pipe(
+            Effect.flatMap((exec) =>
+              exec.waitUntil(
+                Effect.tryPromise(() =>
+                  analyticsPerson(accountEnv.ACCOUNT_DB, event)
+                ).pipe(
+                  Effect.flatMap((personId) =>
+                    capture(token, event, at, personId)
+                  ),
+                  Effect.catchCause(() =>
+                    Effect.logWarning("Could not report product event")
+                  )
                 )
               )
-            )
-            .pipe(
-              Effect.catchCause(() =>
-                Effect.logWarning("Could not schedule product event")
-              )
             ),
+            Effect.catchCause(() =>
+              Effect.logWarning("Could not schedule product event")
+            )
+          ),
       });
 
     // Production explicitly opts in above; other stages default to no new checkouts.
@@ -620,7 +620,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
           })
         )
       )
-    ).pipe(requestApiConstruction);
+    );
 
     /**
      * Creem's webhook: verified against the raw body, then applied to the
@@ -930,7 +930,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
           return HttpServerResponse.text("Shouldertap API");
         }
         return yield* api;
-      }),
+      }).pipe(withRequestBackground),
     };
   }).pipe(
     Effect.provide([

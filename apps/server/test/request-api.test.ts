@@ -14,7 +14,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 
-import { requestApiConstruction } from "../src/request-api";
+import { RequestBackground, withRequestBackground } from "../src/request-api";
 
 describe("request API context", () => {
   it("uses each request's execution context for HTTP API background work", async () => {
@@ -33,17 +33,21 @@ describe("request API context", () => {
       )
     );
     const group = HttpApiBuilder.group(api, "test", (handlers) =>
-      handlers.handle("run", () =>
-        Effect.gen(function* handleRequest() {
-          const exec = yield* Exec;
-          yield* exec.waitUntil(
-            Effect.sync(() => {
-              deliveries.push("product event");
-            })
-          );
-          return { accepted: true };
-        })
-      )
+      Effect.gen(function* constructGroup() {
+        // Real construction layers also need Alchemy's init context.
+        yield* Exec;
+        return handlers.handle("run", () =>
+          Effect.gen(function* handleRequest() {
+            const exec = yield* RequestBackground;
+            yield* exec.waitUntil(
+              Effect.sync(() => {
+                deliveries.push("product event");
+              })
+            );
+            return { accepted: true };
+          })
+        );
+      })
     );
     const result = await Effect.runPromise(
       Effect.scoped(
@@ -53,12 +57,13 @@ describe("request API context", () => {
               Layer.provide(group),
               Layer.provide([HttpPlatform.layer, Etag.layer])
             )
-          ).pipe(requestApiConstruction);
+          );
           const request = HttpServerRequest.fromWeb(
             new Request("https://example.com/run")
           );
           const live = context((work) => work.pipe(Effect.asVoid));
           const response = yield* handler.pipe(
+            withRequestBackground,
             Effect.provideService(HttpServerRequest.HttpServerRequest, request),
             Effect.provideService(Exec, live)
           );
