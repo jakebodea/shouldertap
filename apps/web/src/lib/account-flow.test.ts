@@ -48,56 +48,76 @@ describe("patron intent across the sign-in round trip", () => {
   });
 });
 
+const paid = (id: string) => ({ id, active: true });
+const unpaid = (id: string) => ({ id, active: false });
+
 describe("patron plan on this browser", () => {
-  it("offers the account's membership to a browser without one", () => {
+  it("offers the account's active membership to a browser without one", () => {
     expect(
       patronPlan({
         localPatronId: null,
-        accountPatronIds: ["patronA"],
+        memberships: [paid("patronA")],
         checkoutEnabled: false,
       })
     ).toStrictEqual({ kind: "use", patronId: "patronA" });
   });
 
-  it("requires a choice when the account has multiple memberships", () => {
+  it("offers checkout, not use, for a membership that was never paid", () => {
     expect(
       patronPlan({
         localPatronId: null,
-        accountPatronIds: ["patronA", "patronB"],
+        memberships: [unpaid("patronA")],
+        checkoutEnabled: true,
+      })
+    ).toStrictEqual({ kind: "checkout", patronId: "patronA" });
+    expect(
+      patronPlan({
+        localPatronId: "patronA",
+        memberships: [unpaid("patronA")],
+        checkoutEnabled: true,
+      })
+    ).toStrictEqual({ kind: "checkout", patronId: "patronA" });
+  });
+
+  it("requires a choice when the account has several active memberships", () => {
+    expect(
+      patronPlan({
+        localPatronId: null,
+        memberships: [paid("patronA"), paid("patronB")],
         checkoutEnabled: true,
       })
     ).toStrictEqual({ kind: "choose" });
     expect(
       patronPlan({
         localPatronId: "patronB",
-        accountPatronIds: ["patronA", "patronB"],
+        memberships: [paid("patronA"), paid("patronB")],
         checkoutEnabled: true,
       })
     ).toStrictEqual({ kind: "here" });
     expect(
       patronPlan({
         localPatronId: "patronC",
-        accountPatronIds: ["patronA", "patronB"],
+        memberships: [paid("patronA"), paid("patronB")],
         checkoutEnabled: true,
       })
     ).toStrictEqual({ kind: "kept" });
   });
 
-  it("keeps a different membership already on this browser", () => {
+  it("uses the one active membership when another was never paid", () => {
     expect(
       patronPlan({
-        localPatronId: "patronB",
-        accountPatronIds: ["patronA"],
+        localPatronId: null,
+        memberships: [unpaid("patronA"), paid("patronB")],
         checkoutEnabled: true,
       })
-    ).toStrictEqual({ kind: "kept" });
+    ).toStrictEqual({ kind: "use", patronId: "patronB" });
   });
 
   it("recognizes the account's membership already on this browser", () => {
     expect(
       patronPlan({
         localPatronId: "patronA",
-        accountPatronIds: ["patronA"],
+        memberships: [paid("patronA")],
         checkoutEnabled: true,
       })
     ).toStrictEqual({ kind: "here" });
@@ -107,7 +127,7 @@ describe("patron plan on this browser", () => {
     expect(
       patronPlan({
         localPatronId: "patronB",
-        accountPatronIds: [],
+        memberships: [],
         checkoutEnabled: true,
       })
     ).toStrictEqual({ kind: "save" });
@@ -117,14 +137,14 @@ describe("patron plan on this browser", () => {
     expect(
       patronPlan({
         localPatronId: null,
-        accountPatronIds: [],
+        memberships: [],
         checkoutEnabled: false,
       })
     ).toStrictEqual({ kind: "soon" });
     expect(
       patronPlan({
         localPatronId: null,
-        accountPatronIds: [],
+        memberships: [],
         checkoutEnabled: true,
       })
     ).toStrictEqual({ kind: "checkout" });
