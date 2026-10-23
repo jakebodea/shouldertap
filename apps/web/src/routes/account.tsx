@@ -1,3 +1,4 @@
+import { ApiError } from "@shouldertap/client";
 import type { Me } from "@shouldertap/client";
 import { parsePatronKey } from "@shouldertap/domain";
 import type { PersonColor } from "@shouldertap/domain";
@@ -523,7 +524,9 @@ const SignedIn = ({
       setNotice("Billing is unavailable. Try again later.");
       setBusy(false);
     } catch (error) {
-      if (isSignedOutError(error)) {
+      // Billing answers 409 for its own conflicts (checkout still
+      // processing, a membership already active); only 401 means signed out.
+      if (error instanceof ApiError && error.code === "unauthorized") {
         onSignedOut();
         return;
       }
