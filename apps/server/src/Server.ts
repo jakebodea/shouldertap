@@ -101,8 +101,6 @@ export default class Server extends Cloudflare.Worker<Server>()(
         ACCOUNT_PRODUCTION: production ? "true" : "false",
         ...(production
           ? {
-              // Live merchant and USD 24/year sender-theme product verified before rollout.
-              PATRON_CHECKOUT_ENABLED: "true",
               ACCOUNT_EMAIL: yield* Cloudflare.Email.SendEmail("AccountEmail", {
                 allowedSenderAddresses: [accountEmail],
               }),
@@ -176,13 +174,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
           ),
       });
 
-    // Production explicitly opts in above; other stages default to no new checkouts.
-    // Existing subscription management, webhooks and free messages are unaffected.
-    const patronCheckoutEnabled = yield* Config.Boolean(
-      "PATRON_CHECKOUT_ENABLED"
-    ).pipe(Config.withDefault(false));
     const patronCheckoutAvailable = checkoutAvailable(
-      patronCheckoutEnabled,
       Option.getOrUndefined(creem)
     );
 
@@ -798,7 +790,6 @@ export default class Server extends Cloudflare.Worker<Server>()(
                       {
                         ...deps,
                         origin,
-                        enabled: patronCheckoutEnabled,
                         billing: Option.getOrUndefined(creem),
                       },
                       userId,

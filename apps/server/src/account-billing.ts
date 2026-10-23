@@ -24,16 +24,13 @@ import type { PatronRpc } from "./SenderPatron";
 interface Dependencies {
   db: D1Database;
   patrons: { getByName: (id: string) => PatronRpc };
-  enabled: boolean;
   billing?: { client: ReturnType<typeof creemClient>; patronProductId: string };
   origin: string;
 }
 
-/** New checkout needs the flag and a configured patron product; every page reads this. */
-export const checkoutAvailable = (
-  enabled: boolean,
-  billing?: { patronProductId: string }
-) => enabled && Boolean(billing?.patronProductId);
+/** Checkout is available wherever the annual patron product is configured. */
+export const checkoutAvailable = (billing?: { patronProductId: string }) =>
+  Boolean(billing?.patronProductId);
 
 const checkoutMembership = Effect.fn(function* checkoutMembership(
   deps: Dependencies,
@@ -106,7 +103,7 @@ const billingAction = Effect.fn(function* accountBilling(
       status: yield* deps.patrons.getByName(resource.id).accountStatus(),
     });
   }
-  const checkoutEnabled = checkoutAvailable(deps.enabled, deps.billing);
+  const checkoutEnabled = checkoutAvailable(deps.billing);
   if (action === "status") {
     return { memberships, checkoutEnabled };
   }

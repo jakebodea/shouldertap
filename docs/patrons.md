@@ -160,12 +160,12 @@ App Review remains an external gate: explain the optional recurring support, fre
 
 This integration keeps the sender-owned model above. An iPhone may create its recipient inbox and receive/answer without a computer; native iPhone sending remains Default-only. iPhone UI is status-only and exposes no external checkout/management or purchase-page links. The earlier USA-storefront links described in historical verification are not enabled in this integration.
 
-New **sender** checkout is fail-closed: `PATRON_CHECKOUT_ENABLED` defaults false and is checked after key authentication, before product retrieval, checkout reservation or provider creation. Existing subscription management and signed webhooks remain available. Live merchant approval and sender-model product copy must be resolved before enabling signup. No existing production product ID is treated as approval. Core messages never depend on this gate.
+New **sender** checkout requires configured Creem credentials and an annual patron product. Product validation runs before provider checkout creation. Existing subscription management and signed webhooks remain available; core messages never depend on billing.
 
 ## October 23 production signup rollout
 
 Creem's live Shouldertap dashboard confirms the store can accept payments. The configured live Shouldertap Patron product is active at USD 24 every year, with no trial. Its description now describes the web sender's patron themes rather than claiming that no features are included. No real payment was made during this setup.
 
-Production explicitly enables `PATRON_CHECKOUT_ENABLED` in the Worker's deployment properties. Other stages retain the default-off behavior; product validation still rejects mismatched prices and billing intervals before checkout. Existing subscriptions and the historical $5 purchase retain their existing handling.
+Production has the required Creem configuration. Previews have no payment credentials, so checkout remains unavailable there. Product validation rejects mismatched prices and billing intervals before checkout. Existing subscriptions and the historical $5 purchase retain their existing handling.
 
 Mac and Windows settings expose **Explore patron themes** directly under **Patron themes**, opening `/account?intent=patron` on the configured website. This preserves the account sign-in and membership recovery flow. The copy says that themes are selected and sent from the website; native iPhone sending remains Default-only. Desktop release 0.8.5 (Mac build 18) carries this entry point.
