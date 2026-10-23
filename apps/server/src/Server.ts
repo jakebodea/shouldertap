@@ -34,7 +34,6 @@ import { deleteAccount } from "./account-delete";
 import type { AccountEmailBinding } from "./account-email";
 import { handleAccountHttp } from "./account-http";
 import { accountAction } from "./account-identity";
-import { accountPage } from "./account-page";
 import { invitePreview, peopleAction } from "./account-people";
 import { analyticsPerson, capture, patronEventName } from "./analytics";
 import type { Track } from "./analytics";
@@ -741,7 +740,6 @@ export default class Server extends Cloudflare.Worker<Server>()(
               auth,
               origin,
               webOrigin,
-              page: (url) => accountPage(url, webOrigin),
               deleteAccount: (userId, incoming) =>
                 run(
                   deleteAccount(accountEnv.ACCOUNT_DB, patrons, userId, () =>
@@ -789,7 +787,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
                     return yield* accountBilling(
                       {
                         ...deps,
-                        origin,
+                        webOrigin,
                         billing: Option.getOrUndefined(creem),
                       },
                       userId,

@@ -20,7 +20,7 @@ Gone everywhere: typed device-authorization codes, "Create my inbox", "Link a de
 Once one device is signed in, the next one needn't wait for an email. Either way the new device gets its own session; signing out of one leaves the other signed in. After either flow the new device continues at step 4 (skipped when the profile exists), then syncs.
 
 - **Computer → phone.** A signed-in Mac, PC or browser shows "Sign in on your phone": a QR code of `https://shouldertap.app/qr#<token>`, made on demand, single use, expiring after 2 minutes. The iPhone's sign-in step has "Scan from your computer"; scanning redeems the token. The computer polls status every 2 seconds and, once used, says "Signed in on your iPhone". The iPhone app also opens `shouldertap://qr#<token>`; a phone camera that opens the web link signs that browser in or hands off to the app.
-- **Phone → computer.** A signed-out Mac, PC or browser shows "Sign in with your phone": it starts device authorization and shows `verification_uri_complete` (`https://api.shouldertap.app/account/device?user_code=…`) as a QR code with the code under it, then polls. A signed-in iPhone scans it (Account → "Sign in on a computer", or any in-app scanner) and asks "Sign in on your {Mac|PC|browser}?" with the code shown, then approves. A phone camera opens the account page, which asks the same and approves with the browser session.
+- **Phone → computer.** A signed-out Mac, PC or browser shows "Sign in with your phone": it starts device authorization and shows `verification_uri_complete` (`https://shouldertap.app/account/device?user_code=…`) as a QR code with the code under it, then polls. A signed-in iPhone scans it (Account → "Sign in on a computer", or any in-app scanner) and asks "Sign in on your {Mac|PC|browser}?" with the code shown, then approves. A phone camera opens the website's `/account/device`, which asks the same and approves with the browser session.
 
 Never sign in from a code someone sent you: the confirmation names the kind of device and shows the code so a person can check it matches the screen in front of them.
 
@@ -152,4 +152,4 @@ Ends that connection for every device on the account (sync stops issuing it); th
 
 ### Older clients
 
-`/v1/invites/redeem`, `/v1/inboxes`, device invites (`kind: "device"`), magic links and device authorization keep working for builds already installed. New clients don't call them.
+`/v1/invites/redeem`, `/v1/inboxes` and device invites (`kind: "device"`) keep working for builds already installed. New clients don't call them.

@@ -35,7 +35,7 @@ struct AccountView: View {
         // Purchases happen on the web; this only opens the account page.
         Section("Patron") {
           Link("Become a patron or manage your membership",
-            destination: account.server.appending(path: "/account").appending(queryItems: [URLQueryItem(name: "section", value: "patron")]))
+            destination: Config.web.appending(path: "/account").appending(queryItems: [URLQueryItem(name: "intent", value: "patron")]))
         }
       }
       Section {

@@ -1,7 +1,7 @@
 /**
- * Where the sender was headed when they left for the account portal. The
- * sign-in email can open in a new tab, so this rides in `localStorage`
- * (never a credential) and expires on its own.
+ * Where the sender was headed when they opened the account page. Signing
+ * in can take a detour (another tab, a phone), so this rides in
+ * `localStorage` (never a credential) and expires on its own.
  */
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -127,7 +127,9 @@ interface MembershipChoice {
 }
 
 /** Only enable choices that the available billing facts let a person distinguish. */
-export const membershipChoices = (memberships: readonly MembershipChoice[]) => {
+export const membershipChoices = <M extends MembershipChoice>(
+  memberships: readonly M[]
+) => {
   const labels: Record<string, string> = {
     none: "No subscription",
     active: "Active",

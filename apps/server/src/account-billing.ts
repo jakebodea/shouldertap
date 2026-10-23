@@ -25,7 +25,8 @@ interface Dependencies {
   db: D1Database;
   patrons: { getByName: (id: string) => PatronRpc };
   billing?: { client: ReturnType<typeof creemClient>; patronProductId: string };
-  origin: string;
+  /** The website, whose account page a finished checkout returns to. */
+  webOrigin: string;
 }
 
 /** Checkout is available wherever the annual patron product is configured. */
@@ -61,7 +62,7 @@ const checkoutMembership = Effect.fn(function* checkoutMembership(
     productId: billing.patronProductId,
     patronId: id,
     requestId: attempt.requestId,
-    successUrl: `${deps.origin}/account?section=patron`,
+    successUrl: `${deps.webOrigin}/account?intent=patron`,
   });
   yield* stub.finishCheckout(attempt.requestId, checkout.id, checkout.url);
   return { url: checkout.url };

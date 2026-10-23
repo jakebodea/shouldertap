@@ -1,3 +1,4 @@
+import { ApiError } from "@shouldertap/client";
 import type { Me } from "@shouldertap/client";
 import { parsePatronKey } from "@shouldertap/domain";
 import type { PersonColor } from "@shouldertap/domain";
@@ -29,7 +30,12 @@ const accountOrigin = import.meta.env.VITE_SERVER_URL;
 interface Resource {
   id: string;
   name: string;
-  billing?: { status: string; paidUntil: number | null };
+  billing?: {
+    status: string;
+    paidUntil: number | null;
+    canManage: boolean;
+    canSubscribe: boolean;
+  };
 }
 
 /** A result line next to the action that caused it. */
@@ -49,44 +55,42 @@ const leaveForStyle = () => {
 const PatronPanel = ({
   plan,
   memberships,
+  checkoutEnabled,
   busy,
   canStyle,
   notice,
   onUse,
   onSave,
   onCheckout,
+  onManage,
 }: {
   plan: PatronPlan;
   memberships: readonly Resource[];
+  checkoutEnabled: boolean;
   busy: boolean;
   canStyle: boolean;
   notice?: string;
   onUse: (patronId: string) => void;
   onSave: () => void;
-  onCheckout: () => void;
+  onCheckout: (patronId?: string) => void;
+  onManage: (patronId: string) => void;
 }) => {
   const style = canStyle ? (
     <a className="pill pill-ink" href="/style" onClick={leaveForStyle}>
       Continue to Style
     </a>
   ) : null;
-  const manage = (
-    <a
-      className="pill"
-      href={`${accountOrigin}/account?section=patron`}
-      onClick={leaveForStyle}
-    >
-      Manage billing
-    </a>
+  // Billing belongs to each account membership, whatever this browser holds.
+  const billing = membershipChoices(memberships).filter(
+    (membership) =>
+      membership.billing?.canManage ||
+      (checkoutEnabled && membership.billing?.canSubscribe)
   );
   const body: Record<PatronPlan["kind"], ReactNode> = {
     here: (
       <>
         <p>Your membership is on this browser.</p>
-        <Actions>
-          {style}
-          {manage}
-        </Actions>
+        <Actions>{style}</Actions>
       </>
     ),
     use: (
@@ -105,7 +109,6 @@ const PatronPanel = ({
           >
             Use membership on this browser
           </button>
-          {manage}
         </Actions>
       </>
     ),
@@ -139,7 +142,6 @@ const PatronPanel = ({
             review them, or contact support before choosing.
           </p>
         ) : null}
-        <Actions>{manage}</Actions>
       </>
     ),
     kept: (
@@ -187,7 +189,9 @@ const PatronPanel = ({
           <button
             className="pill pill-ink"
             disabled={busy}
-            onClick={onCheckout}
+            onClick={() => {
+              onCheckout();
+            }}
             type="button"
           >
             Continue to checkout
@@ -200,6 +204,48 @@ const PatronPanel = ({
   return (
     <DocSection title="Patron">
       {body[plan.kind]}
+      {billing.length ? (
+        <div className="flex flex-col">
+          <h3 className="text-tone text-sm font-bold">Billing</h3>
+          {billing.map((membership) => (
+            <div
+              className="border-line flex flex-wrap items-center justify-between gap-3 border-b py-4"
+              key={membership.id}
+            >
+              <div>
+                <strong>{membership.name}</strong>
+                <p className="text-tone text-sm">{membership.detail}</p>
+              </div>
+              <Actions>
+                {checkoutEnabled && membership.billing?.canSubscribe ? (
+                  <button
+                    className="pill pill-ink"
+                    disabled={busy}
+                    onClick={() => {
+                      onCheckout(membership.id);
+                    }}
+                    type="button"
+                  >
+                    Continue to checkout
+                  </button>
+                ) : null}
+                {membership.billing?.canManage ? (
+                  <button
+                    className="pill"
+                    disabled={busy}
+                    onClick={() => {
+                      onManage(membership.id);
+                    }}
+                    type="button"
+                  >
+                    Manage billing
+                  </button>
+                ) : null}
+              </Actions>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <Notice>{notice}</Notice>
     </DocSection>
   );
@@ -349,7 +395,7 @@ const DeleteSection = ({ onDeleted }: { onDeleted: () => void }) => {
   );
 };
 
-/** The account's patron memberships, with billing facts when ambiguous. */
+/** The account's patron memberships, with their billing facts. */
 const loadMemberships = async (): Promise<Resource[]> => {
   const saved = await fetch(`${accountOrigin}/account/data`, {
     credentials: "include",
@@ -361,20 +407,14 @@ const loadMemberships = async (): Promise<Resource[]> => {
   let billing: {
     memberships: {
       id: string;
-      status: { patron: { status: string; paidUntil: number | null } };
+      status: { patron: NonNullable<Resource["billing"]> };
     }[];
   } | null = null;
-  if (data.patrons.length > 1) {
+  if (data.patrons.length) {
     try {
-      const billingResponse = await fetch(
-        `${accountOrigin}/account/patron/status`,
-        { credentials: "include" }
-      );
-      if (billingResponse.ok) {
-        billing = await billingResponse.json();
-      }
+      billing = await account.patronStatus();
     } catch {
-      /* Keep ambiguous choices disabled when billing is unavailable. */
+      /* Without billing facts, choices stay disabled and billing hidden. */
     }
   }
   return data.patrons.map((item) => ({
@@ -469,8 +509,34 @@ const SignedIn = ({
     setBusy(false);
   };
 
-  /** Saves this browser's membership to the account, then maybe billing. */
-  const saveMembership = async (continueToBilling = false) => {
+  /** Leaves for Creem: checkout or the billing portal. */
+  const openBilling = async (billing: () => Promise<{ url: string }>) => {
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      const link = await billing();
+      const url = new URL(link.url);
+      if (url.protocol === "https:") {
+        forgetIntent(localStorage);
+        window.location.assign(url.href);
+        return;
+      }
+      setNotice("Billing is unavailable. Try again later.");
+      setBusy(false);
+    } catch (error) {
+      // Billing answers 409 for its own conflicts (checkout still
+      // processing, a membership already active); only 401 means signed out.
+      if (error instanceof ApiError && error.code === "unauthorized") {
+        onSignedOut();
+        return;
+      }
+      setNotice(failureMessage(error));
+      setBusy(false);
+    }
+  };
+
+  /** Saves this browser's membership to the account, then maybe checkout. */
+  const saveMembership = async (continueToCheckout = false) => {
     setBusy(true);
     setNotice(undefined);
     try {
@@ -492,12 +558,12 @@ const SignedIn = ({
         setBusy(false);
         return;
       }
-      await refresh();
-      setNotice("Saved to your account.");
-      if (continueToBilling) {
-        window.location.assign(`${accountOrigin}/account?section=patron`);
+      if (continueToCheckout) {
+        await openBilling(() => account.patronCheckout());
         return;
       }
+      await refresh();
+      setNotice("Saved to your account.");
     } catch {
       setNotice("Couldn’t reach Shouldertap. Try again.");
     }
@@ -511,7 +577,13 @@ const SignedIn = ({
       key="patron"
       memberships={patrons}
       notice={notice}
-      onCheckout={() => saveMembership(true)}
+      checkoutEnabled={checkoutEnabled}
+      onCheckout={(patronId) =>
+        patronId
+          ? openBilling(() => account.patronCheckout(patronId))
+          : saveMembership(true)
+      }
+      onManage={(patronId) => openBilling(() => account.managePatron(patronId))}
       onSave={() => saveMembership()}
       onUse={addMembership}
       plan={plan}

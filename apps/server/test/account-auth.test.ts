@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createAccountAuth } from "../src/account-auth";
 import { handleAccountHttp } from "../src/account-http";
-import { accountPage } from "../src/account-page";
 
 const origin = "https://api.shouldertap.app";
 const webOrigin = "https://shouldertap.app";
@@ -26,42 +25,8 @@ const request = (path: string, body?: object, cookie?: string, from = origin) =>
       },
       body: body ? JSON.stringify(body) : undefined,
     }),
-    { auth, origin, webOrigin, page: (url) => accountPage(url, webOrigin) }
+    { auth, origin, webOrigin }
   );
-const emailedToken = () => {
-  const message = sent.at(-1);
-  if (!message) {
-    throw new Error("Expected a sign-in email");
-  }
-  const link = message.match(
-    /https:\/\/api\.shouldertap\.app\/account#[^\s\]]+/u
-  )?.[0];
-  if (!link) {
-    throw new Error("Expected a confirmation link");
-  }
-  return decodeURIComponent(new URL(link).hash.slice(1));
-};
-const signin = async () => {
-  const response = await request("/api/auth/sign-in/magic-link", {
-    email: "reader@example.com",
-    callbackURL: "/account",
-  });
-  if (response.status !== 200) {
-    throw new Error("Sign-in email was rejected");
-  }
-  const token = emailedToken();
-  const verified = await request("/account/verify", { token });
-  if (verified.status !== 204) {
-    throw new Error("Sign-in verification failed");
-  }
-  return {
-    token,
-    cookie: verified.headers
-      .getSetCookie()
-      .map((c) => c.split(";")[0])
-      .join("; "),
-  };
-};
 const json = async <
   T = { error: string; client_id: string; access_token: string },
 >(
@@ -100,7 +65,7 @@ const native = (path: string, body?: object, bearer?: string) =>
       },
       body: body ? JSON.stringify(body) : undefined,
     }),
-    { auth, origin, webOrigin, page: (url) => accountPage(url, webOrigin) }
+    { auth, origin, webOrigin }
   );
 const emailedCode = () => sent.at(-1)?.match(/\b\d{6}\b/u)?.[0] ?? "";
 const sendCode = (email = "reader@example.com") =>
@@ -108,6 +73,23 @@ const sendCode = (email = "reader@example.com") =>
     email,
     type: "sign-in",
   });
+/** A browser signed in with an emailed code: its session cookie. */
+const signin = async () => {
+  await sendCode();
+  const signedIn = await request("/api/auth/sign-in/email-otp", {
+    email: "reader@example.com",
+    otp: emailedCode(),
+  });
+  if (signedIn.status !== 200) {
+    throw new Error("Sign-in failed");
+  }
+  return {
+    cookie: signedIn.headers
+      .getSetCookie()
+      .map((c) => c.split(";")[0])
+      .join("; "),
+  };
+};
 /** A native app signed in with an emailed code: its session token. */
 const nativeSession = async () => {
   await sendCode();
@@ -172,12 +154,6 @@ describe("email account HTTP flow", () => {
     });
   });
 
-  it("consumes a magic link only once", async () => {
-    const { token } = await signin();
-    const replay = await request("/account/verify", { token });
-    expect(replay.status).toBe(400);
-  });
-
   it("revokes the cookie session on sign out", async () => {
     const { cookie } = await signin();
     const signedOut = await request("/api/auth/sign-out", {}, cookie);
@@ -188,26 +164,10 @@ describe("email account HTTP flow", () => {
     expect(session).toBeNull();
   });
 
-  it("expires links after ten minutes and stores no raw token", async () => {
-    const issued = await request("/api/auth/sign-in/magic-link", {
-      email: "reader@example.com",
-    });
-    const token = emailedToken();
-    const stored = db.prepare("SELECT identifier FROM verification").get() as {
-      identifier: string;
-    };
-    vi.setSystemTime(new Date("2026-10-21T12:11:00Z"));
-    const expired = await request("/account/verify", { token });
-    expect(issued.status).toBe(200);
-    expect(stored.identifier).toMatch(/^magic-link:/u);
-    expect(stored.identifier).not.toContain(token);
-    expect(expired.status).toBe(400);
-  });
-
   it("rejects foreign origins", async () => {
     const denied = await request(
-      "/api/auth/sign-in/magic-link",
-      { email: "reader@example.com" },
+      "/api/auth/email-otp/send-verification-otp",
+      { email: "reader@example.com", type: "sign-in" },
       undefined,
       "https://evil.example"
     );
@@ -224,39 +184,6 @@ describe("email account HTTP flow", () => {
     expect(allowed.headers.get("access-control-allow-origin")).toBe(webOrigin);
     expect(allowed.headers.get("access-control-allow-credentials")).toBe(
       "true"
-    );
-  });
-
-  it("requires explicit confirmation instead of redeeming links from URLs", async () => {
-    const page = await request("/account");
-    const content = await page.text();
-    const verification = await request(
-      "/api/auth/magic-link/verify?token=example"
-    );
-    expect(page.headers.get("content-security-policy")).toContain(
-      "default-src 'none'"
-    );
-    expect(content).toContain("Confirm sign in");
-    expect(verification.status).toBe(405);
-  });
-
-  it("shows only the code check when an app opens the device page", async () => {
-    const page = await request("/account/device?user_code=ABCD-EFGH");
-    const content = await page.text();
-    expect(content).toContain('<h1 id="title">Connect your device.</h1>');
-    expect(content).toContain("The code matches my device");
-    expect(content).not.toContain("Delete account");
-    expect(content).not.toContain('id="patron"');
-  });
-
-  it("returns a patron checkout to the web sender's patron account", async () => {
-    const plainPage = await request("/account");
-    const patronPage = await request("/account?section=patron");
-    const plain = await plainPage.text();
-    const patron = await patronPage.text();
-    expect(plain).toContain('href="https://shouldertap.app/account"');
-    expect(patron).toContain(
-      'href="https://shouldertap.app/account?intent=patron"'
     );
   });
 
@@ -542,7 +469,7 @@ describe("email account HTTP flow", () => {
       mac.access_token
     );
     expect(scanned.origin + scanned.pathname).toBe(
-      "https://api.shouldertap.app/account/device"
+      "https://shouldertap.app/account/device"
     );
     await expect(review.json()).resolves.toMatchObject({
       client_id: "shouldertap-mac",

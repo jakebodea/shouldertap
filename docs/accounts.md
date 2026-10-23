@@ -17,7 +17,7 @@ Every client signs in the same way: the person enters their email, gets a six-di
 
 The account is the person. Its profile (name and color, `account_profile`) is asked once; saving it creates the person's inbox with no device. `/account/sync` links a device: it saves the tokens the device already holds to the account, issues a device credential for the person's inbox when the device receives, and issues the device its own sender key for each connection it lacks. Accepting an invite (`/account/accept`) connects both people: a sender in the inviter's inbox for the person accepting and one in theirs for the inviter, each with that person's profile. The two Inbox objects share no transaction, so the reverse half is created first and revoked if redeeming the invite fails.
 
-Magic links (token in the fragment, explicit confirmation, no public GET verification) and device authorization remain for builds already installed; current clients don't use them.
+There is one account page, the website's `/account` (with `/account/device` for approving a device's code). The API origin serves no pages.
 
 Existing Inbox and SenderPatron credentials remain valid. Signing in does not prove ownership of an existing inbox or purchase. Saving a device's credentials requires both a verified email session and the valid credentials; another account's resources cannot be adopted (sync skips them).
 
@@ -27,7 +27,7 @@ Accounts that adopted several inboxes keep them separate; the default (else the 
 
 Browser and Mac patron entrypoints lead through account sign-in, adoption of existing membership, and membership resolution before checkout. iPhone purchase links use the actual US App Store storefront, never device locale. Native device-authorization pages hide purchase controls.
 
-The legacy bearer-only signup endpoint redirects users through the account flow. Existing membership management remains available. Pages read the public `GET /v1/patrons/availability` and offer checkout when Creem credentials and the annual patron product are configured. Otherwise they say "Patron memberships open soon". The web account page remembers a patron intent for an hour across the email round trip; it never replaces a different membership already in the browser, and a returning patron adds the account's membership with one explicit "Use membership on this browser" action.
+The legacy bearer-only signup endpoint redirects users through the account flow. Existing membership management remains available: the web page opens checkout and the billing portal itself (`POST /account/patron/checkout|manage`), and checkout returns to `/account?intent=patron`. Pages read the public `GET /v1/patrons/availability` and offer checkout when Creem credentials and the annual patron product are configured. Otherwise they say "Patron memberships open soon". The web account page remembers a patron intent for an hour across the email round trip; it never replaces a different membership already in the browser, and a returning patron adds the account's membership with one explicit "Use membership on this browser" action.
 
 Checkout checks every account membership, pins one billing identity, and serializes checkout, adoption, and deletion. Active subscriptions and unresolved checkout attempts block account deletion so billing access is retained. Deleting an account removes account sessions and recovery references; it does not remove existing messaging credentials.
 
@@ -35,6 +35,6 @@ Operation locks deliberately have no expiry: after an interrupted Worker operati
 
 ## Verification and rollout
 
-Unit tests cover sign-in expiry/replay, device authorization, ownership, and revocation. Local Alchemy HTTP/D1/DO checks cover multiple inboxes, restoration, device unlinking, recipient revocation, and cross-account denial. Native builds and core tests are separate gates.
+Unit tests cover sign-in code expiry and attempts, device authorization, ownership, and revocation. Local Alchemy HTTP/D1/DO checks cover multiple inboxes, restoration, device unlinking, recipient revocation, and cross-account denial. Native builds and core tests are separate gates.
 
 Production deployment, sending-domain activation, and delivery to a real mailbox require separate verification. A successful infrastructure plan or local sign-in test does not establish production delivery. Native account features also require new distributed builds; this change does not submit an iOS release to App Review.
