@@ -29,12 +29,7 @@ import * as Redacted from "effect/Redacted";
 
 import { accountEmail, domains, isProduction } from "../../../domains.ts";
 import { createAccountAuth } from "./account-auth";
-import {
-  accountBilling,
-  checkoutAvailable,
-  checkoutFlagValue,
-  patronCheckoutConfig,
-} from "./account-billing";
+import { accountBilling, checkoutAvailable } from "./account-billing";
 import { deleteAccount } from "./account-delete";
 import type { AccountEmailBinding } from "./account-email";
 import { handleAccountHttp } from "./account-http";
@@ -104,7 +99,6 @@ export default class Server extends Cloudflare.Worker<Server>()(
         ACCOUNT_DB: accountDatabase,
         ACCOUNT_SECRET: accountSecret,
         ACCOUNT_PRODUCTION: production ? "true" : "false",
-        PATRON_CHECKOUT_ENABLED: checkoutFlagValue(production),
         ...(production
           ? {
               ACCOUNT_EMAIL: yield* Cloudflare.Email.SendEmail("AccountEmail", {
@@ -180,11 +174,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
           ),
       });
 
-    // Production explicitly opts in above; other stages default to no new checkouts.
-    // Existing subscription management, webhooks and free messages are unaffected.
-    const patronCheckoutEnabled = yield* patronCheckoutConfig;
     const patronCheckoutAvailable = checkoutAvailable(
-      patronCheckoutEnabled,
       Option.getOrUndefined(creem)
     );
 
@@ -800,7 +790,6 @@ export default class Server extends Cloudflare.Worker<Server>()(
                       {
                         ...deps,
                         origin,
-                        enabled: patronCheckoutEnabled,
                         billing: Option.getOrUndefined(creem),
                       },
                       userId,

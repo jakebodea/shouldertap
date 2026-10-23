@@ -4,7 +4,6 @@ import {
   Unauthorized,
   Unavailable,
 } from "@shouldertap/domain";
-import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 
 import {
@@ -25,24 +24,13 @@ import type { PatronRpc } from "./SenderPatron";
 interface Dependencies {
   db: D1Database;
   patrons: { getByName: (id: string) => PatronRpc };
-  enabled: boolean;
   billing?: { client: ReturnType<typeof creemClient>; patronProductId: string };
   origin: string;
 }
 
-// Alchemy parses JSON primitives during init. Use non-JSON boolean text so
-// Config.Boolean receives the same representation during plan and runtime.
-export const checkoutFlagValue = (enabled: boolean) => (enabled ? "yes" : "no");
-
-export const patronCheckoutConfig = Config.Boolean(
-  "PATRON_CHECKOUT_ENABLED"
-).pipe(Config.withDefault(false));
-
-/** New checkout needs the flag and a configured patron product; every page reads this. */
-export const checkoutAvailable = (
-  enabled: boolean,
-  billing?: { patronProductId: string }
-) => enabled && Boolean(billing?.patronProductId);
+/** Checkout is available wherever the annual patron product is configured. */
+export const checkoutAvailable = (billing?: { patronProductId: string }) =>
+  Boolean(billing?.patronProductId);
 
 const checkoutMembership = Effect.fn(function* checkoutMembership(
   deps: Dependencies,
@@ -115,7 +103,7 @@ const billingAction = Effect.fn(function* accountBilling(
       status: yield* deps.patrons.getByName(resource.id).accountStatus(),
     });
   }
-  const checkoutEnabled = checkoutAvailable(deps.enabled, deps.billing);
+  const checkoutEnabled = checkoutAvailable(deps.billing);
   if (action === "status") {
     return { memberships, checkoutEnabled };
   }

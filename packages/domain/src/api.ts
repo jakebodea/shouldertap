@@ -190,7 +190,7 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
 /** Creating a sender's patron identity, or adding one of their devices. */
 export class PatronSetupGroup extends HttpApiGroup.make("patronSetup")
   .add(
-    // Whether "Become a patron" leads anywhere yet (PATRON_CHECKOUT_ENABLED
+    // Whether "Become a patron" is available (configured Creem credentials
     // and a configured product), so pages never offer a dead-end checkout.
     HttpApiEndpoint.get("patronAvailability", "/patrons/availability", {
       success: PatronAvailability,
