@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { invitePreview, peopleAction } from "../src/account-people";
+import type { AnalyticsEvent } from "../src/analytics";
 import type { InboxRpc } from "../src/Inbox";
 
 /**
@@ -42,6 +43,8 @@ let sqlite: DatabaseSync;
 let db: D1Database;
 let world: Map<string, FakeInbox>;
 let counter: number;
+/** What would have gone to PostHog, an external service. */
+let tracked: AnalyticsEvent[];
 
 const nextId = (prefix: string) => {
   counter += 1;
@@ -195,7 +198,14 @@ const fakeInbox = (inboxId: string): InboxRpc => {
   return rpc as InboxRpc;
 };
 
-const deps = () => ({ db, inboxes: { getByName: fakeInbox } });
+const deps = () => ({
+  db,
+  inboxes: { getByName: fakeInbox },
+  track: (event: AnalyticsEvent) =>
+    Effect.sync(() => {
+      tracked.push(event);
+    }),
+});
 
 const act = <A = Record<string, unknown>>(
   userId: string,
@@ -247,6 +257,7 @@ const connect = async () => {
 describe("account people", () => {
   beforeEach(() => {
     counter = 0;
+    tracked = [];
     world = new Map();
     sqlite = new DatabaseSync(":memory:");
     sqlite.exec(
@@ -300,6 +311,33 @@ describe("account people", () => {
       expect(second.profile).toStrictEqual({ name: "Samantha", color: "moss" });
       expect(world.size).toBe(1);
       expect(world.get(first.inboxId)?.recipientName).toBe("Samantha");
+    });
+
+    it("reports each new inbox and accepted invite once", async () => {
+      await connect();
+      await act("sam", "profile", { name: "Samantha", color: "moss" });
+      expect(tracked).toStrictEqual([
+        {
+          name: "inbox_created",
+          inboxId: "6d74c226099a0e0f55a4ecf3aaa81725",
+          userId: "ari",
+          platform: null,
+        },
+        {
+          name: "inbox_created",
+          inboxId: "5e29bc970b8f9f597065a1ce313694a9",
+          userId: "sam",
+          platform: null,
+        },
+        {
+          name: "invite_redeemed",
+          inboxId: "6d74c226099a0e0f55a4ecf3aaa81725",
+          credentialId: "s00000003",
+          kind: "sender",
+          userId: "sam",
+          platform: null,
+        },
+      ]);
     });
 
     it("rejects an empty name and an unknown color", async () => {

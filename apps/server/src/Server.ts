@@ -36,6 +36,8 @@ import { handleAccountHttp } from "./account-http";
 import { accountAction } from "./account-identity";
 import { accountPage } from "./account-page";
 import { invitePreview, peopleAction } from "./account-people";
+import { analyticsPerson, capture, patronEventName } from "./analytics";
+import type { Track } from "./analytics";
 import { makeProviderTokens } from "./apns";
 import type { PushContext } from "./apns";
 import {
@@ -47,7 +49,7 @@ import {
   readWebhookAction,
 } from "./Creem";
 import { Inbox, InboxLive } from "./Inbox";
-import { themeForSend } from "./presentation";
+import { DEFAULT_THEME, themeForSend } from "./presentation";
 import { SenderPatron, SenderPatronLive } from "./SenderPatron";
 import { TrialLedger, TrialLedgerLive } from "./TrialLedger";
 
@@ -139,6 +141,29 @@ export default class Server extends Cloudflare.Worker<Server>()(
         client: creemClient(Redacted.value(config.apiKey)),
       }))
     );
+
+    // Analytics is optional too: without the PostHog project token
+    // (previews, dev) nothing is reported.
+    const posthogToken = yield* Config.option(
+      Config.String("POSTHOG_PROJECT_TOKEN")
+    );
+    const exec = yield* Cloudflare.Workers.WorkerExecutionContext;
+    /** Reports after the response is sent; never delays or fails it. */
+    const track: Track = (event, at) =>
+      Option.match(posthogToken, {
+        onNone: () => Effect.void,
+        onSome: (token) =>
+          exec.waitUntil(
+            Effect.tryPromise(() =>
+              analyticsPerson(accountEnv.ACCOUNT_DB, event)
+            ).pipe(
+              Effect.flatMap((personId) => capture(token, event, at, personId)),
+              Effect.catchCause(() =>
+                Effect.logWarning("Could not report product event")
+              )
+            )
+          ),
+      });
 
     // New sender signups remain off until merchant approval and product copy are ready.
     // Existing subscription management, webhooks and free messages are unaffected.
@@ -246,10 +271,20 @@ export default class Server extends Cloudflare.Worker<Server>()(
               void machine;
               const inboxId = yield* newInboxId;
               // A fresh random id can't already exist; Conflict would be a bug.
-              return yield* inboxes
+              const grant = yield* inboxes
                 .getByName(inboxId)
                 .initialize(inboxId, names)
                 .pipe(Effect.orDie);
+              yield* track(
+                {
+                  name: "inbox_created",
+                  inboxId,
+                  userId: null,
+                  platform: names.platform ?? "mac",
+                },
+                Date.now()
+              );
+              return grant;
             })
           )
           .handle("previewInvite", ({ query }) =>
@@ -258,7 +293,28 @@ export default class Server extends Cloudflare.Worker<Server>()(
           .handle("redeemInvite", ({ payload }) => {
             const code = parseToken(payload.code);
             return code
-              ? inboxes.getByName(code.inboxId).redeemInvite(code, payload)
+              ? inboxes
+                  .getByName(code.inboxId)
+                  .redeemInvite(code, payload)
+                  .pipe(
+                    Effect.tap((grant) =>
+                      track(
+                        {
+                          name: "invite_redeemed",
+                          inboxId: code.inboxId,
+                          credentialId: grant.credentialId,
+                          kind: grant.kind,
+                          userId: null,
+                          // Senders' platform is ignored; older Macs omit it.
+                          platform:
+                            grant.kind === "device"
+                              ? (payload.platform ?? "mac")
+                              : null,
+                        },
+                        Date.now()
+                      )
+                    )
+                  )
               : Effect.fail(
                   new NotFound({ message: "This invite link isn't valid" })
                 );
@@ -291,12 +347,23 @@ export default class Server extends Cloudflare.Worker<Server>()(
             const theme = yield* themeForSend(requested, patronKey, (key) =>
               patrons.getByName(key.patronId).isActive(key)
             );
-            return yield* stub.sendTap(
+            const tap = yield* stub.sendTap(
               token,
               message,
               theme,
               yield* pushContext
             );
+            yield* track(
+              {
+                name: "tap_sent",
+                inboxId: token.inboxId,
+                tapId: tap.id,
+                senderId: tap.senderId,
+                themed: theme !== DEFAULT_THEME,
+              },
+              tap.createdAt
+            );
+            return tap;
           })
         )
         .handle("markDisplayed", ({ params }) =>
@@ -309,12 +376,23 @@ export default class Server extends Cloudflare.Worker<Server>()(
         .handle("acknowledge", ({ params, payload }) =>
           Effect.gen(function* acknowledge() {
             const { token, stub } = yield* forCaller;
-            return yield* stub.acknowledge(
+            const tap = yield* stub.acknowledge(
               token,
               params.id,
               payload,
               yield* pushContext
             );
+            yield* track(
+              {
+                name: "tap_answered",
+                inboxId: token.inboxId,
+                tapId: tap.id,
+                deviceId: token.id,
+                response: tap.response?.kind ?? payload.response.kind,
+              },
+              tap.acknowledgedAt ?? Date.now()
+            );
+            return tap;
           })
         )
         .handle("deleteTap", ({ params }) =>
@@ -573,9 +651,22 @@ export default class Server extends Cloudflare.Worker<Server>()(
         }
         // Each fact goes only to the subject named in its own metadata: a
         // historical receiver subscription never becomes a sender's.
-        yield* owner.kind === "patron"
+        const { applied } = yield* owner.kind === "patron"
           ? patrons.getByName(owner.id).recordEvent(action.event)
           : inboxes.getByName(owner.id).recordPatronEvent(action.event);
+        const name = patronEventName(action.event.type);
+        // Only the first delivery of a fact: Creem retries and replays.
+        if (applied && name) {
+          yield* track(
+            {
+              name,
+              creemEventId: action.event.id,
+              ownerId: owner.id,
+              ownerKind: owner.kind,
+            },
+            action.event.at
+          );
+        }
       } else if (action.kind === "purchase") {
         const at = Date.now();
         const { applied } = yield* inboxes
@@ -625,16 +716,23 @@ export default class Server extends Cloudflare.Worker<Server>()(
             accountEnv.ACCOUNT_PRODUCTION === "true"
               ? `https://${domains.web}`
               : "http://localhost:3001";
+          const run = Effect.runPromiseWith(
+            yield* Effect.context<RuntimeContext>()
+          );
           const auth = createAccountAuth({
             database: accountEnv.ACCOUNT_DB,
             secret: accountEnv.ACCOUNT_SECRET,
             origin,
             webOrigin,
             email: accountEnv.ACCOUNT_EMAIL,
+            onAccountCreated: (user) =>
+              run(
+                track(
+                  { name: "account_created", userId: user.id },
+                  user.createdAt.getTime()
+                )
+              ),
           });
-          const run = Effect.runPromiseWith(
-            yield* Effect.context<RuntimeContext>()
-          );
           const response = yield* Effect.promise(() =>
             handleAccountHttp(webRequest, {
               auth,
@@ -677,7 +775,12 @@ export default class Server extends Cloudflare.Worker<Server>()(
                   );
                 }
                 const body: unknown = isRead ? {} : await incoming.json();
-                const deps = { db: accountEnv.ACCOUNT_DB, inboxes, patrons };
+                const deps = {
+                  db: accountEnv.ACCOUNT_DB,
+                  inboxes,
+                  patrons,
+                  track,
+                };
                 const action = Effect.gen(function* dispatchAccount() {
                   if (path.startsWith("/account/patron/")) {
                     return yield* accountBilling(
