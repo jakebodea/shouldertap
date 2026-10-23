@@ -608,9 +608,10 @@ const SignedIn = ({
 };
 
 const Account = () => {
-  const { intent } = Route.useLoaderData();
+  const { intent, handoffFailed } = Route.useLoaderData();
   const [session, setSession] = useState<Session | "loading">("loading");
   const [color, setColor] = useState<PersonColor>("cobalt");
+  const [confirmAccount, setConfirmAccount] = useState(handoffFailed);
   const refresh = useCallback(async () => {
     setSession("loading");
     setSession(await loadSession());
@@ -628,6 +629,40 @@ const Account = () => {
     return (
       <DocPage title="Your account.">
         <output className="text-tone block py-8">Checking your sign-in…</output>
+      </DocPage>
+    );
+  }
+  if (confirmAccount && session.kind === "signed-in") {
+    return (
+      <DocPage title="Your account.">
+        <DocSection title="That sign-in from the app expired">
+          <p>
+            This browser is signed in as {session.me.email}. Continue with that
+            account, or sign out and sign in again.
+          </p>
+          <Actions>
+            <button
+              className="pill pill-ink"
+              onClick={() => {
+                setConfirmAccount(false);
+              }}
+              type="button"
+            >
+              Continue as {session.me.email}
+            </button>
+            <button
+              className="pill"
+              onClick={async () => {
+                setConfirmAccount(false);
+                await account.signOut().catch(() => null);
+                signedOut();
+              }}
+              type="button"
+            >
+              Sign out
+            </button>
+          </Actions>
+        </DocSection>
       </DocPage>
     );
   }
@@ -685,17 +720,24 @@ export const Route = createFileRoute("/account")({
   // fragment (`#<token>`), so this browser starts signed in to the same account.
   loader: async () => {
     const handoff = qrTokenFromFragment(window.location.hash);
+    let handoffFailed = false;
     if (handoff) {
       history.replaceState(
         null,
         "",
         window.location.pathname + window.location.search
       );
-      // Used or expired: the sign-in form takes over.
-      await account.redeemQrSignIn(handoff, "web").catch(() => null);
+      try {
+        await account.redeemQrSignIn(handoff, "web");
+      } catch {
+        // Used or expired. Never fall through to whoever this browser was
+        // signed in as before: the page asks first.
+        handoffFailed = true;
+      }
     }
     return {
       intent: resolveIntent(localStorage, window.location.search, Date.now()),
+      handoffFailed,
     };
   },
 });
