@@ -50,6 +50,7 @@ import {
 } from "./Creem";
 import { Inbox, InboxLive } from "./Inbox";
 import { DEFAULT_THEME, themeForSend } from "./presentation";
+import { requestApiConstruction } from "./request-api";
 import { SenderPatron, SenderPatronLive } from "./SenderPatron";
 import { TrialLedger, TrialLedgerLive } from "./TrialLedger";
 
@@ -100,6 +101,8 @@ export default class Server extends Cloudflare.Worker<Server>()(
         ACCOUNT_PRODUCTION: production ? "true" : "false",
         ...(production
           ? {
+              // Live merchant and USD 24/year sender-theme product verified before rollout.
+              PATRON_CHECKOUT_ENABLED: "true",
               ACCOUNT_EMAIL: yield* Cloudflare.Email.SendEmail("AccountEmail", {
                 allowedSenderAddresses: [accountEmail],
               }),
@@ -153,19 +156,27 @@ export default class Server extends Cloudflare.Worker<Server>()(
       Option.match(posthogToken, {
         onNone: () => Effect.void,
         onSome: (token) =>
-          exec.waitUntil(
-            Effect.tryPromise(() =>
-              analyticsPerson(accountEnv.ACCOUNT_DB, event)
-            ).pipe(
-              Effect.flatMap((personId) => capture(token, event, at, personId)),
-              Effect.catchCause(() =>
-                Effect.logWarning("Could not report product event")
+          exec
+            .waitUntil(
+              Effect.tryPromise(() =>
+                analyticsPerson(accountEnv.ACCOUNT_DB, event)
+              ).pipe(
+                Effect.flatMap((personId) =>
+                  capture(token, event, at, personId)
+                ),
+                Effect.catchCause(() =>
+                  Effect.logWarning("Could not report product event")
+                )
               )
             )
-          ),
+            .pipe(
+              Effect.catchCause(() =>
+                Effect.logWarning("Could not schedule product event")
+              )
+            ),
       });
 
-    // New sender signups remain off until merchant approval and product copy are ready.
+    // Production explicitly opts in above; other stages default to no new checkouts.
     // Existing subscription management, webhooks and free messages are unaffected.
     const patronCheckoutEnabled = yield* Config.Boolean(
       "PATRON_CHECKOUT_ENABLED"
@@ -609,7 +620,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
           })
         )
       )
-    );
+    ).pipe(requestApiConstruction);
 
     /**
      * Creem's webhook: verified against the raw body, then applied to the

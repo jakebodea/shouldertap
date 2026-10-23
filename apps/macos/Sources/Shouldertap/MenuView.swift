@@ -384,9 +384,14 @@ private struct PatronView: View {
   @State private var error: String?
 
   var body: some View {
-    DisclosureGroup("Patron themes") {
+    Section(title: "Patron themes") {
       VStack(alignment: .leading, spacing: 8) {
-        Muted("Shouldertap is free to receive and answer. Patron support belongs to the people who tap you: it lets them send their taps in a style, to everyone they tap. You never pay to see it.")
+        Muted("Choose and send patron themes from the website. Receiving and answering taps is always free.")
+        MenuButton(title: "Explore patron themes", kind: .secondary, fullWidth: true) {
+          let url = Config.endpoints.web.appending(path: "account")
+            .appending(queryItems: [URLQueryItem(name: "intent", value: "patron")])
+          NSWorkspace.shared.open(url)
+        }
         if store.patron?.legacySupporter == true { Muted("Thank you for your original purchase. It is preserved; you have not been enrolled in a subscription.") }
         // Support bought from this computer before it moved to senders:
         // still manageable and cancelable here, never sold here again.

@@ -59,7 +59,6 @@ pub struct MenuView {
     /// closing) stops asking.
     phone_sign_in_poll: Option<Task<()>>,
     // Optional support
-    support_expanded: bool,
     plan_busy: bool,
     plan_opened: bool,
     plan_error: Option<String>,
@@ -99,7 +98,6 @@ impl MenuView {
             phone_sign_in: None,
             phone_sign_in_error: None,
             phone_sign_in_poll: None,
-            support_expanded: false,
             plan_busy: false,
             plan_opened: false,
             plan_error: None,
@@ -1062,39 +1060,22 @@ impl MenuView {
     }
 
     fn support(&mut self, s: Surface, patron: Option<&Patron>, cx: &mut Context<Self>) -> AnyElement {
-        if !self.support_expanded {
-            return menu_button(
-                s,
-                "show-support",
-                "Support Shouldertap",
-                None,
-                Kind::Plain,
-                false,
-                false,
-            )
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.support_expanded = true;
-                cx.notify();
-            }))
-            .into_any_element();
-        }
-        let mut actions: Vec<AnyElement> = vec![];
-        actions.push(
+        let mut actions: Vec<AnyElement> = vec![
             menu_button(
                 s,
-                "hide-support",
-                "Close support details",
+                "patron-options",
+                "Explore patron themes",
                 None,
-                Kind::Plain,
+                Kind::Secondary,
                 false,
                 false,
             )
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.support_expanded = false;
-                cx.notify();
-            }))
+            .on_click(|_, _, cx| {
+                let web = config::endpoints().web;
+                cx.open_url(&format!("{}/account?intent=patron", web.trim_end_matches('/')));
+            })
             .into_any_element(),
-        );
+        ];
         if patron.is_some_and(|p| p.can_manage) {
             actions.push(
                 menu_button(
@@ -1110,10 +1091,18 @@ impl MenuView {
                 .into_any_element(),
             );
         }
-        div().flex().flex_col().gap(px(6.))
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
             .child(div().font_weight(FontWeight::SEMIBOLD).child("Patron themes"))
-            .child(muted(s, "Shouldertap is free to receive and answer. Patron support belongs to the people who tap you: it lets them send their taps in a style, to everyone they tap. You never pay to see it."))
-            .children(actions).children(self.plan_messages(s)).into_any_element()
+            .child(muted(
+                s,
+                "Choose and send patron themes from the website. Receiving and answering taps is always free.",
+            ))
+            .children(actions)
+            .children(self.plan_messages(s))
+            .into_any_element()
     }
 
     fn plan_messages(&self, s: Surface) -> Option<AnyElement> {
