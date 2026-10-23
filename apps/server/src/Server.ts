@@ -50,6 +50,7 @@ import {
 } from "./Creem";
 import { Inbox, InboxLive } from "./Inbox";
 import { DEFAULT_THEME, themeForSend } from "./presentation";
+import { requestApiConstruction } from "./request-api";
 import { SenderPatron, SenderPatronLive } from "./SenderPatron";
 import { TrialLedger, TrialLedgerLive } from "./TrialLedger";
 
@@ -155,16 +156,24 @@ export default class Server extends Cloudflare.Worker<Server>()(
       Option.match(posthogToken, {
         onNone: () => Effect.void,
         onSome: (token) =>
-          exec.waitUntil(
-            Effect.tryPromise(() =>
-              analyticsPerson(accountEnv.ACCOUNT_DB, event)
-            ).pipe(
-              Effect.flatMap((personId) => capture(token, event, at, personId)),
-              Effect.catchCause(() =>
-                Effect.logWarning("Could not report product event")
+          exec
+            .waitUntil(
+              Effect.tryPromise(() =>
+                analyticsPerson(accountEnv.ACCOUNT_DB, event)
+              ).pipe(
+                Effect.flatMap((personId) =>
+                  capture(token, event, at, personId)
+                ),
+                Effect.catchCause(() =>
+                  Effect.logWarning("Could not report product event")
+                )
               )
             )
-          ),
+            .pipe(
+              Effect.catchCause(() =>
+                Effect.logWarning("Could not schedule product event")
+              )
+            ),
       });
 
     // Production explicitly opts in above; other stages default to no new checkouts.
@@ -611,7 +620,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
           })
         )
       )
-    );
+    ).pipe(requestApiConstruction);
 
     /**
      * Creem's webhook: verified against the raw body, then applied to the
