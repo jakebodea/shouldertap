@@ -209,6 +209,16 @@ pub fn run(directory: String, cx: &mut App) {
                 receiver: store.clone(),
                 senders: senders.clone(),
             });
+            let patron = shouldertap_core::PatronStore::new(shouldertap_core::PatronConfig {
+                account: account.clone(),
+                senders: senders.clone(),
+                vault: Box::new(shouldertap_core::FileVault::new(
+                    std::env::temp_dir().join("shouldertap-snapshots/patron.secret"),
+                )),
+                persistence: Box::new(shouldertap_core::LocalPatronPersistence::new(
+                    std::env::temp_dir().join("shouldertap-snapshots"),
+                )),
+            });
             let model = cx.new(|_| crate::shell::Model {
                 state: store.state(),
                 store,
@@ -216,6 +226,8 @@ pub fn run(directory: String, cx: &mut App) {
                 senders,
                 account_state: account.state(),
                 account,
+                patron_state: patron.state(),
+                patron,
                 updates: Default::default(),
                 launch_at_login: false,
             });
@@ -248,7 +260,193 @@ pub fn run(directory: String, cx: &mut App) {
             }
             let _ = cx.update(|cx| handle.update(cx, |_, window, _| window.remove_window()));
         }
+        patron_shots(&directory, cx).await;
         let _ = cx.update(|cx| cx.quit());
     })
     .detach();
+}
+
+/// The patron surfaces with no server: the welcome's Patron step, the Send
+/// window's Style row and nudge, and the Tap style sheet.
+async fn patron_shots(directory: &str, cx: &mut gpui::AsyncApp) {
+    use shouldertap_core::{Patron, PatronSettings, PatronState};
+
+    use crate::send::{SendTarget, SendView};
+    use crate::welcome::{WelcomeStep, WelcomeView};
+
+    let not_yet = PatronState {
+        settings: PatronSettings {
+            sent: 5,
+            ..PatronSettings::default()
+        },
+        checkout_enabled: true,
+        loaded: true,
+        ..PatronState::default()
+    };
+    let patron = PatronState {
+        settings: PatronSettings {
+            theme: TapTheme::Note,
+            sent: 30,
+            nudges_shown: 1,
+        },
+        active: true,
+        checkout_enabled: true,
+        has_key: true,
+        membership: Some(Patron {
+            active: true,
+            status: "active".into(),
+            paid_until: Some(1_824_465_600_000.),
+            can_manage: true,
+            can_subscribe: false,
+            legacy_supporter: false,
+        }),
+        loaded: true,
+    };
+    let shots: Vec<(&str, f32, f32, PatronState, Option<(bool, Option<TapTheme>)>)> = vec![
+        ("patron-welcome", 520., 900., not_yet.clone(), None),
+        ("patron-send-row", 520., 760., not_yet.clone(), Some((false, None))),
+        ("patron-send-nudge", 520., 900., not_yet.clone(), Some((true, None))),
+        (
+            "patron-style-sheet",
+            520.,
+            1180.,
+            not_yet,
+            Some((false, Some(TapTheme::Broadsheet))),
+        ),
+        (
+            "patron-send-row-patron",
+            520.,
+            760.,
+            patron.clone(),
+            Some((false, None)),
+        ),
+        (
+            "patron-style-sheet-patron",
+            520.,
+            1180.,
+            patron,
+            Some((false, Some(TapTheme::Note))),
+        ),
+    ];
+    for (name, width, height, patron_state, send) in shots {
+        let bounds = Bounds::new(point(px(40.), px(60.)), size(px(width), px(height)));
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: None,
+            kind: WindowKind::PopUp,
+            focus: false,
+            ..Default::default()
+        };
+        let opened = cx.update(|cx| {
+            let model = snapshot_model(name, patron_state, cx);
+            match send {
+                None => cx
+                    .open_window(options, |_, cx| {
+                        cx.new(|cx| WelcomeView::new(model, WelcomeStep::Patron, cx))
+                    })
+                    .map(gpui::AnyWindowHandle::from),
+                Some((sent, style)) => cx
+                    .open_window(options, |window, cx| {
+                        cx.new(|cx| {
+                            let mut view = SendView::new(model, SendTarget::Person("s1s1s1s1".into()), window, cx);
+                            view.snapshot(sent, style);
+                            view
+                        })
+                    })
+                    .map(gpui::AnyWindowHandle::from),
+            }
+        });
+        let Ok(Ok(handle)) = opened else { continue };
+        cx.background_executor().timer(Duration::from_millis(1500)).await;
+        capture(directory, name, width, height);
+        let _ = cx.update(|cx| handle.update(cx, |_, window, _| window.remove_window()));
+    }
+}
+
+/// Signed in as Rosa, who can tap Jamie, with no server behind it.
+fn snapshot_model(
+    name: &str,
+    patron_state: shouldertap_core::PatronState,
+    cx: &mut App,
+) -> Entity<crate::shell::Model> {
+    use shouldertap_core::*;
+    let directory = std::env::temp_dir().join(format!("shouldertap-snapshots-{name}"));
+    let _ = std::fs::remove_dir_all(&directory);
+    let server = "http://127.0.0.1:9".to_string();
+    let transport = std::sync::Arc::new(NetworkTransport::default());
+    let pairings = LocalSenderPersistence::new(directory.clone(), None);
+    let _ = pairings.save_pairing(&SenderPairing {
+        token: "inbox123.s1s1s1s1.secret5678".into(),
+        credential_id: "s1s1s1s1".into(),
+        recipient_name: "Jamie".into(),
+        sender_name: "Rosa".into(),
+        color: Some(PersonColor::Tomato),
+        paired_at: 1.0,
+        account_id: None,
+    });
+    let store = ReceiverStore::new(StoreConfig {
+        endpoints: Endpoints {
+            server: server.clone(),
+            web: server.clone(),
+        },
+        persistence: Box::new(LocalPersistence::new(directory.clone(), None)),
+        transport: transport.clone(),
+        ack_retry_delay: Duration::from_secs(10),
+    });
+    let senders = SenderStore::new(SenderConfig {
+        server: server.clone(),
+        persistence: Box::new(pairings),
+        transport: transport.clone(),
+    });
+    senders.start();
+    let account = AccountStore::new(AccountConfig {
+        server,
+        vault: Box::new(FileVault::new(directory.join("account.secret"))),
+        transport,
+        platform: DevicePlatform::Windows,
+        device_name: Box::new(|| "Snapshot".into()),
+        receiver: store.clone(),
+        senders: senders.clone(),
+    });
+    let patron = PatronStore::new(PatronConfig {
+        account: account.clone(),
+        senders: senders.clone(),
+        vault: Box::new(FileVault::new(directory.join("patron.secret"))),
+        persistence: Box::new(LocalPatronPersistence::new(directory)),
+    });
+    let mut account_state = account.state();
+    account_state.signed_in = true;
+    cx.new(|_| crate::shell::Model {
+        state: store.state(),
+        store,
+        sender_state: senders.state(),
+        senders,
+        account_state,
+        account,
+        patron_state,
+        patron,
+        updates: Default::default(),
+        launch_at_login: false,
+    })
+}
+
+/// This window only, by id (a helper lists this process's windows), never
+/// whatever else is on screen.
+fn capture(directory: &str, name: &str, width: f32, height: f32) {
+    let Ok(tool) = std::env::var("SHOULDERTAP_WINDOW_ID_TOOL") else {
+        return;
+    };
+    let id = std::process::Command::new(tool)
+        .args([std::process::id().to_string(), width.to_string(), height.to_string()])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(id) = id {
+        let path = format!("{directory}/{name}.png");
+        let _ = std::process::Command::new("/usr/sbin/screencapture")
+            .args(["-x", "-o", "-l", &id, &path])
+            .status();
+    }
 }

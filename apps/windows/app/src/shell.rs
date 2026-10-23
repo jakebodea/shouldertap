@@ -15,8 +15,9 @@ use gpui::{
     WindowBounds, WindowHandle, WindowKind, WindowOptions, point, px, size,
 };
 use shouldertap_core::{
-    AccountConfig, AccountState, AccountStore, ActiveTap, DevicePlatform, LocalPersistence, LocalSenderPersistence,
-    NetworkTransport, ReceiverStore, SenderConfig, SenderState, SenderStore, StoreConfig, StoreState, TapResponse,
+    AccountConfig, AccountState, AccountStore, ActiveTap, DevicePlatform, LocalPatronPersistence, LocalPersistence,
+    LocalSenderPersistence, NetworkTransport, PatronConfig, PatronState, PatronStore, ReceiverStore, SenderConfig,
+    SenderState, SenderStore, StoreConfig, StoreState, TapResponse,
 };
 
 use crate::mark::{self, KNOCK_DURATION};
@@ -37,8 +38,21 @@ pub struct Model {
     /// The person: signs this PC in and hands both stores their credentials.
     pub account: AccountStore,
     pub account_state: AccountState,
+    /// Patron themes from this PC: the membership, the key, the chosen theme.
+    pub patron: PatronStore,
+    pub patron_state: PatronState,
     pub updates: updates::Status,
     pub launch_at_login: bool,
+}
+
+impl Model {
+    /// Where the patron membership stands, asked in the background; signed
+    /// out, there's no one to ask.
+    pub fn refresh_patron(&self) {
+        if self.account_state.signed_in {
+            self.patron.refresh_in_background();
+        }
+    }
 }
 
 pub struct Shell {
@@ -93,6 +107,12 @@ impl Shell {
             receiver: store.clone(),
             senders: senders.clone(),
         });
+        let patron = PatronStore::new(PatronConfig {
+            account: account.clone(),
+            senders: senders.clone(),
+            vault: platform::patron_vault(),
+            persistence: Box::new(LocalPatronPersistence::new(config::data_dir())),
+        });
 
         // Store changes arrive on its threads; redraw on this one.
         let (changes_tx, mut changes) = mpsc::unbounded::<()>();
@@ -109,6 +129,11 @@ impl Shell {
             let _ = account_changes_tx.unbounded_send(());
         });
 
+        let (patron_changes_tx, mut patron_changes) = mpsc::unbounded::<()>();
+        patron.on_change(move || {
+            let _ = patron_changes_tx.unbounded_send(());
+        });
+
         let model = cx.new(|_| Model {
             store: store.clone(),
             state: store.state(),
@@ -116,6 +141,8 @@ impl Shell {
             sender_state: senders.state(),
             account: account.clone(),
             account_state: account.state(),
+            patron_state: patron.state(),
+            patron: patron.clone(),
             updates: updates::Status::default(),
             launch_at_login: platform::launch_at_login(),
         });
@@ -194,6 +221,16 @@ impl Shell {
         })
         .detach();
 
+        cx.spawn(async move |cx| {
+            while patron_changes.next().await.is_some() {
+                while let Ok(()) = patron_changes.try_recv() {}
+                if cx.update(Shell::patron_changed).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         let mut events = events;
         cx.spawn(async move |cx| {
             while let Some(event) = events.next().await {
@@ -215,6 +252,7 @@ impl Shell {
         let signed_in = account.start();
         if signed_in {
             account.sync_in_background();
+            patron.refresh_in_background();
         }
         if !signed_in && !receiving && senders.state().sessions.is_empty() {
             Shell::open_welcome(WelcomeStep::Welcome, cx);
@@ -255,10 +293,21 @@ impl Shell {
         });
     }
 
+    fn patron_changed(cx: &mut App) {
+        let model = cx.global::<Shell>().model.clone();
+        model.update(cx, |model, cx| {
+            model.patron_state = model.patron.state();
+            cx.notify();
+        });
+    }
+
     fn account_changed(cx: &mut App) {
         let model = cx.global::<Shell>().model.clone();
         let state = model.read(cx).account.state();
         let needs_profile = state.needs_profile();
+        if state.signed_in && !model.read(cx).account_state.signed_in {
+            model.read(cx).patron.refresh_in_background();
+        }
         model.update(cx, |model, cx| {
             model.account_state = state;
             cx.notify();
@@ -342,6 +391,7 @@ impl Shell {
         model.read(cx).store.refresh();
         // Opening the menu is this tray app's foreground: sync with the account.
         model.read(cx).account.sync_in_background();
+        model.read(cx).refresh_patron();
         let anchor = cx.global::<Shell>().tray.as_ref().and_then(|tray| tray.anchor());
         let menu = cx.open_window(
             WindowOptions {

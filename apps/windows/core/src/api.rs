@@ -77,9 +77,13 @@ impl ApiError {
             409 => ErrorCode::Conflict,
             410 => ErrorCode::Expired,
             429 => ErrorCode::RateLimited,
-            // Only the server's own 503 carries a message worth showing; a
+            // Only the server's own 503 carries a message worth showing
+            // (inbox routes tag it, account routes say `{ error }`); a
             // proxy's is just the network.
-            503 if decoded.as_ref().and_then(|body| body.tag.as_deref()) == Some("Unavailable") => {
+            503 if decoded
+                .as_ref()
+                .is_some_and(|body| body.tag.as_deref() == Some("Unavailable") || body.error.is_some()) =>
+            {
                 ErrorCode::Unavailable
             }
             _ => ErrorCode::Network,
@@ -310,15 +314,40 @@ impl ApiClient {
     }
 
     /// Senders only: `request_id` makes a retry after a dropped connection
-    /// return the same tap instead of sending a second one.
-    pub fn send_tap(&self, request_id: &str, body: &str) -> Result<Tap, ApiError> {
+    /// return the same tap instead of sending a second one. A theme other
+    /// than Default goes only with the patron key that pays for it; the
+    /// server stores Default when the key isn't an active patron's.
+    pub fn send_tap(
+        &self,
+        request_id: &str,
+        body: &str,
+        theme: TapTheme,
+        patron_key: Option<&str>,
+    ) -> Result<Tap, ApiError> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Body<'a> {
             request_id: &'a str,
             body: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            theme: Option<TapTheme>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            patron_key: Option<&'a str>,
         }
-        self.send("POST", "/v1/taps", Some(&Body { request_id, body }))
+        let (theme, patron_key) = match patron_key {
+            Some(key) if theme.is_paid() => (Some(theme), Some(key)),
+            _ => (None, None),
+        };
+        self.send(
+            "POST",
+            "/v1/taps",
+            Some(&Body {
+                request_id,
+                body,
+                theme,
+                patron_key,
+            }),
+        )
     }
 
     /// Senders only: deletes this sender and everything they sent from the
@@ -482,6 +511,37 @@ impl ApiClient {
         }
         self.send::<_, serde::de::IgnoredAny>("POST", "/account/remove", Some(&Body { id }))
             .map(|_| ())
+    }
+
+    /// The account's patron memberships and whether checkout is open.
+    pub fn patron_status(&self) -> Result<AccountPatronStatus, ApiError> {
+        self.send::<(), _>("GET", "/account/patron/status", None)
+    }
+
+    /// Where to become a patron, in the browser. `Conflict` when the account
+    /// already has a membership, `Unavailable` while checkout is closed.
+    pub fn patron_checkout(&self) -> Result<Checkout, ApiError> {
+        self.send("POST", "/account/patron/checkout", Some(&serde_json::json!({})))
+    }
+
+    /// The billing portal for the account's membership, in the browser.
+    pub fn patron_manage(&self) -> Result<Checkout, ApiError> {
+        self.send("POST", "/account/patron/manage", Some(&serde_json::json!({})))
+    }
+
+    /// A new patron key for this device, for membership `id`.
+    pub fn restore_patron_key(&self, id: &str) -> Result<String, ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            kind: &'a str,
+            id: &'a str,
+        }
+        #[derive(Deserialize)]
+        struct Restored {
+            key: String,
+        }
+        self.send::<_, Restored>("POST", "/account/restore", Some(&Body { kind: "patron", id }))
+            .map(|restored| restored.key)
     }
 
     /// A sign-in QR code for another device; needs the session.

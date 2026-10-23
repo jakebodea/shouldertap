@@ -1,0 +1,130 @@
+import Foundation
+import Observation
+
+// The sender's patron membership on this device (docs/patrons.md): optional
+// support that lets the taps they send use a theme. Core use stays free.
+
+/// `GET /account/patron/status`.
+public struct AccountPatrons: Decodable, Sendable, Equatable {
+  public struct Membership: Decodable, Sendable, Equatable {
+    public struct Billing: Decodable, Sendable, Equatable {
+      public var active: Bool
+      /// `active`, `ending`, `payment_issue`, `none`, …
+      public var status: String
+      public var paidUntil: Timestamp?
+    }
+    public struct Status: Decodable, Sendable, Equatable { public var patron: Billing }
+    public var id: String
+    public var status: Status
+  }
+  public var memberships: [Membership]
+  public var checkoutEnabled: Bool
+
+  /// The membership that's paid up right now, if any.
+  public var active: Membership? { memberships.first { $0.status.patron.active } }
+}
+
+/// When to mention membership after sending: after a few taps, then a while
+/// later, then once more, and never for a patron or before checkout opens.
+public enum PatronNudge {
+  /// Taps sent from this device before each mention.
+  public static let milestones = [5, 20, 50]
+
+  public static func due(sent: Int, shown: Int, patron: Bool, checkoutEnabled: Bool) -> Bool {
+    guard !patron, checkoutEnabled, milestones.indices.contains(shown) else { return false }
+    return sent >= milestones[shown]
+  }
+}
+
+/// This device's membership, chosen theme and the nudge counters. The key is
+/// minted per device from the account (`/account/restore`) and kept in the
+/// vault; the server checks it on every send.
+@MainActor @Observable
+public final class PatronStore {
+  public private(set) var status: AccountPatrons?
+  /// The theme picked for new taps. It only goes out while `active`.
+  public var theme: TapTheme {
+    didSet { defaults.set(theme.rawValue, forKey: Self.themeKey) }
+  }
+  public private(set) var sent: Int
+  public private(set) var nudgesShown: Int
+  public private(set) var busy = false
+  public var error: String?
+
+  public var active: Bool { status?.active != nil && key != nil }
+  public var checkoutEnabled: Bool { status?.checkoutEnabled ?? account.checkoutEnabled }
+  public var nudgeDue: Bool {
+    PatronNudge.due(sent: sent, shown: nudgesShown, patron: active, checkoutEnabled: checkoutEnabled)
+  }
+  /// What the next tap carries.
+  public var style: SendStyle { active ? SendStyle(theme: theme, patronKey: key) : SendStyle() }
+
+  @ObservationIgnored private let account: AccountStore
+  @ObservationIgnored private let vault: any CredentialVault
+  @ObservationIgnored private let defaults: UserDefaults
+  private var key: String?
+
+  private static let themeKey = "patron.theme"
+  private static let sentKey = "patron.sent"
+  private static let shownKey = "patron.nudgesShown"
+
+  public init(account: AccountStore, vault: any CredentialVault, defaults: UserDefaults = .standard) {
+    self.account = account
+    self.vault = vault
+    self.defaults = defaults
+    key = vault.read()
+    theme = defaults.string(forKey: Self.themeKey).flatMap(TapTheme.init(rawValue:)) ?? .default
+    sent = defaults.integer(forKey: Self.sentKey)
+    nudgesShown = defaults.integer(forKey: Self.shownKey)
+  }
+
+  /// Reads the account's memberships; a paid-up one without a key on this
+  /// device gets one.
+  public func refresh() async {
+    guard account.signedIn else { status = nil; return }
+    do {
+      let current = try await account.patronStatus()
+      if let membership = current.active, key == nil {
+        let minted = try await account.restorePatronKey(id: membership.id)
+        try vault.write(minted)
+        key = minted
+      }
+      status = current
+    } catch is CancellationError {
+    } catch {
+      self.error = error.localizedDescription
+    }
+  }
+
+  /// The checkout page, to open in the browser.
+  public func checkoutURL() async -> URL? {
+    await run { try await self.account.patronCheckout() }
+  }
+
+  public func manageURL() async -> URL? {
+    await run { try await self.account.patronManage() }
+  }
+
+  /// The server accepted a tap from this device.
+  public func recordSend() {
+    sent += 1
+    defaults.set(sent, forKey: Self.sentKey)
+  }
+
+  /// The nudge was answered either way; the next waits for its milestone.
+  public func nudgeHandled() {
+    nudgesShown += 1
+    defaults.set(nudgesShown, forKey: Self.shownKey)
+  }
+
+  private func run<T>(_ action: @escaping () async throws -> T) async -> T? {
+    guard !busy else { return nil }
+    busy = true
+    error = nil
+    defer { busy = false }
+    do { return try await action() } catch is CancellationError { return nil } catch {
+      self.error = error.localizedDescription
+      return nil
+    }
+  }
+}

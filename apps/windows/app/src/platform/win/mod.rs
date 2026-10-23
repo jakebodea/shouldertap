@@ -459,6 +459,13 @@ pub fn account_vault() -> Box<dyn CredentialVault> {
     })
 }
 
+/// This PC's patron key: proves a patron membership on themed taps.
+pub fn patron_vault() -> Box<dyn CredentialVault> {
+    Box::new(CredentialManager {
+        target: HSTRING::from(format!("{}/patron", config::APP_ID)),
+    })
+}
+
 /// Each sender pairing's token, one generic credential per pairing
 /// (Credential Manager keeps only small secrets), named by its credential id.
 pub fn sender_vaults() -> Option<SenderVaults> {

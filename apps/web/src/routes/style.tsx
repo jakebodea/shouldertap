@@ -1,4 +1,10 @@
-import { ArrowLeft01Icon, RepeatIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  FavouriteIcon,
+  PaintBoardIcon,
+  RepeatIcon,
+  UserGroupIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { fallbackColor, TAP_THEMES } from "@shouldertap/domain";
 import type { TapTheme } from "@shouldertap/domain";
@@ -12,7 +18,7 @@ import type { PreviewTap } from "@/components/tap-preview/themes";
 import { styleOffer } from "@/lib/account-flow";
 import { loadPairing } from "@/lib/pairing";
 import { loadDraft, loadStyle, saveStyle } from "@/lib/sender-style";
-import { THEME_NAMES } from "@/lib/theme-names";
+import { PATRON_THEMES, THEME_NAMES } from "@/lib/theme-names";
 import { usePatron } from "@/lib/use-patron";
 
 const SAMPLE = "Dinner's ready. Come down whenever you hit a stopping point.";
@@ -58,6 +64,7 @@ const StyleComponent = () => {
 
   const paid = selected !== "default";
   const canUse = !paid || patron.active;
+  const offer = patronOffer(patron);
   const use = () => {
     saveStyle(localStorage, selected);
     setSaved(selected);
@@ -144,7 +151,8 @@ const StyleComponent = () => {
                 {THEME_NAMES[theme].name}
               </span>
               <span className="text-tone block text-[0.875rem] leading-snug">
-                {theme === "default" ? "Free" : "Patrons"}
+                {THEME_NAMES[theme].sub}
+                {theme === "default" || patron.active ? "" : " · Patrons"}
                 {saved === theme ? " · in use" : ""}
               </span>
             </span>
@@ -152,32 +160,99 @@ const StyleComponent = () => {
         ))}
       </fieldset>
 
-      {saved === selected ? (
-        <p className="text-tone text-center text-[0.9375rem] font-semibold">
-          Your taps use {THEME_NAMES[saved].name}.
-        </p>
-      ) : (
-        <button
-          className="pill pill-frame w-full"
-          disabled={!canUse}
-          onClick={use}
-          type="button"
-        >
-          Use {THEME_NAMES[selected].name}
-        </button>
-      )}
-
-      <PatronSection
-        offerReason={
-          paid && !patron.active
-            ? `${THEME_NAMES[selected].name} is for patrons.`
-            : null
-        }
+      <UseAction
+        canUse={canUse}
+        inUse={saved === selected}
+        name={THEME_NAMES[selected].name}
+        offer={offer}
+        onUse={use}
         patron={patron}
       />
+
+      <PatronSection offer={offer} patron={patron} />
     </Frame>
   );
 };
+
+/**
+ * The page's one action for the selected theme. A patron theme a sender
+ * can't use yet leads to checkout instead of a disabled button.
+ */
+const UseAction = ({
+  name,
+  inUse,
+  canUse,
+  offer,
+  patron,
+  onUse,
+}: {
+  name: string;
+  inUse: boolean;
+  canUse: boolean;
+  offer: ReturnType<typeof styleOffer>;
+  patron: ReturnType<typeof usePatron>;
+  onUse: () => void;
+}) => {
+  if (inUse) {
+    return (
+      <p className="text-tone text-center text-[0.9375rem] font-semibold">
+        Your taps use {name}.
+      </p>
+    );
+  }
+  if (!canUse && offer === "subscribe") {
+    return (
+      <div className="flex flex-col gap-2">
+        <button
+          className="pill pill-frame w-full"
+          disabled={patron.busy || !patron.loaded}
+          onClick={() => {
+            patron.subscribe();
+          }}
+          type="button"
+        >
+          Become a patron to use {name}
+        </button>
+        <p className="text-tone text-center text-[0.8125rem]">
+          {PRICE}, plus tax. Come back here to switch it on.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <button
+      className="pill pill-frame w-full"
+      disabled={!canUse}
+      onClick={onUse}
+      type="button"
+    >
+      Use {name}
+    </button>
+  );
+};
+
+const PERKS = [
+  {
+    icon: PaintBoardIcon,
+    text: `${new Intl.ListFormat("en").format(PATRON_THEMES.map((theme) => THEME_NAMES[theme].name))}, on every tap you send.`,
+  },
+  {
+    icon: UserGroupIcon,
+    text: "To everyone you tap, on every device you link. They never pay to see it.",
+  },
+  {
+    icon: FavouriteIcon,
+    text: "Helps cover running costs, so sending and answering stay free for everyone.",
+  },
+] as const;
+
+/** What a sender without an active membership can do about it. */
+const patronOffer = (patron: ReturnType<typeof usePatron>) =>
+  styleOffer({
+    canManage: patron.status?.patron.canManage ?? false,
+    canSubscribe: patron.status?.patron.canSubscribe ?? true,
+    checkoutEnabled: patron.checkoutEnabled,
+  });
 
 /** The call to action for a sender without an active membership. */
 const PatronOffer = ({
@@ -232,10 +307,10 @@ const PatronOffer = ({
 
 const PatronSection = ({
   patron,
-  offerReason,
+  offer,
 }: {
   patron: ReturnType<typeof usePatron>;
-  offerReason: string | null;
+  offer: ReturnType<typeof styleOffer>;
 }) => {
   const [code, setCode] = useState<{ code: string; expiresAt: number } | null>(
     null
@@ -243,11 +318,6 @@ const PatronSection = ({
   const [entering, setEntering] = useState(false);
   const [entry, setEntry] = useState("");
   const membership = patron.status?.patron;
-  const offer = styleOffer({
-    canManage: membership?.canManage ?? false,
-    canSubscribe: membership?.canSubscribe ?? true,
-    checkoutEnabled: patron.checkoutEnabled,
-  });
   const handleManage = () => {
     patron.manage();
   };
@@ -272,7 +342,7 @@ const PatronSection = ({
         className="text-[1.3125rem] leading-tight font-extrabold tracking-[-0.02em]"
         id="patron"
       >
-        Patron
+        {membership?.active ? "Patron" : "Become a patron"}
       </h2>
       {membership?.active ? (
         <>
@@ -319,11 +389,22 @@ const PatronSection = ({
         </>
       ) : (
         <>
-          <p className="text-[0.9375rem] leading-snug">
-            {offerReason ? `${offerReason} ` : null}
-            Patrons can send their taps in Broadsheet, Billboard, Terminal or
-            Note, to everyone they tap.
+          <p className="text-[2.75rem] leading-none font-extrabold tracking-[-0.045em]">
+            $2<span className="text-tone text-[0.4em]">/month</span>
           </p>
+          <ul className="flex flex-col gap-3">
+            {PERKS.map((perk) => (
+              <li className="flex items-start gap-3" key={perk.text}>
+                <HugeiconsIcon
+                  className="mt-px size-5 shrink-0"
+                  icon={perk.icon}
+                />
+                <span className="text-[0.9375rem] leading-snug">
+                  {perk.text}
+                </span>
+              </li>
+            ))}
+          </ul>
           <PatronOffer
             offer={offer}
             onManage={handleManage}

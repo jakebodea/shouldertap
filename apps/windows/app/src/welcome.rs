@@ -1,12 +1,13 @@
 //! The welcome: account-first onboarding (docs/onboarding.md, "The flow"),
 //! like apps/macos's Welcome.swift, step for step. Welcome → email → six-digit
-//! code → you (name and color, only when the account has none) → ready.
+//! code → you (name and color, only when the account has none) → patron
+//! themes (only while checkout is open) → ready.
 //! Instead of an email, a signed-in iPhone can scan this PC's QR code ("Sign
 //! in with your phone"). A Frame (docs/design.md): Cobalt, then the color you
 //! pick, around a paper page, with the wordmark on the frame's top edge.
 //! Windows asks for nothing else.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, FontWeight, Hsla, Render, SharedString, Subscription,
@@ -17,6 +18,7 @@ use shouldertap_core::{
 };
 
 use crate::assets::{Icon, MARK_PATH};
+use crate::patron;
 use crate::qr::qr_code;
 use crate::send::{danger_text, input, labeled, page_heading, pill, preview_frame, tone_text};
 use crate::shell::{Model, Shell};
@@ -32,6 +34,9 @@ pub enum WelcomeStep {
     /// "Sign in with your phone": a QR code a signed-in iPhone approves.
     Phone,
     You,
+    /// After the You step, while patron checkout is open: a gentle offer of
+    /// patron themes, skippable.
+    Patron,
     /// Set up: where Shouldertap lives, then the menu.
     Ready,
 }
@@ -62,6 +67,11 @@ pub struct WelcomeView {
     device_ended: Option<PhoneEnded>,
     /// Polls while the Phone step shows; dropped when it leaves.
     device_poll: Option<Task<()>>,
+    /// The Patron step's preview: when its cycle started, and its redraws.
+    cycle_started: Instant,
+    cycle: Option<Task<()>>,
+    /// The preview's reply field, never shown.
+    preview_reply: Entity<TextField>,
     focus: FocusHandle,
     pending_focus: bool,
     _subscriptions: Vec<Subscription>,
@@ -77,6 +87,7 @@ impl WelcomeView {
         // Room for a pasted "123 456"; only digits stay.
         let code = field(cx, "123456", 16);
         let name = field(cx, "e.g. Sam", MAX_NAME_LENGTH);
+        let preview_reply = field(cx, "", 0);
         let subscriptions = vec![
             cx.observe(&model, |this, _, cx| {
                 this.prefill(cx);
@@ -115,6 +126,9 @@ impl WelcomeView {
             device: None,
             device_ended: None,
             device_poll: None,
+            cycle_started: Instant::now(),
+            cycle: None,
+            preview_reply,
             focus: cx.focus_handle(),
             pending_focus: false,
             _subscriptions: subscriptions,
@@ -139,9 +153,14 @@ impl WelcomeView {
         if step == WelcomeStep::Phone {
             self.start_phone(cx);
         }
+        // The patron preview cycles only while it shows, and never with
+        // reduced motion.
+        self.cycle_started = Instant::now();
+        self.cycle = (step == WelcomeStep::Patron && !patron::reduces_motion(self.model.read(cx)))
+            .then(|| patron::cycle_ticks(cx));
         self.prefill(cx);
         // Ready is framed in the color they picked, or the one the account had.
-        if step == WelcomeStep::Ready
+        if matches!(step, WelcomeStep::Patron | WelcomeStep::Ready)
             && let Some(profile) = self.model.read(cx).account_state.profile()
         {
             self.color = profile.color;
@@ -349,14 +368,50 @@ impl WelcomeView {
             return;
         }
         let color = self.color;
+        let patrons = self.model.read(cx).patron.clone();
         self.run(
             cx,
-            move |account| account.set_profile(&name, color),
+            move |account| {
+                account.set_profile(&name, color)?;
+                // Whether to offer patron themes next; trouble just skips it.
+                let _ = patrons.refresh();
+                Ok(())
+            },
             |this, result, cx| match result {
+                Ok(()) if this.model.read(cx).patron.state().checkout_enabled => this.go(WelcomeStep::Patron, cx),
                 Ok(()) => this.go(WelcomeStep::Ready, cx),
                 Err(error) => this.error = Some(error.to_string()),
             },
         );
+    }
+
+    // Patron
+
+    /// Checkout in the browser, then on to Ready; an error stays here.
+    fn become_patron(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.busy = true;
+        self.error = None;
+        let patrons = self.model.read(cx).patron.clone();
+        let task = cx.background_executor().spawn(async move { patrons.checkout() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = false;
+                match result {
+                    Ok(url) => {
+                        cx.open_url(&url);
+                        this.go(WelcomeStep::Ready, cx);
+                    }
+                    Err(error) => this.error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 }
 
@@ -387,14 +442,14 @@ impl Render for WelcomeView {
                 WelcomeStep::Email => Some(&self.email),
                 WelcomeStep::Code => Some(&self.code),
                 WelcomeStep::You => Some(&self.name),
-                WelcomeStep::Ready => None,
+                WelcomeStep::Patron | WelcomeStep::Ready => None,
             };
             match field {
                 Some(field) => window.focus(&field.focus_handle(cx)),
                 None => window.focus(&self.focus),
             }
         }
-        let frame = if matches!(self.step, WelcomeStep::You | WelcomeStep::Ready) {
+        let frame = if matches!(self.step, WelcomeStep::You | WelcomeStep::Patron | WelcomeStep::Ready) {
             self.color
         } else {
             WELCOME_COLOR
@@ -405,6 +460,7 @@ impl Render for WelcomeView {
             WelcomeStep::Code => self.code_page(cx),
             WelcomeStep::Phone => self.phone_page(frame, cx),
             WelcomeStep::You => self.you_page(cx),
+            WelcomeStep::Patron => self.patron_page(window, cx),
             WelcomeStep::Ready => self.ready_page(cx),
         };
         div()
@@ -412,7 +468,7 @@ impl Render for WelcomeView {
             .track_focus(&self.focus)
             // Esc is Later, like the Mac's; set up, there's nothing to skip.
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape" && this.step != WelcomeStep::Ready {
+                if event.keystroke.key == "escape" && !matches!(this.step, WelcomeStep::Patron | WelcomeStep::Ready) {
                     later(cx);
                 }
             }))
@@ -731,6 +787,87 @@ impl WelcomeView {
                 pill.on_click(cx.listener(|this, _, _, cx| this.save_profile(cx)))
             })
             .into_any_element(),
+        );
+        page
+    }
+
+    /// Help keep Shouldertap free: their own tap, cycling through the patron
+    /// themes, and a choice that's easy to put off.
+    fn patron_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let name = self
+            .model
+            .read(cx)
+            .account_state
+            .profile()
+            .map(|profile| profile.name.clone())
+            .unwrap_or_else(|| self.name.read(cx).text().trim().to_string());
+        let name = if name.is_empty() { "You".to_string() } else { name };
+        let reduce = patron::reduces_motion(self.model.read(cx));
+        let (shown, elapsed) = patron::cycle_at(self.cycle_started, reduce);
+        // The page's width inside the frame and its padding.
+        let width = (f32::from(window.viewport_size().width) - 20. - 56.).max(200.);
+        let preview = patron::preview(
+            shown,
+            patron::sample(&name, self.color, patron::SAMPLE),
+            width,
+            width * 900. / 1440.,
+            elapsed,
+            reduce,
+            &self.preview_reply,
+            12.,
+            window,
+            cx,
+        );
+        let busy = self.busy;
+        let mut page = vec![
+            div()
+                .font_weight(FontWeight::EXTRA_BOLD)
+                .text_size(px(46.))
+                .line_height(px(46.))
+                .child("Help keep Shouldertap free.")
+                .into_any_element(),
+            tone_text(
+                "Shouldertap is free for everyone, kept running by patrons. If you'd like to chip in, your taps can arrive as a front page, a poster, a console or a handwritten note. The people you tap never pay to see them.",
+            )
+            .text_size(px(16.))
+            .into_any_element(),
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(8.))
+                .child(preview)
+                .child(tone_text(shown.label()).font_weight(FontWeight::BOLD))
+                .into_any_element(),
+        ];
+        page.extend(self.messages());
+        page.push(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(
+                    pill(
+                        "become-patron",
+                        if busy { "Opening…" } else { "Become a patron" },
+                        None,
+                        Some(self.color),
+                        busy,
+                    )
+                    .w_full()
+                    .when(!busy, |pill| {
+                        pill.on_click(cx.listener(|this, _, _, cx| this.become_patron(cx)))
+                    }),
+                )
+                .child(
+                    pill("maybe-later", "Maybe later", None, None, busy)
+                        .w_full()
+                        .when(!busy, |pill| {
+                            pill.on_click(cx.listener(|this, _, _, cx| this.go(WelcomeStep::Ready, cx)))
+                        }),
+                )
+                .child(tone_text(patron::WELCOME_PRICE).text_size(px(13.)))
+                .into_any_element(),
         );
         page
     }

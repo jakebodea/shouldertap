@@ -298,6 +298,13 @@ fn payment_errors_keep_the_servers_message() {
     assert_eq!(unavailable.to_string(), "Payments aren't set up here yet.");
 }
 
+#[test]
+fn account_routes_say_why_they_are_unavailable() {
+    let closed = ApiError::from_response(503, br#"{"error":"Patron memberships open soon."}"#);
+    assert_eq!(closed.code, ErrorCode::Unavailable);
+    assert_eq!(closed.to_string(), "Patron memberships open soon.");
+}
+
 // Trial fingerprint
 
 const UUID: &str = "00000000-0000-0000-0000-000000000001";

@@ -64,6 +64,7 @@
         for item in queue { await capture(item, into: directory) }
         await appearanceWindow(into: directory)
         if only == nil || "welcome".contains(only!) { await welcomeSteps(into: directory) }
+        if only == nil || "patron".contains(only!) { await patronSurfaces(into: directory) }
         NSApp.terminate(nil)
       }
     }
@@ -110,10 +111,12 @@
     private static func welcomeSteps(into directory: String) async {
       let account = AccountStore(server: URL(string: "http://127.0.0.1:9")!, vault: NoVault())
       let steps: [(String, WelcomeModel.Step)] = [
-        ("welcome", .welcome), ("email", .email), ("code", .code), ("you", .you), ("ready", .ready),
+        ("welcome", .welcome), ("email", .email), ("code", .code), ("you", .you), ("patron", .patron),
+        ("ready", .ready),
       ]
+      let patron = PatronStore(account: account, vault: NoVault(), defaults: UserDefaults(suiteName: "snapshots")!)
       for (name, step) in steps {
-        let model = WelcomeModel(account: account, sync: {}, dismiss: { _ in })
+        let model = WelcomeModel(account: account, patron: patron, sync: {}, dismiss: { _ in })
         model.step = step
         model.email = "jake@example.com"
         model.code = step == .code ? "1234" : ""
@@ -129,6 +132,43 @@
         if let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
           view.cacheDisplay(in: view.bounds, to: rep)
           try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(directory)/mac-\(name).png"))
+        }
+        window.orderOut(nil)
+      }
+    }
+
+    /// The composer's Style row and nudge, and the Tap style sheet, for a
+    /// sender who isn't a patron yet.
+    private static func patronSurfaces(into directory: String) async {
+      let account = AccountStore(server: URL(string: "http://127.0.0.1:9")!, vault: NoVault())
+      let patron = PatronStore(account: account, vault: NoVault(), defaults: UserDefaults(suiteName: "snapshots")!)
+      let views: [(String, NSSize, AnyView)] = [
+        (
+          "composer", NSSize(width: 472, height: 230),
+          AnyView(
+            VStack(spacing: 18) {
+              StyleRow(patron: patron, name: "Jake", color: .moss, message: "Dinner's ready.") {}
+              PatronNudgeCard(patron: patron, color: .moss)
+            }.padding(20).frame(width: 472).background(Color(nsColor: .windowBackgroundColor)))
+        ),
+        (
+          "style", NSSize(width: 520, height: 640),
+          AnyView(
+            StyleSheet(patron: patron, name: "Jake", color: .moss, message: "Dinner's ready.") {}
+              .background(Color(nsColor: .windowBackgroundColor)))
+        ),
+      ]
+      for (name, size, view) in views {
+        let window = NSWindow(
+          contentRect: NSRect(origin: CGPoint(x: 40, y: 40), size: size), styleMask: [.borderless],
+          backing: .buffered, defer: false)
+        window.contentView = NSHostingView(rootView: view)
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .seconds(1.5))
+        if let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+          view.cacheDisplay(in: view.bounds, to: rep)
+          try? rep.representation(using: .png, properties: [:])?.write(
+            to: URL(fileURLWithPath: "\(directory)/mac-patron-\(name).png"))
         }
         window.orderOut(nil)
       }

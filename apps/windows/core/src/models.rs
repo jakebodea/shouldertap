@@ -333,7 +333,57 @@ pub struct Patron {
     pub paid_until: Option<Timestamp>,
     pub can_manage: bool,
     pub can_subscribe: bool,
+    /// Missing from an account's membership status (`/account/patron/status`).
+    #[serde(default)]
     pub legacy_supporter: bool,
+}
+
+impl Patron {
+    /// Paid up and not cancelled: "Renews …". Otherwise the period "Ends …".
+    pub fn renews(&self) -> bool {
+        self.status == "active"
+    }
+}
+
+/// One patron membership on the account (`GET /account/patron/status`).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct PatronMembership {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub status: PatronMembershipStatus,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct PatronMembershipStatus {
+    /// Shaped differently by a newer server: no membership to act on.
+    #[serde(default, deserialize_with = "lenient")]
+    pub patron: Option<Patron>,
+}
+
+impl PatronMembership {
+    pub fn active(&self) -> bool {
+        self.status.patron.as_ref().is_some_and(|patron| patron.active)
+    }
+}
+
+/// `GET /account/patron/status`: the account's memberships, and whether new
+/// ones can start here.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountPatronStatus {
+    #[serde(default)]
+    pub memberships: Vec<PatronMembership>,
+    #[serde(default)]
+    pub checkout_enabled: bool,
+}
+
+impl AccountPatronStatus {
+    /// The first membership that's active.
+    pub fn active_membership(&self) -> Option<&PatronMembership> {
+        self.memberships.iter().find(|membership| membership.active())
+    }
 }
 
 /// `TapTheme` from packages/domain/src/contracts.ts: how a tap looks on the
@@ -360,6 +410,9 @@ impl TapTheme {
         Self::Note,
     ];
 
+    /// The four themes only patrons send.
+    pub const PATRON: [TapTheme; 4] = [Self::Broadsheet, Self::Billboard, Self::Terminal, Self::Note];
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Default => "Default",
@@ -368,6 +421,11 @@ impl TapTheme {
             Self::Terminal => "Terminal",
             Self::Note => "Note",
         }
+    }
+
+    /// Only active patrons send it.
+    pub fn is_paid(self) -> bool {
+        self != Self::Default
     }
 }
 

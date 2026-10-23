@@ -27,7 +27,13 @@ import {
   redirect,
   useNavigate,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { FormEvent, ReactNode } from "react";
 import { toast } from "sonner";
 
@@ -36,6 +42,8 @@ import { InvitePanel } from "@/components/invite-panel";
 import { Mark } from "@/components/mark";
 import { MiniTap } from "@/components/mini-tap";
 import { StepHeading } from "@/components/sign-in";
+import { TapPreview } from "@/components/tap-preview/tap-preview";
+import type { PreviewTap } from "@/components/tap-preview/themes";
 import {
   isSignedOutError,
   loadSession,
@@ -57,7 +65,7 @@ import {
   loadStyle,
   saveDraft,
 } from "@/lib/sender-style";
-import { THEME_NAMES } from "@/lib/theme-names";
+import { PATRON_THEMES, THEME_NAMES } from "@/lib/theme-names";
 import { duration, relativeTime } from "@/lib/time";
 import { useSender } from "@/lib/use-sender";
 import type { OutgoingTap } from "@/lib/use-sender";
@@ -329,15 +337,12 @@ const Composer = ({
           <HugeiconsIcon className="size-5" icon={SentIcon} />
           Send tap
         </button>
-        <Link
-          className="text-tone flex items-center justify-between rounded-[14px] px-1 py-1 text-[0.9375rem] font-semibold"
-          to="/style"
-        >
-          <span>
-            Style <b className="text-ink">{THEME_NAMES[style].name}</b>
-          </span>
-          <HugeiconsIcon className="size-[18px]" icon={ArrowRight01Icon} />
-        </Link>
+        <StyleLink
+          color={color}
+          draft={draft}
+          sender={pairing.senderName}
+          style={style}
+        />
       </form>
 
       <section aria-labelledby="recent" className="flex flex-col">
@@ -386,6 +391,79 @@ const Composer = ({
         ·{" "}
       </Footer>
     </Frame>
+  );
+};
+
+const SHOWCASE_MS = 3200;
+
+/**
+ * The way into Tap style, drawn as the tap itself: the style in use, or, on
+ * Default, the draft cycling through the patron themes so the sender sees
+ * what their words could look like before opening the page.
+ */
+const StyleLink = ({
+  style,
+  draft,
+  sender,
+  color,
+}: {
+  style: TapTheme;
+  draft: string;
+  sender: string;
+  color: PersonColor;
+}) => {
+  const [shown, setShown] = useState(0);
+  // The tap's clock, restamped as each theme arrives.
+  const [at, setAt] = useState(() => new Date());
+  const showcasing = style === "default";
+  useEffect(() => {
+    if (!showcasing || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setShown((n) => (n + 1) % PATRON_THEMES.length);
+      setAt(new Date());
+    }, SHOWCASE_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [showcasing]);
+  const theme = showcasing ? (PATRON_THEMES[shown] ?? "broadsheet") : style;
+  const text = useDeferredValue(draft.trim()) || "Dinner's ready.";
+  const tap = useMemo<PreviewTap>(
+    () => ({ sender, text, color, at }),
+    [sender, text, color, at]
+  );
+  return (
+    <Link
+      className="flex items-center gap-3 rounded-2xl p-2 pr-3 shadow-[inset_0_0_0_1.5px_var(--line)] transition-shadow hover:shadow-[inset_0_0_0_1.5px_var(--ink)]"
+      to="/style"
+    >
+      <TapPreview
+        className="w-[88px] shrink-0 rounded-[6px]"
+        replay={0}
+        tap={tap}
+        theme={theme}
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[1.0625rem] leading-tight font-bold">
+          {showcasing ? (
+            <>Send it as {THEME_NAMES[theme].name}</>
+          ) : (
+            <>Style: {THEME_NAMES[theme].name}</>
+          )}
+        </span>
+        <span className="text-tone block text-[0.875rem] leading-snug">
+          {showcasing
+            ? "Patron themes for your taps"
+            : "How everyone you tap sees it"}
+        </span>
+      </span>
+      <HugeiconsIcon
+        className="text-tone size-[18px]"
+        icon={ArrowRight01Icon}
+      />
+    </Link>
   );
 };
 

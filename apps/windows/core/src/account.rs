@@ -360,6 +360,32 @@ impl AccountStore {
         Ok(())
     }
 
+    // Patron membership (docs/design.md, "Tap themes"): bought and managed
+    // in the browser, then proven on each device by its own patron key.
+
+    pub fn patron_status(&self) -> Result<AccountPatronStatus, ApiError> {
+        let api = self.inner.session()?;
+        self.inner.checked(api.patron_status())
+    }
+
+    /// Where to become a patron; open it in the browser.
+    pub fn patron_checkout(&self) -> Result<String, ApiError> {
+        let api = self.inner.session()?;
+        self.inner.checked(api.patron_checkout()).map(|checkout| checkout.url)
+    }
+
+    /// The billing portal; open it in the browser.
+    pub fn patron_manage(&self) -> Result<String, ApiError> {
+        let api = self.inner.session()?;
+        self.inner.checked(api.patron_manage()).map(|checkout| checkout.url)
+    }
+
+    /// A patron key for this device, for membership `id`.
+    pub fn restore_patron_key(&self, id: &str) -> Result<String, ApiError> {
+        let api = self.inner.session()?;
+        self.inner.checked(api.restore_patron_key(id))
+    }
+
     // Leaving
 
     /// Ends the session; this PC keeps receiving and tapping.

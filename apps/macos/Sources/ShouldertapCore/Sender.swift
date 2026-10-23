@@ -90,8 +90,22 @@ public struct OutgoingTap: Sendable, Codable, Hashable, Identifiable {
   public var failed: Bool
   /// Why the server refused it, e.g. the recipient's trial ended.
   public var error: String?
+  /// The style it was sent in; nil on outboxes saved before themes (Default).
+  public var theme: TapTheme?
 
   public var id: String { requestId }
+}
+
+/// The theme new taps go in, and the patron key that lets a theme other than
+/// Default through (`SendTapRequest.theme`/`patronKey`).
+public struct SendStyle: Sendable, Equatable {
+  public var theme: TapTheme
+  public var patronKey: String?
+
+  public init(theme: TapTheme = .default, patronKey: String? = nil) {
+    self.theme = theme
+    self.patronKey = patronKey
+  }
 }
 
 /// Where the sender keeps what must survive a restart.
@@ -136,17 +150,22 @@ public final class SenderSession: Identifiable {
   @ObservationIgnored private let api: APIClient
   @ObservationIgnored private let session: URLSession
   @ObservationIgnored private let onRevoked: @MainActor (SenderSession) -> Void
+  @ObservationIgnored private let style: @MainActor () -> SendStyle
+  @ObservationIgnored private let onSent: @MainActor (Tap) -> Void
   @ObservationIgnored private var live: LiveConnection?
   @ObservationIgnored private var inFlight: Set<String> = []
 
   init(
     pairing: SenderPairing, server: URL, persistence: any SenderPersistence, session: URLSession,
+    style: @escaping @MainActor () -> SendStyle, onSent: @escaping @MainActor (Tap) -> Void,
     onRevoked: @escaping @MainActor (SenderSession) -> Void
   ) {
     id = pairing.credentialId
     self.pairing = pairing
     self.persistence = persistence
     self.session = session
+    self.style = style
+    self.onSent = onSent
     self.onRevoked = onRevoked
     api = APIClient(baseURL: server, token: pairing.token, session: session)
     outbox = persistence.loadOutbox(credentialId: pairing.credentialId)
@@ -197,7 +216,8 @@ public final class SenderSession: Identifiable {
     guard !trimmed.isEmpty else { throw .empty }
     guard trimmed.count <= maxTapLength else { throw .tooLong }
     let item = OutgoingTap(
-      requestId: newRequestId(), body: trimmed, createdAt: Date.now.timeIntervalSince1970 * 1000, failed: false)
+      requestId: newRequestId(), body: trimmed, createdAt: Date.now.timeIntervalSince1970 * 1000, failed: false,
+      theme: style().theme)
     updateOutbox { [item] + $0 }
     deliver(item)
   }
@@ -206,7 +226,13 @@ public final class SenderSession: Identifiable {
   public func retry(requestId: String) {
     guard let item = outbox.first(where: { $0.requestId == requestId }) else { return }
     discard(requestId: requestId)
-    try? send(item.body)
+    var again = item
+    again.requestId = newRequestId()
+    again.createdAt = Date.now.timeIntervalSince1970 * 1000
+    again.failed = false
+    again.error = nil
+    updateOutbox { [again] + $0 }
+    deliver(again)
   }
 
   public func discard(requestId: String) {
@@ -216,12 +242,15 @@ public final class SenderSession: Identifiable {
   private func deliver(_ item: OutgoingTap) {
     guard inFlight.insert(item.requestId).inserted else { return }
     let api = api
+    let patronKey = style().patronKey
     Task {
       defer { inFlight.remove(item.requestId) }
       do {
-        let tap = try await api.sendTap(requestId: item.requestId, body: item.body)
+        let tap = try await api.sendTap(
+          requestId: item.requestId, body: item.body, theme: item.theme ?? .default, patronKey: patronKey)
         updateOutbox { $0.filter { $0.requestId != item.requestId } }
         merge(tap)
+        onSent(tap)
       } catch let error as APIError where error.code == .unauthorized {
         revoked()
       } catch {
@@ -304,6 +333,11 @@ public final class SenderStore {
   public private(set) var sessions: [SenderSession] = []
   /// Something the sender should hear about once, e.g. a removed pairing.
   public var notice: String?
+  /// How new taps from this device look, and the key that lets them.
+  /// Defaults to Default with no key (the iPhone, and anyone not a patron).
+  @ObservationIgnored public var style: @MainActor () -> SendStyle = { SendStyle() }
+  /// The server accepted a tap from this device.
+  @ObservationIgnored public var onSent: @MainActor (Tap) -> Void = { _ in }
 
   @ObservationIgnored private let server: URL
   @ObservationIgnored private let persistence: any SenderPersistence
@@ -392,6 +426,8 @@ public final class SenderStore {
   private func makeSession(_ pairing: SenderPairing) -> SenderSession {
     SenderSession(
       pairing: pairing, server: server, persistence: persistence, session: session,
+      style: { [weak self] in self?.style() ?? SendStyle() },
+      onSent: { [weak self] tap in self?.onSent(tap) },
       onRevoked: { [weak self] session in
         self?.notice = "\(session.pairing.recipientName) removed this pairing"
         self?.forget(id: session.id)

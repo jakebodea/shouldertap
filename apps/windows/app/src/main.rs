@@ -11,6 +11,7 @@ mod config;
 mod mark;
 mod menu;
 mod overlay;
+mod patron;
 mod platform;
 mod qr;
 mod send;

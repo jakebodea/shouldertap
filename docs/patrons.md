@@ -64,7 +64,19 @@ The immutable fact ledger deduplicates event IDs. It folds by provider event tim
 
 ## Promotion policy
 
-The theme a recipient sees on a patron's tap is the only social discovery: no ads, nags, branding paragraphs, watermarks or badges in a received overlay. Recipients' Mac and Windows menus have a quiet, collapsed "Patron themes" note explaining that senders choose styles; there is no automatic prompt anywhere. The earlier Mac recipient support prompt is retired (its history columns are kept, no longer written). Senders find the offer only by opening Style in the web sender.
+Never in a received tap: no ads, nags, branding paragraphs, watermarks or badges in an overlay; a patron's theme is the only thing a recipient sees. The earlier Mac recipient support prompt is retired (its history columns are kept, no longer written).
+
+Senders hear about membership as a light ask: help keep Shouldertap free, and your taps get themes. Every pitch shows their own tap in the themes rather than describing them.
+
+- **Onboarding (Mac, Windows):** one step after name and color, "Help keep Shouldertap free.", with their tap cycling through the four themes, "Become a patron" (checkout in the browser) and "Maybe later". Skipped when checkout isn't open or they're already a patron.
+- **After sending (Mac, Windows):** a dismissible "Enjoying Shouldertap?" card in the Send window after the 5th, 20th and 50th tap sent from that computer, then never again (`PatronNudge`, counters kept per device). Never for a patron or before checkout opens.
+- **Style row (Mac, Windows, web):** under Send tap, a live thumbnail of the draft; for non-patrons it cycles the patron themes ("Send it as Broadsheet"). It opens Tap style.
+- **Settings → Patron themes (Mac, Windows):** the ask, "Become a patron" or "Manage billing", and "Choose tap style".
+- **Web:** the landing page's pricing section shows the hero's tap in each theme; `/style` turns a locked theme's button into "Become a patron to use {theme}".
+
+## Desktop membership
+
+Desktops are signed into the account, so they use the account's membership directly (no link codes): `GET /account/patron/status`, `POST /account/patron/checkout` and `/manage` open the browser, and when a membership is active and the computer has no patron key, `POST /account/restore {kind: "patron", id}` mints one for it (Mac Keychain `<bundle>.patron`, Windows' own vault). Status refreshes at launch, when the menu opens, when the app becomes active again (back from checkout) and when Tap style opens. Sends carry `theme` and `patronKey` only while active; the server still decides. iPhone sending stays Default-only (StoreKit is not built).
 
 ## Provider configuration and remaining rollout work
 
@@ -168,4 +180,4 @@ Creem's live Shouldertap dashboard confirms the store can accept payments. The c
 
 Production has the required Creem configuration. Previews have no payment credentials, so checkout remains unavailable there. Product validation rejects mismatched prices and billing intervals before checkout. Existing subscriptions and the historical $5 purchase retain their existing handling.
 
-Mac and Windows settings expose **Explore patron themes** directly under **Patron themes**, opening `/account?intent=patron` on the configured website. This preserves the account sign-in and membership recovery flow. The copy says that themes are selected and sent from the website; native iPhone sending remains Default-only. Desktop release 0.8.5 (Mac build 18) carries this entry point.
+Mac and Windows settings used to link to `/account?intent=patron` (**Explore patron themes**, desktop 0.8.5); they now offer native checkout, billing and Tap style (see "Promotion policy" and "Desktop membership").

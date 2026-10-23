@@ -82,8 +82,17 @@ public struct APIClient: Sendable {
 
   /// Senders only. `requestId` makes retries idempotent: the same id and body
   /// always return the same tap; the same id with a different body is a conflict.
-  public func sendTap(requestId: String, body: String) async throws -> Tap {
-    try await send("POST", "/v1/taps", body: ["requestId": requestId, "body": body])
+  /// A theme other than Default goes only with a patron key; the server
+  /// checks the key and stores Default when it isn't an active patron's.
+  public func sendTap(requestId: String, body: String, theme: TapTheme = .default, patronKey: String? = nil)
+    async throws -> Tap
+  {
+    var request = ["requestId": requestId, "body": body]
+    if theme != .default, let patronKey {
+      request["theme"] = theme.rawValue
+      request["patronKey"] = patronKey
+    }
+    return try await send("POST", "/v1/taps", body: request)
   }
 
   public func markDisplayed(tapId: String) async throws -> Tap {

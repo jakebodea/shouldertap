@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::models::TapResponse;
+use crate::patron::{PatronPersistence, PatronSettings};
 use crate::sender::{OutgoingTap, SenderPairing, SenderPersistence};
 use crate::store::ReceiverPersistence;
 
@@ -245,6 +246,37 @@ impl SenderPersistence for LocalSenderPersistence {
             let _ = fs::remove_file(path);
         } else if let Ok(json) = serde_json::to_vec(outbox) {
             let _ = write_file(&self.directory, &path, &json);
+        }
+    }
+}
+
+/// The patron theme and nudge counters in `patron.json`; the patron key
+/// itself lives in a `CredentialVault`.
+pub struct LocalPatronPersistence {
+    directory: PathBuf,
+}
+
+impl LocalPatronPersistence {
+    pub fn new(directory: PathBuf) -> Self {
+        Self { directory }
+    }
+
+    fn path(&self) -> PathBuf {
+        self.directory.join("patron.json")
+    }
+}
+
+impl PatronPersistence for LocalPatronPersistence {
+    fn load(&self) -> PatronSettings {
+        fs::read(self.path())
+            .ok()
+            .and_then(|json| serde_json::from_slice(&json).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self, settings: &PatronSettings) {
+        if let Ok(json) = serde_json::to_vec(settings) {
+            let _ = write_file(&self.directory, &self.path(), &json);
         }
     }
 }

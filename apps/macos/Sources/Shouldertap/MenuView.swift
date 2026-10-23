@@ -10,7 +10,10 @@ struct MenuView: View {
   let senders: SenderStore
   let updates: Updates
   let account: AccountStore
+  let patron: PatronStore
   let openAppearance: () -> Void
+  /// The Send window's Tap style.
+  let openStyle: () -> Void
   /// The first-run window: sign in, then name and color.
   let openOnboarding: () -> Void
   /// nil opens the invite form.
@@ -21,8 +24,8 @@ struct MenuView: View {
   var body: some View {
     if account.signedIn, account.me?.profile != nil, store.phase == .ready {
       HomeView(
-        store: store, senders: senders, updates: updates, account: account, openAppearance: openAppearance,
-        openSend: openSend
+        store: store, senders: senders, updates: updates, account: account, patron: patron,
+        openAppearance: openAppearance, openStyle: openStyle, openSend: openSend
       )
       .frame(width: 640, height: 480)
     } else {
@@ -127,7 +130,9 @@ private struct HomeView: View {
   let senders: SenderStore
   let updates: Updates
   let account: AccountStore
+  let patron: PatronStore
   let openAppearance: () -> Void
+  let openStyle: () -> Void
   let openSend: (String?) -> Void
   @State private var settings = false
   @State private var invite: SenderInvite?
@@ -139,7 +144,10 @@ private struct HomeView: View {
         DebugBanner().padding([.horizontal, .top], 14)
       #endif
       if settings {
-        SettingsView(store: store, updates: updates, account: account, openAppearance: openAppearance) {
+        SettingsView(
+          store: store, updates: updates, account: account, patron: patron, openAppearance: openAppearance,
+          openStyle: openStyle
+        ) {
           settings = false
         }
       } else {
@@ -290,7 +298,9 @@ private struct SettingsView: View {
   let store: ReceiverStore
   let updates: Updates
   let account: AccountStore
+  let patron: PatronStore
   let openAppearance: () -> Void
+  let openStyle: () -> Void
   let back: () -> Void
 
   var body: some View {
@@ -339,7 +349,7 @@ private struct SettingsView: View {
             MenuButton(title: "Check for Updates…", kind: .plain, action: updates.checkForUpdates)
               .padding(.leading, -4)
           }
-          PatronView(store: store)
+          PatronView(store: store, account: account, patron: patron, openStyle: openStyle)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -380,18 +390,37 @@ private struct BottomBar: View {
 
 private struct PatronView: View {
   let store: ReceiverStore
+  let account: AccountStore
+  let patron: PatronStore
+  let openStyle: () -> Void
   @State private var busy = false
   @State private var error: String?
 
   var body: some View {
     Section(title: "Patron themes") {
       VStack(alignment: .leading, spacing: 8) {
-        Muted("Choose and send patron themes from the website. Receiving and answering taps is always free.")
-        MenuButton(title: "Explore patron themes", kind: .secondary, fullWidth: true) {
-          let url = Config.endpoints.web.appending(path: "account")
-            .appending(queryItems: [URLQueryItem(name: "intent", value: "patron")])
-          NSWorkspace.shared.open(url)
+        if patron.active {
+          Muted("You're a patron. Thank you.")
+          if let line = renewal(patron) { Muted(line) }
+          MenuButton(title: "Manage billing", kind: .secondary, fullWidth: true) {
+            Task { await manageBilling(patron) }
+          }.disabled(patron.busy)
+        } else {
+          Muted(
+            "Shouldertap is free, kept running by patrons. Patrons' taps can arrive as a front page, a poster, a console or a handwritten note."
+          )
+          if !account.signedIn {
+            Muted("Sign in to become a patron.")
+          } else if patron.checkoutEnabled {
+            MenuButton(title: "Become a patron", kind: .primary, fullWidth: true) {
+              Task { await becomePatron(patron) }
+            }.disabled(patron.busy)
+          } else {
+            Muted("Patron memberships open soon.")
+          }
         }
+        MenuButton(title: "Choose tap style", kind: .secondary, fullWidth: true, action: openStyle)
+        if let error = patron.error { ErrorText(error) }
         if store.patron?.legacySupporter == true { Muted("Thank you for your original purchase. It is preserved; you have not been enrolled in a subscription.") }
         // Support bought from this computer before it moved to senders:
         // still manageable and cancelable here, never sold here again.
