@@ -48,6 +48,7 @@ const leaveForStyle = () => {
 
 const PatronPanel = ({
   plan,
+  localPatronId,
   memberships,
   busy,
   canStyle,
@@ -55,8 +56,10 @@ const PatronPanel = ({
   onUse,
   onSave,
   onCheckout,
+  onManage,
 }: {
   plan: PatronPlan;
+  localPatronId: string | null;
   memberships: readonly Resource[];
   busy: boolean;
   canStyle: boolean;
@@ -64,20 +67,24 @@ const PatronPanel = ({
   onUse: (patronId: string) => void;
   onSave: () => void;
   onCheckout: () => void;
+  onManage: (patronId?: string) => void;
 }) => {
   const style = canStyle ? (
     <a className="pill pill-ink" href="/style" onClick={leaveForStyle}>
       Continue to Style
     </a>
   ) : null;
-  const manage = (
-    <a
+  const manage = (patronId?: string) => (
+    <button
       className="pill"
-      href={`${accountOrigin}/account?section=patron`}
-      onClick={leaveForStyle}
+      disabled={busy}
+      onClick={() => {
+        onManage(patronId);
+      }}
+      type="button"
     >
       Manage billing
-    </a>
+    </button>
   );
   const body: Record<PatronPlan["kind"], ReactNode> = {
     here: (
@@ -85,7 +92,7 @@ const PatronPanel = ({
         <p>Your membership is on this browser.</p>
         <Actions>
           {style}
-          {manage}
+          {manage(localPatronId ?? undefined)}
         </Actions>
       </>
     ),
@@ -105,7 +112,7 @@ const PatronPanel = ({
           >
             Use membership on this browser
           </button>
-          {manage}
+          {manage(plan.kind === "use" ? plan.patronId : undefined)}
         </Actions>
       </>
     ),
@@ -121,14 +128,17 @@ const PatronPanel = ({
               <strong>{membership.name}</strong>
               <p className="text-tone text-sm">{membership.detail}</p>
             </div>
-            <button
-              className="pill"
-              disabled={busy || !membership.canChoose}
-              type="button"
-              onClick={() => onUse(membership.id)}
-            >
-              Use this membership
-            </button>
+            <Actions>
+              <button
+                className="pill"
+                disabled={busy || !membership.canChoose}
+                type="button"
+                onClick={() => onUse(membership.id)}
+              >
+                Use this membership
+              </button>
+              {manage(membership.id)}
+            </Actions>
           </div>
         ))}
         {membershipChoices(memberships).some(
@@ -139,7 +149,6 @@ const PatronPanel = ({
             review them, or contact support before choosing.
           </p>
         ) : null}
-        <Actions>{manage}</Actions>
       </>
     ),
     kept: (
@@ -469,8 +478,32 @@ const SignedIn = ({
     setBusy(false);
   };
 
-  /** Saves this browser's membership to the account, then maybe billing. */
-  const saveMembership = async (continueToBilling = false) => {
+  /** Leaves for Creem: checkout or the billing portal. */
+  const openBilling = async (billing: () => Promise<{ url: string }>) => {
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      const link = await billing();
+      const url = new URL(link.url);
+      if (url.protocol === "https:") {
+        forgetIntent(localStorage);
+        window.location.assign(url.href);
+        return;
+      }
+      setNotice("Billing is unavailable. Try again later.");
+      setBusy(false);
+    } catch (error) {
+      if (isSignedOutError(error)) {
+        onSignedOut();
+        return;
+      }
+      setNotice(failureMessage(error));
+      setBusy(false);
+    }
+  };
+
+  /** Saves this browser's membership to the account, then maybe checkout. */
+  const saveMembership = async (continueToCheckout = false) => {
     setBusy(true);
     setNotice(undefined);
     try {
@@ -492,12 +525,12 @@ const SignedIn = ({
         setBusy(false);
         return;
       }
-      await refresh();
-      setNotice("Saved to your account.");
-      if (continueToBilling) {
-        window.location.assign(`${accountOrigin}/account?section=patron`);
+      if (continueToCheckout) {
+        await openBilling(() => account.patronCheckout());
         return;
       }
+      await refresh();
+      setNotice("Saved to your account.");
     } catch {
       setNotice("Couldn’t reach Shouldertap. Try again.");
     }
@@ -511,7 +544,9 @@ const SignedIn = ({
       key="patron"
       memberships={patrons}
       notice={notice}
+      localPatronId={localPatronId}
       onCheckout={() => saveMembership(true)}
+      onManage={(patronId) => openBilling(() => account.managePatron(patronId))}
       onSave={() => saveMembership()}
       onUse={addMembership}
       plan={plan}

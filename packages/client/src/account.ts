@@ -370,6 +370,23 @@ export class AccountClient {
     return this.request<{ removed: true }>("POST", "/account/remove", { id });
   }
 
+  /**
+   * A Creem checkout for the account's membership (or a new one); open the
+   * returned URL. The server refuses a second subscription.
+   */
+  patronCheckout(patronId?: string) {
+    return this.request<{ url: string }>("POST", "/account/patron/checkout", {
+      patronId,
+    });
+  }
+
+  /** The billing portal for one of the account's memberships. */
+  managePatron(patronId?: string) {
+    return this.request<{ url: string }>("POST", "/account/patron/manage", {
+      patronId,
+    });
+  }
+
   private async request<A>(
     method: "GET" | "POST",
     path: string,

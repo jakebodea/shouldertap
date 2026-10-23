@@ -1,13 +1,8 @@
 import { betterAuth } from "better-auth";
 import type { BetterAuthOptions } from "better-auth";
-import {
-  bearer,
-  deviceAuthorization,
-  emailOTP,
-  magicLink,
-} from "better-auth/plugins";
+import { bearer, deviceAuthorization, emailOTP } from "better-auth/plugins";
 
-import { accountCodeSender, accountEmailSender } from "./account-email";
+import { accountCodeSender } from "./account-email";
 import type { AccountEmailBinding } from "./account-email";
 import { qrSignIn } from "./qr-sign-in";
 
@@ -47,11 +42,10 @@ export const accountAuthOptions = ({
       ? { user: { create: { after: (user) => onAccountCreated(user) } } }
       : undefined,
     plugins: [
-      // Every current client signs in with a code typed (or autofilled) in
-      // the app itself, or with a QR code: a signed-in device shows one for
-      // a new device to scan (qrSignIn), or a new device shows its device
-      // authorization code for a signed-in phone to approve. Magic links
-      // remain for older builds.
+      // Every client signs in with a code typed (or autofilled) in the app
+      // itself, or with a QR code: a signed-in device shows one for a new
+      // device to scan (qrSignIn), or a new device shows its device
+      // authorization code for a signed-in phone to approve.
       emailOTP({
         otpLength: 6,
         expiresIn: 600,
@@ -66,21 +60,9 @@ export const accountAuthOptions = ({
           await accountCodeSender(email)({ email: recipient, code: otp });
         },
       }),
-      magicLink({
-        expiresIn: 600,
-        storeToken: "hashed",
-        rateLimit: { window: 60, max: 3 },
-        sendMagicLink: async ({ email: recipient, token }) => {
-          // A fragment keeps tokens out of request URLs and access logs. The
-          // confirmation page redeems only after an explicit button press.
-          await accountEmailSender(email)({
-            email: recipient,
-            url: `${origin}/account#${encodeURIComponent(token)}`,
-          });
-        },
-      }),
       deviceAuthorization({
-        verificationUri: `${origin}/account/device`,
+        // A phone camera opens the website's account page to approve.
+        verificationUri: `${webOrigin ?? origin}/account/device`,
         expiresIn: "10m",
         interval: "5s",
         validateClient: (clientId) =>

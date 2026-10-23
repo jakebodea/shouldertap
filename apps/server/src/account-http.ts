@@ -6,51 +6,11 @@ export interface AccountHttpOptions {
   auth: AccountAuth;
   origin: string;
   webOrigin: string;
-  page: (url: URL) => Response;
   accountRequest?: (userId: string, request: Request) => Promise<Response>;
   deleteAccount?: (userId: string, request: Request) => Promise<Response>;
 }
 
 const json = (value: unknown, status = 200) => Response.json(value, { status });
-
-const verifyEmail = async (
-  request: Request,
-  auth: AccountAuth
-): Promise<Response> => {
-  const body: unknown = await request.json();
-  if (
-    !body ||
-    typeof body !== "object" ||
-    !("token" in body) ||
-    typeof body.token !== "string" ||
-    body.token.length > 512
-  ) {
-    return json({ error: "Invalid sign-in link" }, 400);
-  }
-  const verified = await auth.api.magicLinkVerify({
-    query: { token: body.token },
-    headers: request.headers,
-    asResponse: true,
-  });
-  if (!verified.ok) {
-    return json(
-      {
-        error: "This link has expired or was already used. Request a new one.",
-      },
-      400
-    );
-  }
-  // Keep the session token in HttpOnly cookies, not JavaScript's response.
-  const headers = new Headers();
-  for (const cookie of verified.headers.getSetCookie()) {
-    headers.append("set-cookie", cookie);
-  }
-  return new Response(null, { status: 204, headers });
-};
-
-const isAccountPage = (request: Request, path: string) =>
-  request.method === "GET" &&
-  ["/account", "/account/", "/account/device"].includes(path);
 
 const executeAccountRequest = async (
   request: Request,
@@ -58,13 +18,6 @@ const executeAccountRequest = async (
   allowedOrigin: boolean
 ): Promise<Response> => {
   const url = new URL(request.url);
-  if (url.pathname === "/account/verify" && request.method === "POST") {
-    if (!allowedOrigin) {
-      return json({ error: "Origin required" }, 403);
-    }
-    return await verifyEmail(request, options.auth);
-  }
-
   if (url.pathname === "/api/auth/delete-user" && options.deleteAccount) {
     const session = await options.auth.api.getSession({
       headers: request.headers,
@@ -126,14 +79,6 @@ export const handleAccountHttp = async (
   }
   if (request.method === "OPTIONS") {
     return finish(new Response(null, { status: allowedOrigin ? 204 : 403 }));
-  }
-  const url = new URL(request.url);
-  if (isAccountPage(request, url.pathname)) {
-    return finish(options.page(url));
-  }
-  // Email tokens are deliberately never redeemed through a URL query string.
-  if (url.pathname === "/api/auth/magic-link/verify") {
-    return finish(json({ error: "Use the confirmation page" }, 405));
   }
   if (!["GET", "POST"].includes(request.method)) {
     return finish(json({ error: "Method not allowed" }, 405));
