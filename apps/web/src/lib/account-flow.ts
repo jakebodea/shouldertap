@@ -75,10 +75,18 @@ export type PatronPlan =
   | { kind: "use"; patronId: string }
   /** More than one active membership requires an explicit choice. */
   | { kind: "choose" }
-  /** This browser has a different membership; it stays. */
-  | { kind: "kept" }
+  /**
+   * This browser holds another membership, which stays. `saved`: it is
+   * already on the account (just not active).
+   */
+  | { kind: "kept"; saved: boolean }
   /** This browser's membership isn't saved to the account yet. */
   | { kind: "save" }
+  /**
+   * Not active, and the server won't sell another subscription (paused, or
+   * still being billed): manage it instead.
+   */
+  | { kind: "lapsed" }
   /** Not a patron: subscribe, reusing the account's unpaid membership. */
   | { kind: "checkout"; patronId?: string }
   | { kind: "soon" };
@@ -89,17 +97,25 @@ export const patronPlan = ({
   checkoutEnabled,
 }: {
   localPatronId: string | null;
-  /** `active` is unknown (true) when billing couldn't load. */
-  memberships: readonly { id: string; active: boolean }[];
+  /** Billing facts; unknown (billing didn't load) counts as active. */
+  memberships: readonly {
+    id: string;
+    active: boolean;
+    canSubscribe: boolean;
+  }[];
   checkoutEnabled: boolean;
 }): PatronPlan => {
   const active = memberships.filter((m) => m.active).map((m) => m.id);
-  const owned = memberships.some((m) => m.id === localPatronId);
+  const saved = memberships.some((m) => m.id === localPatronId);
   if (localPatronId && active.includes(localPatronId)) {
     return { kind: "here" };
   }
-  if (localPatronId && !owned) {
-    return active.length ? { kind: "kept" } : { kind: "save" };
+  // Never replace a membership already on this browser.
+  if (localPatronId && active.length) {
+    return { kind: "kept", saved };
+  }
+  if (localPatronId && !saved) {
+    return { kind: "save" };
   }
   if (active.length > 1) {
     return { kind: "choose" };
@@ -107,6 +123,10 @@ export const patronPlan = ({
   const [first] = active;
   if (first) {
     return { kind: "use", patronId: first };
+  }
+  // The server sells a subscription only when every membership allows one.
+  if (memberships.some((m) => !m.canSubscribe)) {
+    return { kind: "lapsed" };
   }
   if (!checkoutEnabled) {
     return { kind: "soon" };

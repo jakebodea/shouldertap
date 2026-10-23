@@ -152,18 +152,20 @@ const PatronPanel = ({
     kept: (
       <>
         <p>
-          This browser has a different membership from your account. It stays on
-          this browser.
+          You’re a patron, but this browser holds a different membership. It
+          stays on this browser.
         </p>
         <Actions>
-          <button
-            className="pill"
-            disabled={busy}
-            onClick={onSave}
-            type="button"
-          >
-            Save membership to my account
-          </button>
+          {plan.kind === "kept" && !plan.saved ? (
+            <button
+              className="pill"
+              disabled={busy}
+              onClick={onSave}
+              type="button"
+            >
+              Save membership to my account
+            </button>
+          ) : null}
           {style}
         </Actions>
       </>
@@ -203,6 +205,11 @@ const PatronPanel = ({
           </button>
         </Actions>
       </>
+    ),
+    lapsed: (
+      <p>
+        Your membership isn’t active. Manage billing below to restart or fix it.
+      </p>
     ),
     soon: <p>You’re not a patron yet. Patron memberships open soon.</p>,
   };
@@ -453,6 +460,7 @@ const SignedIn = ({
     memberships: patrons.map((p) => ({
       id: p.id,
       active: p.billing?.active ?? true,
+      canSubscribe: p.billing?.canSubscribe ?? false,
     })),
     checkoutEnabled,
   });

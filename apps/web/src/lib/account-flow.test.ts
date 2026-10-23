@@ -48,8 +48,9 @@ describe("patron intent across the sign-in round trip", () => {
   });
 });
 
-const paid = (id: string) => ({ id, active: true });
-const unpaid = (id: string) => ({ id, active: false });
+const paid = (id: string) => ({ id, active: true, canSubscribe: false });
+const unpaid = (id: string) => ({ id, active: false, canSubscribe: true });
+const paused = (id: string) => ({ id, active: false, canSubscribe: false });
 
 describe("patron plan on this browser", () => {
   it("offers the account's active membership to a browser without one", () => {
@@ -100,7 +101,34 @@ describe("patron plan on this browser", () => {
         memberships: [paid("patronA"), paid("patronB")],
         checkoutEnabled: true,
       })
-    ).toStrictEqual({ kind: "kept" });
+    ).toStrictEqual({ kind: "kept", saved: false });
+  });
+
+  it("keeps an unpaid membership on this browser instead of replacing it", () => {
+    expect(
+      patronPlan({
+        localPatronId: "patronA",
+        memberships: [unpaid("patronA"), paid("patronB")],
+        checkoutEnabled: true,
+      })
+    ).toStrictEqual({ kind: "kept", saved: true });
+  });
+
+  it("sends a paused membership to billing instead of a second checkout", () => {
+    expect(
+      patronPlan({
+        localPatronId: null,
+        memberships: [paused("patronA")],
+        checkoutEnabled: true,
+      })
+    ).toStrictEqual({ kind: "lapsed" });
+    expect(
+      patronPlan({
+        localPatronId: null,
+        memberships: [unpaid("patronA"), paused("patronB")],
+        checkoutEnabled: true,
+      })
+    ).toStrictEqual({ kind: "lapsed" });
   });
 
   it("uses the one active membership when another was never paid", () => {
