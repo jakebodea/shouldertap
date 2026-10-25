@@ -7,7 +7,8 @@ const json = (status: number, body: unknown) => Response.json(body, { status });
 /**
  * A stand-in for the API origin (the network is the boundary): one emailed
  * code, and a session that a browser carries as a cookie and a native app
- * as a bearer token.
+ * as a bearer token. Like a browser, it fails a cookie-carrying request to
+ * `/v1/`, whose CORS policy is `*` without credentials.
  */
 const fakeServer = () => {
   let code: string | null = null;
@@ -67,7 +68,9 @@ const fakeServer = () => {
     }
   };
   const fetch = (input: string, init: RequestInit) =>
-    Promise.resolve(respond(input, init));
+    new URL(input).pathname.startsWith("/v1/") && init.credentials === "include"
+      ? Promise.reject(new TypeError("Load failed"))
+      : Promise.resolve(respond(input, init));
   return { fetch };
 };
 
