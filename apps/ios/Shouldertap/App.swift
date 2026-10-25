@@ -141,7 +141,11 @@ struct RootView: View {
       if receiver.handle(url) { return }
       if qrSignInToken(from: url.absoluteString) != nil {
         // Signed in already: this iPhone has its session; nothing to do.
-        if !account.signedIn { signInLink = url.absoluteString }
+        if account.signedIn {
+          store.notice = "This iPhone is already signed in."
+        } else {
+          signInLink = url.absoluteString
+        }
         return
       }
       guard inviteCode(from: url.absoluteString) != nil else { return }
