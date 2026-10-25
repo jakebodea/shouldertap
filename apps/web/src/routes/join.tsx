@@ -48,6 +48,12 @@ const readCode = () => codeFromPaste(window.location.hash.slice(1));
 const JoinComponent = () => {
   const navigate = useNavigate();
   const [code, setCode] = useState(readCode);
+  // Another invite link pasted into the address bar only changes the hash.
+  useEffect(() => {
+    const onHashChange = () => setCode(readCode());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
   if (!code) {
     return (
       <PasteInvite
