@@ -6,6 +6,12 @@
 	     this to production. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Invite (/join) and computer sign-in (/qr) links open the app.
+	     apps/web/public/.well-known/apple-app-site-association lists it. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:shouldertap.app</string>
+	</array>
 	<!-- Tap notifications break through Focus (no Apple approval needed). -->
 	<key>com.apple.developer.usernotifications.time-sensitive</key>
 	<true/>

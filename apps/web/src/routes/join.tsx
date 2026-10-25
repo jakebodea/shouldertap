@@ -30,6 +30,7 @@ import {
   codeFromPaste,
   codeFromScan,
   failureMessage,
+  inviteFailure,
   OFFLINE_MESSAGE,
 } from "@/lib/onboarding";
 import {
@@ -89,7 +90,10 @@ type Phase =
 type Lookup =
   | { readonly kind: "loading" }
   | { readonly kind: "found"; readonly invite: InvitePreview }
-  | { readonly kind: "failed"; readonly message: string };
+  | {
+      readonly kind: "failed";
+      readonly failure: ReturnType<typeof inviteFailure>;
+    };
 
 /**
  * "{name} invited you to Shouldertap": who it's from, in their color, and
@@ -108,7 +112,7 @@ const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
     try {
       setLookup({ kind: "found", invite: await account.previewInvite(code) });
     } catch (error) {
-      setLookup({ kind: "failed", message: failureMessage(error) });
+      setLookup({ kind: "failed", failure: inviteFailure(error) });
     }
   }, [code]);
   useEffect(() => {
@@ -235,13 +239,15 @@ const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
     return (
       <Frame color="graphite">
         <Mark className="size-9" />
-        <StepHeading title="This invite doesn't work">
-          {lookup.message} Ask them for a new link.
+        <StepHeading title={lookup.failure.title}>
+          {lookup.failure.message}
         </StepHeading>
         <div className="mt-auto flex flex-col gap-3">
-          <button className="pill w-full" onClick={load} type="button">
-            Try again
-          </button>
+          {lookup.failure.retry ? (
+            <button className="pill w-full" onClick={load} type="button">
+              Try again
+            </button>
+          ) : null}
           <button className="pill w-full" onClick={onReset} type="button">
             Use another link
           </button>

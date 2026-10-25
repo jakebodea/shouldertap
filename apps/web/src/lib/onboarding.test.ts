@@ -7,6 +7,7 @@ import {
   codeFromPaste,
   codeFromScan,
   failureMessage,
+  inviteFailure,
   inviteLink,
   otpDigits,
   safeRedirect,
@@ -127,5 +128,30 @@ describe("failure wording", () => {
     expect(failureMessage(new ApiError("network", "Load failed", 0))).toBe(
       "Couldn't reach Shouldertap. Check your connection and try again."
     );
+  });
+});
+
+describe("an invite that won't open", () => {
+  it("asks for a new link only when the server refused the code", () => {
+    expect(
+      inviteFailure(
+        new ApiError("not_found", "This invite link isn't valid", 404)
+      )
+    ).toStrictEqual({
+      title: "This invite doesn't work",
+      message: "This invite link isn't valid. Ask them for a new link.",
+      retry: false,
+    });
+  });
+
+  it("offers a retry when the server wasn't reached", () => {
+    expect(
+      inviteFailure(new ApiError("network", "Load failed", 0))
+    ).toStrictEqual({
+      title: "Couldn't open this invite",
+      message:
+        "Couldn't reach Shouldertap. Check your connection and try again.",
+      retry: true,
+    });
   });
 });
