@@ -1,0 +1,3 @@
+# Apple fetches this to open /join and /qr links in the iPhone app.
+/.well-known/apple-app-site-association
+  Content-Type: application/json

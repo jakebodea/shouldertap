@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "6C46GY4Z38.app.shouldertap.iphone",
+          "6C46GY4Z38.app.shouldertap.iphone.debug"
+        ],
+        "components": [
+          { "/": "/join", "comment": "Invite links: /join#<code>" },
+          { "/": "/qr", "comment": "Computer sign-in: /qr#<token>" }
+        ]
+      }
+    ]
+  }
+}

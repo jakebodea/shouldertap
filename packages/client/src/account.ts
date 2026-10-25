@@ -424,7 +424,10 @@ export class AccountClient {
       response = await this.fetch(`${this.baseUrl}${path}`, {
         method,
         headers,
-        credentials: this.sessionToken ? "omit" : "include",
+        // `/v1/` answers any origin (`*`), which browsers refuse to pair with
+        // cookies: those calls never carry one.
+        credentials:
+          this.sessionToken || path.startsWith("/v1/") ? "omit" : "include",
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch (error) {

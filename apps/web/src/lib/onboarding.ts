@@ -97,6 +97,28 @@ export const failureMessage = (error: unknown) =>
     ? error.message
     : OFFLINE_MESSAGE;
 
+const ENDS_UNPUNCTUATED = /(?<last>[^.!?])$/u;
+
+/**
+ * Why an invite couldn't be opened. Only a refusal (an unknown, used or
+ * expired code) means asking for a new link; anything else is worth a retry.
+ */
+export const inviteFailure = (error: unknown) =>
+  error instanceof ApiError &&
+  error.status >= 400 &&
+  error.status < 500 &&
+  error.code !== "rate_limited"
+    ? {
+        title: "This invite doesn't work",
+        message: `${failureMessage(error).replace(ENDS_UNPUNCTUATED, "$<last>.")} Ask them for a new link.`,
+        retry: false,
+      }
+    : {
+        title: "Couldn't open this invite",
+        message: failureMessage(error),
+        retry: true,
+      };
+
 /** A wrong or expired code answers 400; anything else keeps its wording. */
 export const codeFailureMessage = (error: unknown) =>
   error instanceof ApiError && error.status === 400
