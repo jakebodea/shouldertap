@@ -302,6 +302,7 @@ public final class AccountStore {
 
   private struct QuickRepliesBody: Encodable {
     var replies: [String]?
+    private enum CodingKeys: String, CodingKey { case replies }
     // Sent as null rather than left out: null goes back to the presets.
     func encode(to encoder: any Encoder) throws {
       var container = encoder.container(keyedBy: CodingKeys.self)
