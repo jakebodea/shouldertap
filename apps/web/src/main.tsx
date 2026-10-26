@@ -1,6 +1,7 @@
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
 
+import { NotFound, PageError } from "./components/dead-end";
 import Loader from "./components/loader";
 import { routeTree } from "./routeTree.gen";
 
@@ -9,6 +10,8 @@ const router = createRouter({
   defaultPreload: "intent",
   scrollRestoration: true,
   defaultPendingComponent: () => <Loader />,
+  defaultNotFoundComponent: NotFound,
+  defaultErrorComponent: PageError,
   context: {},
 });
 

@@ -7,10 +7,13 @@ createServer((request, response) => {
     response.end("ok");
     return;
   }
+  const windows = request.url?.endsWith(".exe") ?? false;
   setTimeout(() => {
     response.writeHead(200, {
-      "Content-Type": "application/x-apple-diskimage",
-      "Content-Disposition": 'attachment; filename="Shouldertap.dmg"',
+      "Content-Type": windows
+        ? "application/vnd.microsoft.portable-executable"
+        : "application/x-apple-diskimage",
+      "Content-Disposition": `attachment; filename="${windows ? "Shouldertap-Setup.exe" : "Shouldertap.dmg"}"`,
     });
     response.end("test installer");
   }, 400);
