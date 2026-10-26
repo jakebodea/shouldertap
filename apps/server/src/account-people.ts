@@ -34,6 +34,9 @@ export interface Profile {
 export interface Me {
   email: string;
   profile: Profile | null;
+  /** How a new connection sees you unless you choose otherwise: the profile
+   * you set most recently, for anyone. Null until `profile` exists. */
+  sendProfile: Profile | null;
   suggestedName: string | null;
   inboxId: string | null;
 }
@@ -80,6 +83,71 @@ export const readProfile = Effect.fn(function* readProfile(
     : null;
 });
 
+const parseColor = (value: unknown) =>
+  typeof value === "string" && isColor(value) ? value : null;
+
+/**
+ * The profile a new connection starts with: the one picked for the latest
+ * connection, else the account profile.
+ */
+export const sendProfile = Effect.fn(function* sendProfile(
+  db: D1Database,
+  userId: string
+) {
+  const latest = yield* first<{
+    send_name: string | null;
+    send_color: string | null;
+  }>(
+    db,
+    "SELECT send_name,send_color FROM account_preference WHERE user_id=?",
+    userId
+  );
+  const color = parseColor(latest?.send_color);
+  if (latest?.send_name && color) {
+    return { name: latest.send_name, color } satisfies Profile;
+  }
+  return yield* readProfile(db, userId);
+});
+
+const rememberLatest = (
+  db: D1Database,
+  userId: string,
+  profile: Profile | null
+) =>
+  run(
+    db,
+    "INSERT INTO account_preference(user_id,send_name,send_color) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET send_name=excluded.send_name,send_color=excluded.send_color",
+    userId,
+    profile?.name ?? null,
+    profile?.color ?? null
+  );
+
+/** How one connection sees you; the account profile for older ones. */
+const connectionProfile = (
+  resource: { send_name: string | null; send_color: string | null },
+  fallback: Profile
+): Profile => {
+  const color = parseColor(resource.send_color);
+  return resource.send_name && color
+    ? { name: resource.send_name, color }
+    : fallback;
+};
+
+const rememberConnectionProfile = (
+  db: D1Database,
+  userId: string,
+  id: string,
+  profile: Profile
+) =>
+  run(
+    db,
+    "UPDATE account_resource SET send_name=?,send_color=? WHERE kind='sender' AND id=? AND user_id=?",
+    profile.name,
+    profile.color,
+    id,
+    userId
+  );
+
 /** The person's inbox: the chosen default, else the first one they owned. */
 const primaryInbox = Effect.fn(function* primaryInbox(
   db: D1Database,
@@ -114,6 +182,7 @@ export const accountMe = Effect.fn(function* accountMe(
   return {
     email: user?.email ?? "",
     profile,
+    sendProfile: profile ? yield* sendProfile(db, userId) : null,
     suggestedName: profile ? null : (inbox?.name ?? null),
     inboxId: profile ? (inbox?.id ?? null) : null,
   } satisfies Me;
@@ -160,6 +229,7 @@ export const saveProfile = Effect.fn(function* saveProfile(
     profile.color,
     Date.now()
   );
+  yield* rememberLatest(db, userId, null);
   const existing = yield* primaryInbox(db, userId);
   if (existing) {
     yield* inboxes
@@ -207,7 +277,11 @@ const requireProfile = Effect.fn(function* requireProfile(
   if (!inbox) {
     return yield* new Conflict({ message: "Choose your name first" });
   }
-  return { profile, inbox };
+  return {
+    profile,
+    inbox,
+    sendDefault: (yield* sendProfile(db, userId)) ?? profile,
+  };
 });
 
 const parseDevice = (input: Record<string, unknown>) => {
@@ -295,6 +369,25 @@ const saveHeld = Effect.fn(function* saveHeld(
   return { heldInboxes, heldSenders, removed };
 });
 
+const sendProfiles = Effect.fn(function* sendProfiles(
+  db: D1Database,
+  userId: string
+) {
+  const rows = yield* Effect.promise(() =>
+    db
+      .prepare(
+        "SELECT id,send_name,send_color FROM account_resource WHERE user_id=? AND kind='sender'"
+      )
+      .bind(userId)
+      .all<{
+        id: string;
+        send_name: string | null;
+        send_color: string | null;
+      }>()
+  );
+  return new Map(rows.results.map((row) => [row.id, row]));
+});
+
 export const syncDevice = Effect.fn(function* syncDevice(
   { db, inboxes }: Dependencies,
   userId: string,
@@ -329,13 +422,18 @@ export const syncDevice = Effect.fn(function* syncDevice(
       : null;
 
   const senders: AccountSender[] = [];
+  const sent = yield* sendProfiles(db, userId);
   for (const resource of yield* accountResources(db, userId)) {
     if (resource.kind !== "sender" || heldSenders.has(resource.id)) {
       continue;
     }
+    const seenAs = connectionProfile(
+      sent.get(resource.id) ?? { send_name: null, send_color: null },
+      profile
+    );
     // A connection its recipient removed, or one with no room for another
     // key, is skipped; the rest of the device still syncs.
-    const key = yield* senderKey(inboxes, resource, deviceName, profile).pipe(
+    const key = yield* senderKey(inboxes, resource, deviceName, seenAs).pipe(
       Effect.catchTags({
         Unauthorized: () => Effect.succeed(null),
         Conflict: () => Effect.succeed(null),
@@ -373,7 +471,8 @@ const inviterOf = Effect.fn(function* inviterOf(
   if (!owner) {
     return null;
   }
-  const profile = yield* readProfile(db, owner.user_id);
+  // How they'll appear to whoever accepts: the profile they used last.
+  const profile = yield* sendProfile(db, owner.user_id);
   return profile ? { userId: owner.user_id, profile } : null;
 });
 
@@ -411,7 +510,12 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
   if (!code) {
     return yield* new NotFound({ message: "This invite link isn't valid" });
   }
-  const { profile, inbox } = yield* requireProfile(db, userId);
+  const { inbox, sendDefault } = yield* requireProfile(db, userId);
+  // Chosen for just this person, or the one used last.
+  const profile =
+    input.profile && typeof input.profile === "object"
+      ? yield* parseProfile(input.profile as Record<string, unknown>)
+      : sendDefault;
   const mine = yield* accountResources(db, userId);
   if (mine.some((r) => r.kind === "inbox" && r.id === code.inboxId)) {
     return yield* new InvalidRequest({ message: "That's your own invite" });
@@ -463,6 +567,8 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
       credential_id: grant.credentialId,
       name: grant.recipientName,
     });
+    yield* rememberConnectionProfile(db, userId, id, profile);
+    yield* rememberLatest(db, userId, profile);
     sender = { id, grant, name: profile.name, color: profile.color };
     yield* track(
       {
@@ -477,13 +583,15 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
     );
   }
   if (reverse && inviter) {
+    const id = `${inbox.id}:${reverse.credentialId}`;
     yield* claimAccountResource(db, inviter.userId, {
       kind: "sender",
-      id: `${inbox.id}:${reverse.credentialId}`,
+      id,
       inbox_id: inbox.id,
       credential_id: reverse.credentialId,
-      name: profile.name,
+      name: inbox.name,
     });
+    yield* rememberConnectionProfile(db, inviter.userId, id, inviter.profile);
   }
   return { person, sender, mutual: inviter !== null };
 });
@@ -511,6 +619,32 @@ export const removePerson = Effect.fn(function* removePerson(
     userId
   );
   return { removed: true as const };
+});
+
+/** Changes how one person you tap sees you, on every device: their screens
+ * show the new name and color on your taps, past ones included. */
+export const updateSendProfile = Effect.fn(function* updateSendProfile(
+  { db, inboxes }: Dependencies,
+  userId: string,
+  input: Record<string, unknown>
+) {
+  const profile = yield* parseProfile(input);
+  const resource = (yield* accountResources(db, userId)).find(
+    (r) => r.kind === "sender" && r.id === input.id
+  );
+  if (!resource?.inbox_id || !resource.credential_id) {
+    return yield* new NotFound({ message: "No such person" });
+  }
+  yield* inboxes
+    .getByName(resource.inbox_id)
+    .updateAccountSender(resource.credential_id, profile.name, profile.color)
+    .pipe(
+      Effect.catchTag("Unauthorized", () =>
+        Effect.fail(new NotFound({ message: "No such person" }))
+      )
+    );
+  yield* rememberConnectionProfile(db, userId, resource.id, profile);
+  return { id: resource.id, ...profile };
 });
 
 /** Route actions for docs/onboarding.md; null when the path isn't one. */
@@ -542,6 +676,9 @@ export const peopleAction = (
     }
     case "remove": {
       return removePerson(deps, userId, input);
+    }
+    case "send-profile": {
+      return updateSendProfile(deps, userId, input);
     }
     default: {
       return null;

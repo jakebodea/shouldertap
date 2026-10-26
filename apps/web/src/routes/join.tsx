@@ -1,6 +1,6 @@
 import { QrCodeIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { InvitePreview, Me } from "@shouldertap/client";
+import type { InvitePreview, Me, Profile } from "@shouldertap/client";
 import { fallbackColor } from "@shouldertap/domain";
 import type { PersonColor } from "@shouldertap/domain";
 import {
@@ -17,6 +17,7 @@ import { Frame } from "@/components/frame";
 import { Mark } from "@/components/mark";
 import { MiniTap } from "@/components/mini-tap";
 import { QrScanner } from "@/components/qr-scanner";
+import { ChooseSeenAs, useSendDefault } from "@/components/seen-as";
 import { SignIn, StepHeading } from "@/components/sign-in";
 import {
   account,
@@ -112,6 +113,9 @@ const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [ownColor, setOwnColor] = useState<PersonColor | null>(null);
+  const sendDefault = useSendDefault();
+  /** Chosen for just this person on the invite screen. */
+  const [seenAs, setSeenAs] = useState<Profile | null>(null);
 
   const load = useCallback(async () => {
     setLookup({ kind: "loading" });
@@ -141,6 +145,7 @@ const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
         code,
         platform: "web",
         deviceName: thisDevice(),
+        ...(seenAs ? { profile: seenAs } : {}),
       });
       if (result.sender) {
         const replaced = addPairing(
@@ -278,6 +283,14 @@ const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
             </figcaption>
           </figure>
           <div className="mt-auto flex flex-col gap-3">
+            {sendDefault ? (
+              <ChooseSeenAs
+                initial={sendDefault}
+                onChange={setSeenAs}
+                person={invite.name}
+                value={seenAs}
+              />
+            ) : null}
             {failure ? (
               <p className="text-destructive text-[0.9375rem]" role="alert">
                 {failure}

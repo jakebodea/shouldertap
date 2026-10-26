@@ -20,6 +20,11 @@ export interface Me {
   readonly email: string;
   /** Null until the person picks a name and color (the You step). */
   readonly profile: Profile | null;
+  /**
+   * How a new connection sees you unless you pick otherwise: the profile you
+   * picked for your latest connection, else `profile`.
+   */
+  readonly sendProfile: Profile | null;
   readonly suggestedName: string | null;
   readonly inboxId: string | null;
 }
@@ -354,12 +359,27 @@ export class AccountClient {
     );
   }
 
+  /** `profile` is how just this person will see you; omitted, they see
+   * `me.sendProfile`. */
   accept(request: {
     readonly code: string;
     readonly platform: AccountPlatform;
     readonly deviceName: string;
+    readonly profile?: Profile;
   }) {
     return this.request<AcceptResult>("POST", "/account/accept", request);
+  }
+
+  /**
+   * Changes how one person you tap sees you, from every device; their screens
+   * show it on your taps, past ones too. `id` is the sender id.
+   */
+  updateSendProfile(id: string, profile: Profile) {
+    return this.request<{ id: string } & Profile>(
+      "POST",
+      "/account/send-profile",
+      { id, ...profile }
+    );
   }
 
   /**

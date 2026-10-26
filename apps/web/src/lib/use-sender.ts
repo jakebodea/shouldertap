@@ -61,6 +61,8 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   const [status, setStatus] = useState<LiveStatus>("connecting");
   const [loaded, setLoaded] = useState(false);
   const [senderColor, setSenderColor] = useState<PersonColor | null>(null);
+  /** How the recipient sees you, as their inbox has it now. */
+  const [senderName, setSenderName] = useState<string | null>(null);
   const [outbox, setOutbox] = useState<OutgoingTap[]>(() =>
     loadOutbox(pairing.credentialId)
   );
@@ -131,6 +133,7 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
       setTaps((current) => mergeSnapshot(current, snapshot.taps));
       if (snapshot.kind === "sender") {
         setSenderColor(snapshot.senderColor);
+        setSenderName(snapshot.senderName);
       }
       setLoaded(true);
     } catch (error) {
@@ -203,6 +206,9 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
     status,
     loaded,
     senderColor,
+    senderName,
+    /** Reloads the snapshot, e.g. after changing how they see you. */
+    resync,
     send,
     discard,
   };

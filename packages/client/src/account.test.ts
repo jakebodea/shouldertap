@@ -16,6 +16,7 @@ const fakeServer = () => {
   const me = {
     email: "sam@example.com",
     profile: null,
+    sendProfile: null,
     suggestedName: "Sam",
     inboxId: null,
   };
@@ -89,6 +90,7 @@ describe("signing in from the browser", () => {
     await expect(client.session()).resolves.toStrictEqual({
       email: "sam@example.com",
       profile: null,
+      sendProfile: null,
       suggestedName: "Sam",
       inboxId: null,
     });
