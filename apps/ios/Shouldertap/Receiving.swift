@@ -308,6 +308,7 @@ struct TapTakeover: View {
   @State private var replying = false
   @State private var reply = ""
   @FocusState private var focused: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var tap: Tap { active.tap }
 
@@ -344,7 +345,7 @@ struct TapTakeover: View {
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
           .textSelection(.enabled)
           .id(tap.id)
-          .transition(.rise)
+          .transition(reduceMotion ? .opacity : .rise)
         if replying { replyRow } else { answerRows }
       }
       .padding(24)
@@ -353,6 +354,9 @@ struct TapTakeover: View {
       .padding(.horizontal, 9)
       .padding(.bottom, 9)
     }
+    // The message already starts at 64pt; past this the answers no longer
+    // fit under it on a small phone.
+    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     .background(tap.senderColor.base.ignoresSafeArea())
     .sensoryFeedback(.impact(weight: .heavy), trigger: tap.id)
     .onAppear { replying = receiver.replyingTapId == tap.id }
@@ -369,7 +373,7 @@ struct TapTakeover: View {
         .accessibilityIdentifier("takeover-on-it")
       Button { answer(.in10) } label: { label(.in10, "In 10 min") }
         .buttonStyle(PillStyle())
-      Button { withAnimation(.outExpo(0.4)) { replying = true } } label: { label(.reply, "Reply") }
+      Button { withAnimation(reduceMotion ? nil : .outExpo(0.4)) { replying = true } } label: { label(.reply, "Reply") }
         .buttonStyle(PillStyle())
     }
   }
@@ -391,7 +395,7 @@ struct TapTakeover: View {
       } label: { label(.send, "Send") }
         .buttonStyle(PillStyle(color: tap.senderColor))
         .disabled(reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-      Button("Back") { withAnimation(.outExpo(0.4)) { replying = false } }
+      Button("Back") { withAnimation(reduceMotion ? nil : .outExpo(0.4)) { replying = false } }
         .buttonStyle(QuietStyle())
     }
   }
