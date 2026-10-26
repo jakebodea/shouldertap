@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { MouseEvent, ReactNode } from "react";
 
 import {
+  IPHONE_APP_LIVE,
   IPHONE_APP_URL,
   MAC_DOWNLOAD_URL,
   markDownloadStarted,
@@ -13,7 +14,7 @@ import type { VisitorPlatform } from "@/lib/download";
 
 /** The verb stays when space is short; the rest names what they get. */
 const LABELS: Record<VisitorPlatform, readonly [string, string]> = {
-  android: ["Start", "on the web"],
+  phone: ["Start", "on the web"],
   iphone: ["Get", "the iPhone app"],
   mac: ["Download", "for Mac"],
   windows: ["Download", "for Windows"],
@@ -27,7 +28,7 @@ const INSTALLERS: Partial<Record<VisitorPlatform, string>> = {
 /**
  * The landing page's call to action, for the device it's opened on: the Mac
  * or Windows installer (then the setup steps), the App Store on an iPhone or
- * iPad, and the web composer on Android.
+ * iPad once the app is public, and the web composer on other phones.
  */
 export const DownloadLink = ({
   children,
@@ -40,7 +41,10 @@ export const DownloadLink = ({
   short?: boolean;
 }) => {
   const navigate = useNavigate();
-  const platform = useMemo(() => visitorPlatform(), []);
+  const platform = useMemo(() => {
+    const found = visitorPlatform();
+    return found === "iphone" && !IPHONE_APP_LIVE ? "phone" : found;
+  }, []);
   const [verb, rest] = LABELS[platform];
   const label = (
     <>

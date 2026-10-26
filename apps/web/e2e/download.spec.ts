@@ -5,7 +5,6 @@ const DOWNLOAD_LABEL = /Download/u;
 const RETRY_COPY = /If it didn’t/u;
 const INSTALLER_PATH = /\/Shouldertap\.dmg$/u;
 const WINDOWS_INSTALLER_PATH = /\/windows\/Shouldertap-Setup\.exe$/u;
-const APP_STORE_URL = "https://apps.apple.com/app/id6818330440";
 const MAC_SAFARI =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
 const WINDOWS_EDGE =
@@ -55,12 +54,13 @@ test.describe("on Windows", () => {
   });
 });
 
-test("on an iPhone the landing page links the App Store, not an installer", async ({
+test("on an iPhone the landing page starts on the web, not an installer", async ({
   page,
 }) => {
   await page.goto("/");
-  const links = page.getByRole("link", { name: "Get the iPhone app" });
-  await expect(links.last()).toHaveAttribute("href", APP_STORE_URL);
+  // Until the App Store listing is public (IPHONE_APP_LIVE).
+  const links = page.getByRole("link", { name: "Start on the web" });
+  await expect(links.last()).toHaveAttribute("href", "/tap");
   await expect(page.getByRole("link", { name: DOWNLOAD_LABEL })).toHaveCount(0);
 });
 
@@ -80,9 +80,6 @@ test("opening instructions directly offers a download without starting one", asy
   await expect(
     page.getByRole("link", { name: "Download for Windows" })
   ).toHaveAttribute("href", WINDOWS_INSTALLER_PATH);
-  await expect(
-    page.getByRole("link", { name: "Get the iPhone app" })
-  ).toHaveAttribute("href", APP_STORE_URL);
   await expect(page.getByText(RETRY_COPY)).toHaveCount(0);
   expect(requests).toHaveLength(0);
 });

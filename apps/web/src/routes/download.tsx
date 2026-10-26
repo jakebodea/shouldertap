@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { DocLinks } from "@/components/document";
 import { SitePage } from "@/components/site-page";
 import {
+  IPHONE_APP_LIVE,
   IPHONE_APP_URL,
   MAC_DOWNLOAD_URL,
   takeDownloadStarted,
@@ -72,16 +73,18 @@ const DownloadComponent = () => {
             Windows 10 and 11. It isn&apos;t signed yet, so if Windows warns,
             choose More info, then Run anyway. It lives in the system tray.
           </p>
-          <p className="text-tone max-w-[30rem] text-[0.8125rem] leading-relaxed">
-            <span className="text-ink block text-sm font-semibold">
-              On iPhone?{" "}
-              <a className="underline" href={IPHONE_APP_URL}>
-                Get the iPhone app
-              </a>
-            </span>
-            Tap and be tapped from your phone, with your taps on the Lock
-            Screen.
-          </p>
+          {IPHONE_APP_LIVE ? (
+            <p className="text-tone max-w-[30rem] text-[0.8125rem] leading-relaxed">
+              <span className="text-ink block text-sm font-semibold">
+                On iPhone?{" "}
+                <a className="underline" href={IPHONE_APP_URL}>
+                  Get the iPhone app
+                </a>
+              </span>
+              Tap and be tapped from your phone, with your taps on the Lock
+              Screen.
+            </p>
+          ) : null}
         </section>
 
         <ol
@@ -110,8 +113,8 @@ const DownloadComponent = () => {
       </main>
       <footer className="text-tone border-line flex flex-wrap items-center justify-between gap-x-8 gap-y-3 border-t pt-4 text-sm">
         <p className="max-w-[36rem] leading-relaxed">
-          The people who tap you can use the iPhone app, or any phone&apos;s
-          browser without installing anything.
+          The people who tap you can use any phone&apos;s browser, with nothing
+          to install.
         </p>
         <DocLinks />
       </footer>

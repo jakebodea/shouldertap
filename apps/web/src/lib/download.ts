@@ -2,9 +2,15 @@ export const MAC_DOWNLOAD_URL: string = import.meta.env.VITE_MAC_DOWNLOAD_URL;
 export const WINDOWS_DOWNLOAD_URL: string = import.meta.env
   .VITE_WINDOWS_DOWNLOAD_URL;
 export const IPHONE_APP_URL = "https://apps.apple.com/app/id6818330440";
+/**
+ * The App Store listing isn't public yet, so its link is a dead page. Until
+ * it is, an iPhone taps from the web like any other phone. Turn this on once
+ * https://itunes.apple.com/lookup?id=6818330440 returns a result.
+ */
+export const IPHONE_APP_LIVE = false;
 
-/** What the visitor's own device can install. Android has no app: it taps from the web. */
-export type VisitorPlatform = "mac" | "windows" | "iphone" | "android";
+/** What the visitor's own device can install. Other phones tap from the web. */
+export type VisitorPlatform = "mac" | "windows" | "iphone" | "phone";
 
 export const visitorPlatform = (
   userAgent = navigator.userAgent,
@@ -18,7 +24,7 @@ export const visitorPlatform = (
     return "iphone";
   }
   if (/Android/u.test(userAgent)) {
-    return "android";
+    return "phone";
   }
   if (/Windows/u.test(userAgent)) {
     return "windows";
