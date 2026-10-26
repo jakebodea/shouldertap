@@ -5,8 +5,15 @@ import { messages } from "./messages.mjs";
 const token = "marketing.sender01.fictional00000001";
 const deviceToken = "marketing.device01.fictional00000001";
 const sockets = new Set();
-let senderName = "Sam";
-let senderColor = "moss";
+const session = "marketing.session01.fictional00000001";
+const senderName = "Sam";
+const senderColor = "moss";
+const me = {
+  email: "alex@example.com",
+  profile: { name: "Alex", color: "cobalt" },
+  inboxId: "inbox01",
+  sendProfile: { name: senderName, color: senderColor },
+};
 const taps = [];
 let sequence = 1;
 const credential = (id, kind, name, extra = {}) => ({
@@ -38,17 +45,43 @@ const server = Bun.serve({
       req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const device = req.headers.get("authorization") === `Bearer ${deviceToken}`;
     const { json } = Response;
-    if (path === "/v1/invites/redeem") {
-      const linking = body.platform === "iphone";
-      if (!linking) {
-        senderName = body.name;
-        senderColor = body.color ?? "moss";
-      }
+    // Account sign-in (any email, any six-digit code): the phone is Alex's
+    // inbox and holds Sam's key to tap Alex, so it shows both sides.
+    if (path === "/api/auth/email-otp/send-verification-otp") {
+      return json({ success: true });
+    }
+    if (path === "/api/auth/sign-in/email-otp") {
+      return json({ token: session, user: { email: me.email } });
+    }
+    if (path === "/v1/patrons/availability") {
+      return json({ checkoutEnabled: false });
+    }
+    if (path === "/account/me") {
+      return json(me);
+    }
+    if (path === "/account/sync") {
       return json({
-        kind: linking ? "device" : "sender",
-        credentialId: linking ? "device01" : "sender01",
-        token: linking ? deviceToken : token,
-        recipientName: "Alex",
+        me,
+        inbox: {
+          kind: "device",
+          credentialId: "device01",
+          token: deviceToken,
+          recipientName: "Alex",
+        },
+        senders: [
+          {
+            id: `${me.inboxId}:sender01`,
+            grant: {
+              kind: "sender",
+              credentialId: "sender01",
+              token,
+              recipientName: "Alex",
+            },
+            name: senderName,
+            color: senderColor,
+          },
+        ],
+        removed: [],
       });
     }
     if (path === "/v1/connect-tickets") {

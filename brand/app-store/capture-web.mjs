@@ -10,7 +10,8 @@ const { chromium } = createRequire(
 const browser = await chromium.launch({ headless: true, channel: "chrome" });
 try {
   const page = await browser.newPage({
-    viewport: { width: 1200, height: 900 },
+    // The window width the slides show, so the page lays itself out for it.
+    viewport: { width: 700, height: 900 },
     deviceScaleFactor: 2,
   });
   await page.route("http://127.0.0.1:4318/**", async (route) => {
@@ -53,7 +54,9 @@ try {
     .getByText(messages.dinner, { exact: true })
     .waitFor({ timeout: 10_000 });
   await page.evaluate(() => document.fonts.ready);
-  await page.screenshot({ path: path.join(here, "captures/web-sender-dinner.png") });
+  await page.screenshot({
+    path: path.join(here, "captures/web-sender-dinner.png"),
+  });
 } finally {
   await browser.close();
 }

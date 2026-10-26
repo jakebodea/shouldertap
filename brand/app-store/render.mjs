@@ -46,11 +46,12 @@ const reply = capture("iphone-reply-call");
 // Regions of the captures, in capture pixels (1206 × 2622 for iPhone).
 const regions = {
   compactIsland: [373, 42, 483, 110],
-  lockActivity: [49, 1760, 1108, 474],
-  replyAnswer: [40, 1368, 1126, 432],
+  lockActivity: [49, 1773, 1108, 461],
+  replyAnswer: [40, 1630, 1126, 356],
 };
-// The web capture is a 1200 × 900 viewport at 2×; the sender page is centered.
-const webSource = { width: 2400, height: 1800 };
+// The web capture is a 700 × 900 window at 2×, shown whole.
+const webSource = { width: 1400, height: 1800 };
+const webCrop = [0, 0, webSource.width, webSource.height];
 
 // The mark from docs/design.md.
 const mark = `<svg class="mark" viewBox="-2.5 -8.65 44.65 44.65" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 0C23.59 0 30 6.41 30 27.5V28C30 31.07 29.07 32 26 32H4C0.93 32 0 31.07 0 28V4C0 0.93 0.93 0 4 0Z" stroke-width="5"/><path d="M26.8 -3.08L29.19 -9.65" stroke-width="3.75"/><path d="M30.63 -0.63L35.58 -5.58" stroke-width="3.75"/><path d="M33.08 3.2L39.65 0.81" stroke-width="3.75"/></svg>`;
@@ -142,7 +143,7 @@ const slides = [
     sub: "Invited people can send from the web. It reaches every linked screen.",
     bg: "#9cc9ec",
     ink: "#0d2233",
-    art: `${at(28, 392, browserFrame(web, { width: 560, crop: [500, 0, 1400, 1800], source: webSource }))}${placePhone(takeover, { left: 392, top: 856, width: 240 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
+    art: `${at(28, 392, browserFrame(web, { width: 560, crop: webCrop, source: webSource }))}${placePhone(takeover, { left: 392, top: 856, width: 240 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
   },
   (() => {
     const p = placePhone(reply, { left: 110, top: 372, width: 440 });
@@ -160,7 +161,7 @@ const portrait = (s) =>
   `<!doctype html><html><head><style>${css}body{width:660px;height:1434px;background:${s.bg};color:${s.ink};padding:46px 46px 0;position:relative;overflow:hidden}header{display:flex;justify-content:space-between;align-items:center}.brand{font-size:23px}.note{font-size:13.5px}h1{margin-top:44px;font-size:68px}p{margin-top:18px;font-size:22px;line-height:1.32;max-width:520px}.hold{position:absolute;left:0;right:0;text-align:center;font-size:17px;font-weight:600;opacity:.85}.hold:after{content:"";display:block;width:2px;height:22px;margin:8px auto 0;background:currentColor;opacity:.6;border-radius:2px}</style></head><body><header><div class="brand">${mark}Shouldertap</div></header><h1>${s.title}</h1><p>${s.sub}</p>${s.art}</body></html>`;
 
 const heroPhone = placePhone(lock, { left: 1548, top: 236, width: 300 });
-const wide = `<!doctype html><html><head><style>${css}body{width:1920px;height:1080px;background:#f6f5f1;color:#161616;padding:84px 90px;position:relative;overflow:hidden}.brand{font-size:30px}h1{font-size:96px;margin-top:150px}p{font-size:27px;line-height:1.35;margin-top:26px;color:#3d3c39}.note{position:absolute;left:90px;bottom:60px;font-size:18px;color:#6f6e69;opacity:1}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>A little tap.<br>Across your<br>screens.</h1><p>Send a tap. Get an answer.<br>Across your screens.</p>${at(736, 92, monitor(mac, 760))}${at(690, 640, laptop(mac, 430), 2)}${at(1182, 520, browserFrame(web, { width: 340, crop: [500, 0, 1400, 1800], source: webSource }), 3)}${heroPhone.html.replace("position:absolute", "position:absolute;z-index:4")}${zoom(heroPhone, lock, regions.lockActivity, { width: 380, radius: 17, dx: -24 })}</body></html>`;
+const wide = `<!doctype html><html><head><style>${css}body{width:1920px;height:1080px;background:#f6f5f1;color:#161616;padding:84px 90px;position:relative;overflow:hidden}.brand{font-size:30px}h1{font-size:96px;margin-top:150px}p{font-size:27px;line-height:1.35;margin-top:26px;color:#3d3c39}.note{position:absolute;left:90px;bottom:60px;font-size:18px;color:#6f6e69;opacity:1}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>A little tap.<br>Across your<br>screens.</h1><p>Send a tap. Get an answer.<br>Across your screens.</p>${at(736, 92, monitor(mac, 760))}${at(690, 640, laptop(mac, 430), 2)}${at(1182, 520, browserFrame(web, { width: 340, crop: webCrop, source: webSource }), 3)}${heroPhone.html.replace("position:absolute", "position:absolute;z-index:4")}${zoom(heroPhone, lock, regions.lockActivity, { width: 380, radius: 17, dx: -24 })}</body></html>`;
 
 const browser = await chromium.launch({ headless: true, channel: "chrome" });
 const exportsPath = path.join(here, "exports");

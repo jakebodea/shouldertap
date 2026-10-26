@@ -16,7 +16,7 @@ struct CaptureMac {
     let tap = Tap(id: "marketing-tap-01", senderId: "sender01", senderName: "Sam", senderColor: .moss,
                   body: body, createdAt: Date.now.timeIntervalSince1970 * 1000,
                   state: .pending, sequence: 1)
-    let model = OverlayModel(active: ActiveTap(tap: tap, queued: 0), respond: { _, _ in })
+    let model = OverlayModel(active: ActiveTap(tap: tap, queued: 0), reduceMotion: true, respond: { _, _ in })
     let view = NSHostingView(rootView: OverlayView(model: model))
     let size = NSSize(width: 1440, height: 900)
     let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size), styleMask: .borderless, backing: .buffered, defer: false)
