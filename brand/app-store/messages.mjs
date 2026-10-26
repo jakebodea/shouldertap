@@ -5,7 +5,7 @@ export const messages = {
   come: "Can you come here?",
   call: "Call me",
   trash: "Take out the trash",
-  // Nina's answer to "Call me" on Priya's phone.
+  // Nina's answer to "Call me" on Theo's phone.
   reply: "In a meeting. Calling at 3.",
 };
 
@@ -14,7 +14,7 @@ export const recipient = "Nina";
 export const senders = {
   dinner: { name: "Maya", color: "moss" },
   come: { name: "Marcus", color: "tomato" },
-  call: { name: "Priya", color: "cobalt" },
+  call: { name: "Theo", color: "cobalt" },
   trash: { name: "Rosa", color: "plum" },
 };
 // The sender's own two quick replies; taps without them offer On it and In 10 min.
