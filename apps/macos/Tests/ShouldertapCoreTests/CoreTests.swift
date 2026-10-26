@@ -53,6 +53,10 @@ private func fixture(_ name: String) throws -> Data {
     else { Issue.record("expected a receiver snapshot"); return }
     #expect(snapshot.recipientName == "Jamie")
     #expect(snapshot.taps.first?.response == TapResponse(kind: .text, text: "Coming"))
+    // The pending tap offers its sender's own answers, sent back as text.
+    #expect(snapshot.taps.last?.quickReplies.map(\.label) == ["Coming!", "Can't now"])
+    #expect(snapshot.taps.last?.quickReplies.first?.response == TapResponse(kind: .text, text: "Coming!"))
+    #expect(snapshot.taps.first?.quickReplies.map(\.response) == [.onIt, .in10])
     #expect(snapshot.credentials.contains { $0.kind == .sender && $0.color == .rose })
     #expect(snapshot.credentials.contains { $0.kind == .device && $0.color == nil })
     // A device without a platform (older server) is a Mac.

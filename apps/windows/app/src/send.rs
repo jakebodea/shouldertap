@@ -14,9 +14,10 @@ use gpui::{
     Subscription, Task, Window, div, prelude::*, px, svg,
 };
 use shouldertap_core::{
-    AccountStore, ApiError, InvitePreview, LiveStatus, MAX_NAME_LENGTH, MAX_TAP_LENGTH, OutgoingTap, PatronStore,
-    PersonColor, Profile, ResponseKind, SenderSession, SenderState, SenderStore, Tap, TapState, TapTheme, Timestamp,
-    invite_code, now_ms, token_inbox_id,
+    AccountStore, ApiError, InvitePreview, LiveStatus, MAX_NAME_LENGTH, MAX_QUICK_REPLY_LENGTH, MAX_TAP_LENGTH, Me,
+    OutgoingTap, PatronStore, PersonColor, Profile, ResponseKind, SenderSession, SenderState, SenderStore, Tap, TapState,
+    TapTheme, Timestamp, default_quick_replies, invite_code, normalize_quick_replies, now_ms, tidy_quick_replies,
+    token_inbox_id,
 };
 
 use crate::assets::{Icon, MARK_PATH};
@@ -74,6 +75,12 @@ pub struct SendView {
     composer: Entity<TextField>,
     /// Unsent drafts by person, while the window is open.
     drafts: HashMap<String, String>,
+    /// This tap's two answers (keys 1 and 2), editable for it alone.
+    replies: [Entity<TextField>; 2],
+    /// The account's defaults as last put in `replies`: while the fields
+    /// still hold them, they follow the account.
+    reply_defaults: Vec<String>,
+    saving_replies: bool,
     send_error: Option<String>,
     // Accepting an invite
     invite: Entity<TextField>,
@@ -132,7 +139,11 @@ impl SendView {
         let invite = field(cx, "Paste the invite link they sent you", 512);
         let seen_name = field(cx, "Your name", MAX_NAME_LENGTH);
         let preview_reply = field(cx, "", 0);
-        let subscriptions = vec![
+        let replies = [
+            field(cx, "Reply 1", MAX_QUICK_REPLY_LENGTH),
+            field(cx, "Reply 2", MAX_QUICK_REPLY_LENGTH),
+        ];
+        let mut subscriptions = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
             // Back from the browser (a checkout, say): where the membership stands.
             cx.observe_window_activation(window, |this: &mut Self, window, cx| {
@@ -162,6 +173,16 @@ impl SendView {
                 TextFieldEvent::Cancel => this.close_seen_as(cx),
             }),
         ];
+        for reply in &replies {
+            subscriptions.push(cx.subscribe(reply, |this, _, event, cx| match event {
+                TextFieldEvent::Submit => this.send(cx),
+                TextFieldEvent::Changed => {
+                    this.send_error = None;
+                    cx.notify()
+                }
+                TextFieldEvent::Cancel => {}
+            }));
+        }
         // "3m ago" moves on while the window is open.
         cx.spawn(async move |this, cx| {
             loop {
@@ -179,6 +200,9 @@ impl SendView {
             adding: false,
             composer,
             drafts: HashMap::new(),
+            replies,
+            reply_defaults: Vec::new(),
+            saving_replies: false,
             send_error: None,
             invite,
             accepting: false,
@@ -208,6 +232,7 @@ impl SendView {
             patron_error: None,
             _subscriptions: subscriptions,
         };
+        view.reset_replies(cx);
         view.show(target, cx);
         view
     }
@@ -266,6 +291,9 @@ impl SendView {
 
     fn select(&mut self, id: String, cx: &mut Context<Self>) {
         self.save_draft(cx);
+        if self.selected.as_ref() != Some(&id) {
+            self.reset_replies(cx);
+        }
         let draft = self.drafts.get(&id).cloned().unwrap_or_default();
         self.composer.update(cx, |field, cx| field.set_text(&draft, cx));
         // One GET: the history is current even if a live event was missed.
@@ -340,6 +368,50 @@ impl SendView {
 
     // Sending
 
+    fn reply_texts(&self, cx: &App) -> Vec<String> {
+        self.replies
+            .iter()
+            .map(|field| field.read(cx).text().to_string())
+            .collect()
+    }
+
+    /// What a new tap offers: the account's defaults, else On it and In 10 min.
+    fn default_replies(&self, cx: &App) -> Vec<String> {
+        self.model
+            .read(cx)
+            .account_state
+            .me
+            .as_ref()
+            .map_or_else(default_quick_replies, Me::default_replies)
+    }
+
+    /// Puts the account's defaults back in the reply fields.
+    fn reset_replies(&mut self, cx: &mut Context<Self>) {
+        let defaults = self.default_replies(cx);
+        for (field, text) in self.replies.iter().zip(&defaults) {
+            field.update(cx, |field, cx| field.set_text(text, cx));
+        }
+        self.reply_defaults = defaults;
+    }
+
+    /// Keeps these two answers for every tap, on the account.
+    fn save_replies(&mut self, replies: Vec<String>, cx: &mut Context<Self>) {
+        self.saving_replies = true;
+        let account = self.account(cx);
+        let task = cx
+            .background_executor()
+            .spawn(async move { account.set_quick_replies(&replies) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.saving_replies = false;
+                this.send_error = result.err().map(|error| error.to_string());
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn send(&mut self, cx: &mut Context<Self>) {
         let state = self.model.read(cx).sender_state.clone();
         let Some(session) = self.current(&state) else { return };
@@ -348,9 +420,11 @@ impl SendView {
             return;
         }
         let theme = self.model.read(cx).patron_state.sending_theme();
-        match self.senders(cx).send(session.id(), &draft, theme) {
+        let replies = self.reply_texts(cx);
+        match self.senders(cx).send(session.id(), &draft, theme, Some(&replies)) {
             Ok(()) => {
                 self.composer.update(cx, |field, cx| field.clear(cx));
+                self.reset_replies(cx);
                 self.drafts.remove(session.id());
                 self.send_error = None;
                 self.sent_here = true;
@@ -803,6 +877,81 @@ impl SendView {
 // Composer
 
 impl SendView {
+    /// "Sam can answer": the two answers this tap offers, editable for it
+    /// alone, with a way to keep them for every tap.
+    fn reply_options(
+        &mut self,
+        recipient: &str,
+        shown: &[String],
+        defaults: &[String],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let fields = self.replies.iter().enumerate().map(|(index, field)| {
+            let focus = field.focus_handle(cx);
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.))
+                .h(px(46.))
+                .px(px(14.))
+                .rounded(px(18.))
+                .bg(paper::faint())
+                .text_size(px(15.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_text()
+                .on_mouse_down(MouseButton::Left, move |_, window, _| window.focus(&focus))
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(paper::tone())
+                        .child((index + 1).to_string()),
+                )
+                .child(div().flex_1().min_w_0().child(field.clone()))
+        });
+        let fields = div().flex().flex_row().gap(px(8.)).children(fields.collect::<Vec<_>>());
+        let note = match normalize_quick_replies(shown) {
+            Err(error) => Some(danger_text(error.to_string()).into_any_element()),
+            Ok(_) => tidy_quick_replies(shown)
+                .filter(|chosen| chosen.as_slice() != defaults)
+                .map(|chosen| {
+                    let signed_in = self.model.read(cx).account_state.signed_in;
+                    let saving = self.saving_replies;
+                    let keep = text_button("save-replies", "Use these for every tap", saving).when(!saving, |button| {
+                        button.on_click(cx.listener(move |this, _, _, cx| this.save_replies(chosen.clone(), cx)))
+                    });
+                    let reset = text_button("reset-replies", "Reset", false).on_click(cx.listener(|this, _, _, cx| {
+                        this.reset_replies(cx);
+                        cx.notify();
+                    }));
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap(px(16.))
+                        .when(signed_in, |row| row.child(keep))
+                        .child(reset)
+                        .into_any_element()
+                }),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .text_size(px(14.))
+                    .text_color(paper::tone())
+                    .child(format!("{recipient} can answer")),
+            )
+            .child(fields)
+            .children(note)
+            .into_any_element()
+    }
+
     fn composer_page(
         &mut self,
         session: &SenderSession,
@@ -865,9 +1014,17 @@ impl SendView {
                         .child(remaining.to_string()),
                 )
             });
-        let send = pill("send", "Send tap", Some(Icon::Send), Some(color), empty)
+        // The fields follow the account's defaults until changed here.
+        let defaults = self.default_replies(cx);
+        if self.reply_defaults != defaults && self.reply_texts(cx) == self.reply_defaults {
+            self.reset_replies(cx);
+        }
+        let shown = self.reply_texts(cx);
+        let unsendable = empty || tidy_quick_replies(&shown).is_none();
+        let replies = self.reply_options(&recipient, &shown, &defaults, cx);
+        let send = pill("send", "Send tap", Some(Icon::Send), Some(color), unsendable)
             .w_full()
-            .when(!empty, |pill| {
+            .when(!unsendable, |pill| {
                 pill.on_click(cx.listener(|this, _, _, cx| this.send(cx)))
             });
         page.push(
@@ -876,6 +1033,7 @@ impl SendView {
                 .flex_col()
                 .gap(px(10.))
                 .child(field)
+                .child(replies)
                 .child(send)
                 .child(
                     div()
@@ -1766,6 +1924,22 @@ pub(crate) fn tone_text(text: &str) -> gpui::Div {
         .child(text.to_string())
 }
 
+/// A quiet action in ink: underlined text, no fill or outline.
+pub(crate) fn text_button(id: &'static str, title: &str, disabled: bool) -> gpui::Stateful<gpui::Div> {
+    let button = div()
+        .id(id)
+        .text_size(px(14.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(paper::ink())
+        .underline()
+        .child(title.to_string());
+    if disabled {
+        button.opacity(0.4)
+    } else {
+        button.cursor_pointer().hover(|style| style.opacity(0.7))
+    }
+}
+
 pub(crate) fn danger_text(text: String) -> impl IntoElement {
     div().text_size(px(14.)).text_color(danger()).child(text)
 }
@@ -2171,6 +2345,7 @@ mod tests {
             response,
             sequence: 1,
             theme: None,
+            replies: None,
         }
     }
 
@@ -2183,6 +2358,7 @@ mod tests {
             failed: false,
             error: None,
             theme: None,
+            replies: None,
         };
         let failed = OutgoingTap {
             failed: true,

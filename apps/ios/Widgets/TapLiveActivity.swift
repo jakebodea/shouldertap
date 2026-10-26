@@ -48,7 +48,7 @@ struct TapLiveActivity: Widget {
               .minimumScaleFactor(0.7)
               .foregroundStyle(.white)
               .frame(maxWidth: .infinity, alignment: .leading)
-            Answers(tap: tap, answer: state.answer, onDark: true)
+            Answers(tap: tap, state: state, onDark: true)
           }
           .padding(.horizontal, 4)
           .padding(.top, 2)
@@ -100,22 +100,25 @@ private struct LockScreenTap: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(WidgetPaper.paper, in: .rect(cornerRadius: 16, style: .continuous))
-      Answers(tap: attributes, answer: state.answer, onDark: false)
+      Answers(tap: attributes, state: state, onDark: false)
     }
     .padding(14)
   }
 }
 
-/// On it and In 10 min run in place; Reply opens the app to type.
-/// Once answered, the answer replaces the buttons.
+/// On it and In 10 min (or the sender's own answers) run in place; Reply
+/// opens the app to type. Once answered, the answer replaces the buttons.
 private struct Answers: View {
   let tap: TapActivityAttributes
-  let answer: String?
+  let state: TapActivityAttributes.ContentState
   let onDark: Bool
 
   var body: some View {
     let color = tap.senderColor
-    if let answer {
+    let options = state.quickReplies
+    // A sender's own words get no icon: a tick or a clock might not fit them.
+    let custom = state.replies != nil
+    if let answer = state.answer {
       HStack(spacing: 6) {
         IconView(icon: .onIt, size: 16)
         Text(answer)
@@ -125,13 +128,13 @@ private struct Answers: View {
       .frame(height: 34)
     } else {
       HStack(spacing: 6) {
-        Button(intent: AnswerTapIntent(tapId: tap.tapId, response: .onIt)) {
-          AnswerLabel(icon: .onIt, text: "On it")
+        Button(intent: AnswerTapIntent(tapId: tap.tapId, response: options[0].response)) {
+          AnswerLabel(icon: custom ? nil : .onIt, text: options[0].label)
             .foregroundStyle(onDark ? color.ink : color.base)
             .background(onDark ? color.base : color.ink, in: .capsule)
         }
-        Button(intent: AnswerTapIntent(tapId: tap.tapId, response: .in10)) {
-          AnswerLabel(icon: .in10, text: "In 10 min")
+        Button(intent: AnswerTapIntent(tapId: tap.tapId, response: options[1].response)) {
+          AnswerLabel(icon: custom ? nil : .in10, text: options[1].label)
             .foregroundStyle(onDark ? .white : color.ink)
             .background((onDark ? Color.white : color.ink).opacity(0.16), in: .capsule)
         }
@@ -147,12 +150,12 @@ private struct Answers: View {
 }
 
 private struct AnswerLabel: View {
-  let icon: Icon
+  let icon: Icon?
   let text: String
 
   var body: some View {
     HStack(spacing: 5) {
-      IconView(icon: icon, size: 15)
+      if let icon { IconView(icon: icon, size: 15) }
       Text(text).lineLimit(1)
     }
     .font(Bricolage.bold(14))

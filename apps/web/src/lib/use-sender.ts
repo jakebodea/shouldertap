@@ -6,7 +6,12 @@ import {
   mergeTap,
 } from "@shouldertap/client";
 import type { LiveStatus } from "@shouldertap/client";
-import type { PersonColor, Tap, TapTheme } from "@shouldertap/domain";
+import type {
+  PersonColor,
+  QuickReplies,
+  Tap,
+  TapTheme,
+} from "@shouldertap/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./api";
@@ -27,6 +32,8 @@ export interface OutgoingTap {
   readonly requestId: string;
   /** The style chosen when it was written; missing on older saved taps. */
   readonly theme?: TapTheme;
+  /** The answers it offers, when not On it and In 10 min. */
+  readonly replies?: QuickReplies;
 }
 
 const loadOutbox = (credentialId: string): OutgoingTap[] => {
@@ -176,13 +183,14 @@ export const useSender = (pairing: Pairing, onRevoked: () => void) => {
   }, [client, resync]);
 
   const send = useCallback(
-    (body: string, theme: TapTheme = "default") => {
+    (body: string, theme: TapTheme = "default", replies?: QuickReplies) => {
       const item: OutgoingTap = {
         requestId: newRequestId(),
         body,
         createdAt: Date.now(),
         failed: false,
         theme,
+        ...(replies ? { replies } : {}),
       };
       updateOutbox((current) => [item, ...current]);
       return deliver(item);

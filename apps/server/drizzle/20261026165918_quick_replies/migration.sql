@@ -1,0 +1,1 @@
+ALTER TABLE `taps` ADD `replies` text;

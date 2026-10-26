@@ -50,6 +50,22 @@ final class OverlayModel {
     respond(active.tap.id, response)
   }
 
+  /// Whether the sender chose this tap's two answers.
+  var customReplies: Bool { active.tap.replies?.count == 2 }
+
+  /// Answer `index` (0 for key 1, 1 for key 2) in the sender's words, or the
+  /// preset as this theme says it.
+  func replyLabel(_ index: Int, preset: String) -> String {
+    customReplies ? active.tap.quickReplies[index].label : preset
+  }
+
+  /// Sends answer `index` (0 for key 1, 1 for key 2).
+  func answer(option index: Int) {
+    let options = active.tap.quickReplies
+    guard options.indices.contains(index) else { return }
+    answer(options[index].response)
+  }
+
   func sendReply() {
     let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty else { return }
@@ -198,8 +214,8 @@ final class OverlayController {
     }
     guard !model.replying else { return false }
     switch event.charactersIgnoringModifiers {
-    case "1": model.answer(.onIt)
-    case "2": model.answer(.in10)
+    case "1": model.answer(option: 0)
+    case "2": model.answer(option: 1)
     case "3": model.replying = true
     default: return false
     }
@@ -305,8 +321,13 @@ private struct AnswerRow: View {
 
   var body: some View {
     HStack(spacing: 14) {
-      Pill(icon: .onIt, label: "On it", hint: "1", fill: color) { model.answer(.onIt) }
-      Pill(icon: .in10, label: "In 10 min", hint: "2") { model.answer(.in10) }
+      // A sender's own words get no icon: a tick or a clock might not fit them.
+      Pill(icon: model.customReplies ? nil : .onIt, label: model.replyLabel(0, preset: "On it"), hint: "1", fill: color) {
+        model.answer(option: 0)
+      }
+      Pill(icon: model.customReplies ? nil : .in10, label: model.replyLabel(1, preset: "In 10 min"), hint: "2") {
+        model.answer(option: 1)
+      }
       Pill(icon: .reply, label: "Reply", hint: "3") { model.replying = true }
     }
   }

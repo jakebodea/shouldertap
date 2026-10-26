@@ -75,6 +75,7 @@ pub fn sample(name: &str, color: PersonColor, body: &str) -> ActiveTap {
             response: None,
             sequence: 0,
             theme: None,
+            replies: None,
         },
         queued: 0,
     }

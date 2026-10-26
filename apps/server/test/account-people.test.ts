@@ -23,6 +23,7 @@ const migrations = [
   "0005_adoption_operation",
   "0006_profile",
   "0007_send_profile",
+  "0008_quick_replies",
 ];
 
 interface FakeCredential {
@@ -325,6 +326,7 @@ describe("account people", () => {
         sendProfile: null,
         suggestedName: null,
         inboxId: null,
+        quickReplies: null,
       });
       const refused = await fails("sam", "sync", { ...phone, receive: true });
       expect(refused.message).toBe("Choose your name first");
@@ -384,6 +386,47 @@ describe("account people", () => {
       });
       expect(blank.message).toBe("Enter a name up to 40 characters");
       expect(color.message).toBe("Choose a color");
+    });
+  });
+
+  describe("default quick replies", () => {
+    it("are kept on the account, tidied, until set back to On it and In 10 min", async () => {
+      const saved = await act<{ quickReplies: unknown }>(
+        "sam",
+        "quick-replies",
+        { replies: [" Coming! ", "Can't now"] }
+      );
+      expect(saved.quickReplies).toStrictEqual(["Coming!", "Can't now"]);
+      const me = await act<{ quickReplies: unknown }>("sam", "me");
+      expect(me.quickReplies).toStrictEqual(["Coming!", "Can't now"]);
+      const presets = await act<{ quickReplies: unknown }>(
+        "sam",
+        "quick-replies",
+        { replies: ["On it", "In 10 min"] }
+      );
+      expect(presets.quickReplies).toBeNull();
+      await act("sam", "quick-replies", { replies: ["Yes", "No"] });
+      const cleared = await act<{ quickReplies: unknown }>(
+        "sam",
+        "quick-replies",
+        { replies: null }
+      );
+      expect(cleared.quickReplies).toBeNull();
+    });
+
+    it("refuses one missing, a repeat, or one too long", async () => {
+      const missing = await fails("sam", "quick-replies", { replies: ["Yes"] });
+      const repeated = await fails("sam", "quick-replies", {
+        replies: ["Yes", "YES"],
+      });
+      const long = await fails("sam", "quick-replies", {
+        replies: ["Yes", "I will be there in twenty minutes"],
+      });
+      expect([missing.message, repeated.message, long.message]).toStrictEqual([
+        "Write both reply options",
+        "Make the two reply options different",
+        "Keep each reply option to 24 characters",
+      ]);
     });
   });
 

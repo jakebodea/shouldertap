@@ -11,6 +11,9 @@ import * as Effect from "effect/Effect";
  * - Live Activities on, with a push-to-start token: start the tap's Live
  *   Activity (Lock Screen and Dynamic Island), with an alert.
  * - Otherwise: a Time Sensitive notification with On it / In 10 min / Reply.
+ *   A tap whose sender chose its own answers can't name them on the
+ *   notification's buttons (iOS fixes those when the app launches), so it
+ *   offers Reply only; opening it shows the sender's answers.
  * Once the tap is answered anywhere, its Live Activity is ended (when the
  * phone sent us its token), its notification is replaced by a quiet
  * "Answered", and a background push tells the app to clear anything left.
@@ -179,7 +182,10 @@ export const startActivityPayload = (tap: Tap, at: number) => ({
     event: "start",
     "attributes-type": "TapActivityAttributes",
     attributes: activityAttributes(tap),
-    "content-state": { body: tap.body },
+    "content-state": {
+      body: tap.body,
+      ...(tap.replies ? { replies: tap.replies } : {}),
+    },
     alert: { ...alert(tap), sound: "default" },
     "relevance-score": 100,
   },
@@ -190,7 +196,7 @@ export const notificationPayload = (tap: Tap) => ({
   aps: {
     alert: alert(tap),
     sound: "default",
-    category: "tap",
+    category: tap.replies ? "tap-reply" : "tap",
     "interruption-level": "time-sensitive",
     "thread-id": tap.senderId,
   },

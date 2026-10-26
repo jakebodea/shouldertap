@@ -1,6 +1,10 @@
 import { ApiError } from "@shouldertap/client";
 import type { Me } from "@shouldertap/client";
-import { parsePatronKey } from "@shouldertap/domain";
+import {
+  DEFAULT_QUICK_REPLIES,
+  normalizeQuickReplies,
+  parsePatronKey,
+} from "@shouldertap/domain";
 import type { PersonColor } from "@shouldertap/domain";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
@@ -9,6 +13,7 @@ import type { FormEvent, ReactNode } from "react";
 import { DocPage, DocSection } from "@/components/document";
 import { Frame } from "@/components/frame";
 import { Mark } from "@/components/mark";
+import { QuickReplyFields } from "@/components/quick-reply-fields";
 import { ProfileFields, SignIn } from "@/components/sign-in";
 import { SignInOnPhone } from "@/components/sign-in-on-phone";
 import { account, isSignedOutError, loadSession } from "@/lib/account";
@@ -301,6 +306,86 @@ const ProfileSection = ({
           >
             {busy ? "Saving…" : "Save"}
           </button>
+        </Actions>
+      </form>
+    </DocSection>
+  );
+};
+
+/** The two answers every tap offers unless the sender changes them on one. */
+const QuickRepliesSection = ({
+  me,
+  onSaved,
+  onSignedOut,
+}: {
+  me: Me;
+  onSaved: (me: Me) => void;
+  onSignedOut: () => void;
+}) => {
+  const saved = me.quickReplies ?? DEFAULT_QUICK_REPLIES;
+  const [replies, setReplies] = useState<[string, string]>(() => [...saved]);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string>();
+  const tidied = normalizeQuickReplies(replies);
+  const chosen =
+    "error" in tidied ? null : (tidied.replies ?? DEFAULT_QUICK_REPLIES);
+  const changed =
+    chosen !== null && (chosen[0] !== saved[0] || chosen[1] !== saved[1]);
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if ("error" in tidied) {
+      return;
+    }
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      const next = await account.setQuickReplies(tidied.replies);
+      onSaved(next);
+      setReplies([...(next.quickReplies ?? DEFAULT_QUICK_REPLIES)]);
+      setNotice("Saved. Your taps offer these from now on.");
+    } catch (error) {
+      if (isSignedOutError(error)) {
+        onSignedOut();
+        return;
+      }
+      setNotice(failureMessage(error));
+    }
+    setBusy(false);
+  };
+  return (
+    <DocSection title="Reply options">
+      <form className="flex max-w-md flex-col gap-4" onSubmit={onSubmit}>
+        <p>
+          The two answers people get on your taps, one tap each. You can still
+          change them on any tap before you send it.
+        </p>
+        <QuickReplyFields
+          id="default-replies"
+          onChange={setReplies}
+          replies={replies}
+        />
+        <Notice>{"error" in tidied ? tidied.error : notice}</Notice>
+        <Actions>
+          <button
+            className="pill pill-ink"
+            disabled={busy || !changed}
+            type="submit"
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+          {replies[0] !== DEFAULT_QUICK_REPLIES[0] ||
+          replies[1] !== DEFAULT_QUICK_REPLIES[1] ? (
+            <button
+              className="pill"
+              disabled={busy}
+              onClick={() => {
+                setReplies([...DEFAULT_QUICK_REPLIES]);
+              }}
+              type="button"
+            >
+              Use On it and In 10 min
+            </button>
+          ) : null}
         </Actions>
       </form>
     </DocSection>
@@ -606,6 +691,7 @@ const SignedIn = ({
       {intent === "patron"
         ? [patronSection, profileSection]
         : [profileSection, patronSection]}
+      <QuickRepliesSection me={me} onSaved={onMe} onSignedOut={onSignedOut} />
       <SignInOnPhone onSignedOut={onSignedOut} />
       <SessionSection onSignedOut={onSignedOut} />
       <DeleteSection

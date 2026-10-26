@@ -25,6 +25,7 @@ fn tap(id: &str, created_at: f64, sequence: i64, state: TapState) -> Tap {
         response: None,
         sequence,
         theme: None,
+        replies: None,
     }
 }
 
@@ -81,6 +82,23 @@ fn decodes_receiver_snapshot() {
     };
     assert_eq!(snapshot.recipient_name, "Jamie");
     assert_eq!(snapshot.taps[0].response, Some(TapResponse::text("Coming")));
+    // The pending tap offers its sender's own answers, sent back as text.
+    let labels: Vec<String> = snapshot.taps[1]
+        .quick_replies()
+        .into_iter()
+        .map(|reply| reply.label)
+        .collect();
+    assert_eq!(labels, ["Coming!", "Can't now"]);
+    assert_eq!(
+        snapshot.taps[1].quick_replies()[0].response,
+        TapResponse::text("Coming!")
+    );
+    let presets: Vec<TapResponse> = snapshot.taps[0]
+        .quick_replies()
+        .into_iter()
+        .map(|reply| reply.response)
+        .collect();
+    assert_eq!(presets, [TapResponse::on_it(), TapResponse::in_10()]);
     assert!(
         snapshot
             .credentials

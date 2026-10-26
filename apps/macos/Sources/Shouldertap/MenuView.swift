@@ -343,6 +343,7 @@ private struct SettingsView: View {
             }
             .accessibilityLabel("Tap motion, \(appearanceLabel)")
           }
+          if account.me != nil { QuickRepliesSection(account: account) }
           AccountSection(account: account)
           Section(title: "App") {
             LaunchAtLogin()
@@ -518,6 +519,37 @@ private struct InviteCard: View {
     }
     .padding(14)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+/// The two answers every tap you send offers unless you change them on it.
+private struct QuickRepliesSection: View {
+  let account: AccountStore
+  /// Edits not saved yet; nil shows what the account has.
+  @State private var replies: [String]?
+
+  var body: some View {
+    let saved = account.me?.defaultReplies ?? defaultQuickReplies
+    let shown = replies ?? saved
+    Section(title: "Reply options") {
+      Muted("The two answers people get on your taps. You can still change them on a tap before you send it.")
+      QuickReplyFields(replies: Binding(get: { shown }, set: { replies = $0 }))
+      if case .failure(let problem) = normalizeQuickReplies(shown) {
+        ErrorText(problem.localizedDescription)
+      } else if let chosen = tidyQuickReplies(shown), chosen != saved {
+        HStack(spacing: 8) {
+          MenuButton(title: "Save", kind: .secondary) {
+            Task { if await account.saveQuickReplies(chosen) { replies = nil } }
+          }
+          MenuButton(title: "Cancel", kind: .plain) { replies = nil }
+        }
+      } else if saved != defaultQuickReplies {
+        MenuButton(title: "Use On it and In 10 min", kind: .plain) {
+          Task { await account.saveQuickReplies(defaultQuickReplies) }
+        }
+        .padding(.leading, -4)
+      }
+    }
   }
 }
 

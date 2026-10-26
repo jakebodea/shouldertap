@@ -7,6 +7,8 @@ import { PersonColor } from "./colors";
 export const MAX_TAP_LENGTH = 280;
 export const MAX_NAME_LENGTH = 40;
 export const MAX_REPLY_LENGTH = 280;
+/** Short enough to fit an answer button on every theme. */
+export const MAX_QUICK_REPLY_LENGTH = 24;
 
 const Name = Schema.String.pipe(
   Schema.check(
@@ -40,6 +42,24 @@ export const TapResponse = Schema.Struct({
   ),
 });
 export type TapResponse = typeof TapResponse.Type;
+
+/** One answer a sender offers on a tap, like "On it". */
+export const QuickReply = Schema.String.pipe(
+  Schema.check(
+    Schema.isTrimmed(),
+    Schema.isMinLength(1),
+    Schema.isMaxLength(MAX_QUICK_REPLY_LENGTH)
+  )
+);
+
+/**
+ * The two one-tap answers a sender offers, in order: the first is the primary
+ * button (key 1), the second key 2. Recipients answer one with a text
+ * response carrying its label, so every client, old ones included, shows the
+ * answer as it was offered.
+ */
+export const QuickReplies = Schema.Tuple([QuickReply, QuickReply]);
+export type QuickReplies = typeof QuickReplies.Type;
 
 export const TapState = Schema.Literals(["pending", "acknowledged"]);
 export type TapState = typeof TapState.Type;
@@ -99,6 +119,9 @@ export const Tap = Schema.Struct({
    * rewritten. Missing from servers older than sender themes and on taps sent
    * before them: show Default. */
   theme: Schema.optionalKey(KnownTapTheme),
+  /** The answers its sender offered, when they changed them from On it and
+   * In 10 min. Missing from older servers and on taps that offer those. */
+  replies: Schema.optionalKey(QuickReplies),
 });
 export type Tap = typeof Tap.Type;
 
@@ -194,6 +217,9 @@ export const SendTapRequest = Schema.Struct({
   /** The sender's patron key (`formatPatronKey`), separate from the pairing
    * credential so one membership covers every person they tap. */
   patronKey: Schema.optionalKey(Schema.String),
+  /** The answers to offer instead of On it and In 10 min. Older clients omit
+   * it; recipients on older apps see those two. */
+  replies: Schema.optionalKey(QuickReplies),
 });
 export type SendTapRequest = typeof SendTapRequest.Type;
 

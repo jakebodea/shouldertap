@@ -3,15 +3,21 @@ import {
   InvalidRequest,
   MAX_NAME_LENGTH,
   NotFound,
+  normalizeQuickReplies,
   parseToken,
   personColors,
 } from "@shouldertap/domain";
-import type { CredentialGrant, PersonColor } from "@shouldertap/domain";
+import type {
+  CredentialGrant,
+  PersonColor,
+  QuickReplies,
+} from "@shouldertap/domain";
 import * as Effect from "effect/Effect";
 
 import { accountResources, claimAccountResource } from "./account-identity";
 import type { Track } from "./analytics";
 import type { PushContext } from "./apns";
+import { isObjectionable } from "./content";
 import type { InboxRpc } from "./Inbox";
 
 /** Account-first onboarding (docs/onboarding.md): the account is the person,
@@ -42,6 +48,9 @@ export interface Me {
   sendProfile: Profile | null;
   suggestedName: string | null;
   inboxId: string | null;
+  /** The answers their taps offer unless changed on one; null offers On it
+   * and In 10 min. */
+  quickReplies: QuickReplies | null;
 }
 
 export interface AccountSender {
@@ -182,13 +191,56 @@ export const accountMe = Effect.fn(function* accountMe(
   );
   const profile = yield* readProfile(db, userId);
   const inbox = yield* primaryInbox(db, userId);
+  const replies = yield* first<{ first: string; second: string }>(
+    db,
+    "SELECT first,second FROM account_quick_replies WHERE user_id=?",
+    userId
+  );
   return {
     email: user?.email ?? "",
     profile,
     sendProfile: profile ? yield* sendProfile(db, userId) : null,
     suggestedName: profile ? null : (inbox?.name ?? null),
     inboxId: profile ? (inbox?.id ?? null) : null,
+    quickReplies: replies ? [replies.first, replies.second] : null,
   } satisfies Me;
+});
+
+/** `POST /account/quick-replies` with `{ replies: [first, second] }`, or
+ * `{ replies: null }` to go back to On it and In 10 min. */
+export const saveQuickReplies = Effect.fn(function* saveQuickReplies(
+  db: D1Database,
+  userId: string,
+  input: Record<string, unknown>
+) {
+  const requested = input.replies;
+  const typed =
+    Array.isArray(requested) &&
+    requested.every((reply) => typeof reply === "string");
+  if (requested !== null && !typed) {
+    return yield* new InvalidRequest({ message: "Write both reply options" });
+  }
+  const tidied = typed ? normalizeQuickReplies(requested) : { replies: null };
+  if ("error" in tidied) {
+    return yield* new InvalidRequest({ message: tidied.error });
+  }
+  if (tidied.replies?.some((reply) => isObjectionable(reply))) {
+    return yield* new InvalidRequest({
+      message:
+        "These replies contain threatening or abusive language. Please rewrite them.",
+    });
+  }
+  yield* tidied.replies
+    ? run(
+        db,
+        "INSERT INTO account_quick_replies(user_id,first,second,updated_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET first=excluded.first,second=excluded.second,updated_at=excluded.updated_at",
+        userId,
+        tidied.replies[0],
+        tidied.replies[1],
+        Date.now()
+      )
+    : run(db, "DELETE FROM account_quick_replies WHERE user_id=?", userId);
+  return yield* accountMe(db, userId);
 });
 
 /** Deterministic, so two first profile saves converge on one inbox. */
@@ -672,6 +724,9 @@ export const peopleAction = (
     }
     case "profile": {
       return saveProfile(deps, userId, input);
+    }
+    case "quick-replies": {
+      return saveQuickReplies(deps.db, userId, input);
     }
     case "sync": {
       return syncDevice(deps, userId, input);

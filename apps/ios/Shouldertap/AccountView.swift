@@ -12,7 +12,11 @@ struct AccountView: View {
   @State private var signingInComputer = false
   @State private var openingPatron = false
   @State private var patronError: String?
+  /// Reply options typed but not saved; nil shows what the account has.
+  @State private var replies: [String]?
   @Environment(\.openURL) private var openURL
+
+  private var savedReplies: [String] { account.me?.defaultReplies ?? defaultQuickReplies }
 
   var body: some View {
     Form {
@@ -33,6 +37,9 @@ struct AccountView: View {
         } footer: {
           Text("On your Mac, PC or browser, choose “Sign in with your phone” and scan the code it shows.")
         }
+      }
+      if account.me != nil {
+        replyOptions
       }
       if usStorefront, account.checkoutEnabled {
         // Purchases happen on the web; this only opens the account page,
@@ -75,6 +82,43 @@ struct AccountView: View {
 }
 
 extension AccountView {
+  /// The two answers every tap offers unless changed on it.
+  @ViewBuilder fileprivate var replyOptions: some View {
+    let shown = replies ?? savedReplies
+    Section {
+      ForEach(0..<2, id: \.self) { index in
+        LabeledContent("\(index + 1)") {
+          TextField(
+            "Reply \(index + 1)",
+            text: Binding(
+              get: { shown.indices.contains(index) ? shown[index] : "" },
+              set: { value in
+                var next = shown
+                next[index] = String(value.prefix(maxQuickReplyLength))
+                replies = next
+              })
+          )
+          .accessibilityLabel("Reply option \(index + 1)")
+        }
+      }
+      if let chosen = tidyQuickReplies(shown), chosen != savedReplies {
+        Button("Save") { Task { if await account.saveQuickReplies(chosen) { replies = nil } } }
+          .disabled(account.busy)
+      } else if replies == nil, savedReplies != defaultQuickReplies {
+        Button("Use On it and In 10 min") { Task { await account.saveQuickReplies(defaultQuickReplies) } }
+          .disabled(account.busy)
+      }
+    } header: {
+      Text("Reply options")
+    } footer: {
+      if case .failure(let problem) = normalizeQuickReplies(shown) {
+        Text(problem.localizedDescription).foregroundStyle(.red)
+      } else {
+        Text("The two answers people get on your taps. You can still change them on a tap before you send it.")
+      }
+    }
+  }
+
   /// The website's account page, with a one-time sign-in code in the
   /// fragment so the browser opens signed in to this account. Never opens
   /// without one: Safari may be signed in to someone else.

@@ -4,6 +4,7 @@ import {
   fallbackColor,
   formatToken,
   InvalidRequest,
+  normalizeQuickReplies,
   NotFound,
   parseToken,
   TooManyRequests,
@@ -1285,7 +1286,16 @@ export const InboxLive = Inbox.make(
           push
         ) {
           const actor = yield* requireSender(token);
-          if (isObjectionable(request.body)) {
+          const replies = request.replies
+            ? normalizeQuickReplies(request.replies)
+            : { replies: null };
+          if ("error" in replies) {
+            return yield* new InvalidRequest({ message: replies.error });
+          }
+          if (
+            isObjectionable(request.body) ||
+            replies.replies?.some((reply) => isObjectionable(reply))
+          ) {
             return yield* new InvalidRequest({
               message:
                 "This message contains threatening or abusive language. Please rewrite it.",
@@ -1294,7 +1304,11 @@ export const InboxLive = Inbox.make(
           const id = yield* randomId();
           const tapId = yield* storeTap(db, {
             senderId: actor.id,
-            message: request,
+            message: {
+              requestId: request.requestId,
+              body: request.body,
+              ...(replies.replies ? { replies: replies.replies } : {}),
+            },
             theme,
             id,
             at: yield* now,

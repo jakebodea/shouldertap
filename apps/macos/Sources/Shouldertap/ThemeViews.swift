@@ -255,8 +255,10 @@ struct BroadsheetTapView: View {
           }
         }
       } else {
-        answer("1", "On it", primary: true, color: color, u: u) { model.answer(.onIt) }
-        answer("2", "In ten minutes", primary: false, color: color, u: u) { model.answer(.in10) }
+        answer("1", model.replyLabel(0, preset: "On it"), primary: true, color: color, u: u) { model.answer(option: 0) }
+        answer("2", model.replyLabel(1, preset: "In ten minutes"), primary: false, color: color, u: u) {
+          model.answer(option: 1)
+        }
         answer("3", "Write back", primary: false, color: color, u: u, last: true) { model.replying = true }
       }
       Spacer(minLength: 0)
@@ -440,9 +442,11 @@ struct BillboardTapView: View {
         }
       } else {
         layout {
-          block("On it", "1", primary: true, color: color, u: u) { model.answer(.onIt) }
+          block(model.replyLabel(0, preset: "On it"), "1", primary: true, color: color, u: u) { model.answer(option: 0) }
           divider(color: color, u: u, narrow: narrow)
-          block("In 10 min", "2", primary: false, color: color, u: u) { model.answer(.in10) }
+          block(model.replyLabel(1, preset: "In 10 min"), "2", primary: false, color: color, u: u) {
+            model.answer(option: 1)
+          }
           divider(color: color, u: u, narrow: narrow)
           block("Reply", "3", primary: false, color: color, u: u) { model.replying = true }
         }
@@ -588,8 +592,12 @@ struct TerminalTapView: View {
           }
         } else {
           HStack(spacing: 44 * u) {
-            option("[1]", "on it", primary: true, phosphor: phosphor, screen: screen, u: u) { model.answer(.onIt) }
-            option("[2]", "in 10 min", primary: false, phosphor: phosphor, screen: screen, u: u) { model.answer(.in10) }
+            option("[1]", model.replyLabel(0, preset: "on it"), primary: true, phosphor: phosphor, screen: screen, u: u) {
+              model.answer(option: 0)
+            }
+            option(
+              "[2]", model.replyLabel(1, preset: "in 10 min"), primary: false, phosphor: phosphor, screen: screen, u: u
+            ) { model.answer(option: 1) }
             option("[3]", "reply", primary: false, phosphor: phosphor, screen: screen, u: u) { model.replying = true }
           }
         }
@@ -610,7 +618,7 @@ struct TerminalTapView: View {
     ThemeButton(accessibility: label, action: action) { hovered in
       (Text(key).foregroundStyle((primary || hovered ? screen : phosphor).opacity(0.6)) + Text(" \(label)"))
         .foregroundStyle(primary || hovered ? screen : phosphor)
-        .lineLimit(1)
+        .lineLimit(1).minimumScaleFactor(0.5)
         .padding(.vertical, 6 * u).padding(.horizontal, 12 * u)
         .background(primary || hovered ? phosphor : .clear)
         .padding(.horizontal, -12 * u)
@@ -817,8 +825,8 @@ struct NoteTapView: View {
       }
     } else {
       HStack(spacing: 40 * u) {
-        tick("On it", "1", highlight: highlight, u: u) { model.answer(.onIt) }
-        tick("In 10 min", "2", highlight: nil, u: u) { model.answer(.in10) }
+        tick(model.replyLabel(0, preset: "On it"), "1", highlight: highlight, u: u) { model.answer(option: 0) }
+        tick(model.replyLabel(1, preset: "In 10 min"), "2", highlight: nil, u: u) { model.answer(option: 1) }
         tick("Reply", "3", highlight: nil, u: u) { model.replying = true }
       }
     }
@@ -841,6 +849,7 @@ struct NoteTapView: View {
           .frame(width: 36 * u, height: 36 * u)
           .animation(easeOut.lasting(0.2), value: hovered)
         Text(label).font(ThemeFont.font(ThemeFont.hand, 46 * u))
+          .lineLimit(1).minimumScaleFactor(0.5)
           .padding(.horizontal, highlight == nil ? 0 : 6 * u)
           .background { if let highlight { highlighter(highlight, u: u) } }
         Text(key).font(ThemeFont.font(ThemeFont.hand, 26 * u)).foregroundStyle(Self.key)

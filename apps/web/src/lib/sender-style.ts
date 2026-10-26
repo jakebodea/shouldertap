@@ -1,5 +1,10 @@
 import { TAP_THEMES } from "@shouldertap/domain";
-import type { SendTapRequest, Tap, TapTheme } from "@shouldertap/domain";
+import type {
+  QuickReplies,
+  SendTapRequest,
+  Tap,
+  TapTheme,
+} from "@shouldertap/domain";
 
 /**
  * What this phone keeps for the sender's style: the chosen theme (one for
@@ -87,16 +92,24 @@ export const saveDraft = (
  * only travels with a theme that needs it; the server decides what's stored.
  */
 export const sendRequest = (
-  item: { requestId: string; body: string; theme?: TapTheme },
+  item: {
+    requestId: string;
+    body: string;
+    theme?: TapTheme;
+    replies?: QuickReplies;
+  },
   patronKey: string | null
 ): SendTapRequest => {
   const theme = item.theme ?? "default";
+  const message = {
+    requestId: item.requestId,
+    body: item.body,
+    ...(item.replies ? { replies: item.replies } : {}),
+  };
   if (theme === "default") {
-    return { requestId: item.requestId, body: item.body };
+    return message;
   }
-  return patronKey
-    ? { requestId: item.requestId, body: item.body, theme, patronKey }
-    : { requestId: item.requestId, body: item.body, theme };
+  return patronKey ? { ...message, theme, patronKey } : { ...message, theme };
 };
 
 /** Why a tap arrived in Default although the sender asked for a theme. */

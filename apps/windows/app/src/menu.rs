@@ -7,11 +7,12 @@ use std::time::Duration;
 
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight, Hsla,
-    Pixels, Render, SharedString, Subscription, Task, Window, div, prelude::*, px, svg,
+    MouseButton, Pixels, Render, SharedString, Subscription, Task, Window, div, prelude::*, px, svg,
 };
 use shouldertap_core::{
-    AccountStore, ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, Patron, Phase, QrSignIn,
-    QrSignInStatus, ReceiverStore, ResponseKind, SenderInvite, Tap, now_ms,
+    AccountStore, ApiError, Credential, CredentialKind, DevicePlatform, ErrorCode, LiveStatus, MAX_QUICK_REPLY_LENGTH,
+    Patron, Phase, QrSignIn, QrSignInStatus, ReceiverStore, ResponseKind, SenderInvite, Tap, default_quick_replies,
+    normalize_quick_replies, now_ms, tidy_quick_replies,
 };
 
 use crate::assets::{Icon, MARK_PATH};
@@ -21,6 +22,7 @@ use crate::platform::{self, HOME_SIZE, MENU_WIDTH, TrayAnchor};
 use crate::qr::qr_code;
 use crate::send::{SendTarget, latest_status};
 use crate::shell::{Model, Shell};
+use crate::text_field::{TextField, TextFieldEvent};
 use crate::theme::{self, BRICOLAGE, Surface};
 use crate::welcome::WelcomeStep;
 
@@ -71,6 +73,11 @@ pub struct MenuView {
     // Pairings
     confirming: Option<String>,
     row_errors: HashMap<String, String>,
+    // Reply options
+    reply_fields: [Entity<TextField>; 2],
+    /// The account's replies as last put in the fields: while the fields
+    /// still hold them, they follow the account.
+    reply_defaults: Vec<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -88,6 +95,17 @@ impl MenuView {
         ];
         let focus = cx.focus_handle();
         window.focus(&focus);
+        let reply_fields = [
+            cx.new(|cx| TextField::new(cx, "Reply 1", MAX_QUICK_REPLY_LENGTH)),
+            cx.new(|cx| TextField::new(cx, "Reply 2", MAX_QUICK_REPLY_LENGTH)),
+        ];
+        let mut subscriptions = subscriptions;
+        for field in &reply_fields {
+            subscriptions.push(cx.subscribe(field, |this, _, event, cx| match event {
+                TextFieldEvent::Submit => this.save_replies(cx),
+                TextFieldEvent::Changed | TextFieldEvent::Cancel => cx.notify(),
+            }));
+        }
         Self {
             model,
             anchor,
@@ -108,6 +126,8 @@ impl MenuView {
             invite_error: None,
             confirming: None,
             row_errors: HashMap::new(),
+            reply_fields,
+            reply_defaults: Vec::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -181,6 +201,30 @@ impl MenuView {
 
     fn sign_out(&mut self, cx: &mut Context<Self>) {
         self.run_account(cx, |account| account.sign_out(), |_, _| {});
+    }
+
+    // Reply options
+
+    fn reply_texts(&self, cx: &App) -> Vec<String> {
+        self.reply_fields
+            .iter()
+            .map(|field| field.read(cx).text().to_string())
+            .collect()
+    }
+
+    fn set_reply_fields(&mut self, replies: Vec<String>, cx: &mut Context<Self>) {
+        for (field, text) in self.reply_fields.iter().zip(&replies) {
+            field.update(cx, |field, cx| field.set_text(text, cx));
+        }
+        self.reply_defaults = replies;
+    }
+
+    /// Saves what the fields hold as the replies every tap offers.
+    fn save_replies(&mut self, cx: &mut Context<Self>) {
+        let Some(chosen) = tidy_quick_replies(&self.reply_texts(cx)) else {
+            return;
+        };
+        self.run_account(cx, move |account| account.set_quick_replies(&chosen), |_, _| {});
     }
 
     fn delete_account(&mut self, cx: &mut Context<Self>) {
@@ -714,6 +758,7 @@ impl MenuView {
                 cx.notify();
             }));
         let appearance = self.appearance_row(s, &state, cx);
+        let replies = self.quick_replies_section(s, cx);
         let account = self.account_section(s, cx);
         let app = vec![self.launch_at_login(s, cx), self.check_updates(s, cx)];
         let support = self.support(s, state.patron.as_ref(), cx);
@@ -742,6 +787,7 @@ impl MenuView {
                         .child(section(s, "Can tap you", people))
                         .child(section(s, "Your devices", devices))
                         .child(section(s, "Accessibility", vec![appearance]))
+                        .children(replies)
                         .child(account)
                         .child(section(s, "App", app))
                         .child(support),
@@ -892,6 +938,101 @@ impl MenuView {
 
     /// The email this PC is signed in with, signing out and deleting the
     /// account. Neither touches the people this PC is connected to.
+    /// The two answers every tap you send offers unless you change them on it.
+    /// Signed in only: they're kept on the account.
+    fn quick_replies_section(&mut self, s: Surface, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let saved = self.model.read(cx).account_state.me.as_ref()?.default_replies();
+        if self.reply_defaults != saved && self.reply_texts(cx) == self.reply_defaults {
+            self.set_reply_fields(saved.clone(), cx);
+        }
+        let shown = self.reply_texts(cx);
+        let busy = self.account_busy;
+        let fields = self.reply_fields.iter().enumerate().map(|(index, field)| {
+            field.update(cx, |field, _| field.set_colors(s.tertiary, s.primary));
+            let focus = field.focus_handle(cx);
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(30.))
+                .px(px(10.))
+                .rounded(px(8.))
+                .bg(s.card)
+                .border_1()
+                .border_color(s.separator)
+                .text_size(px(13.))
+                .cursor_text()
+                .on_mouse_down(MouseButton::Left, move |_, window, _| window.focus(&focus))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(s.secondary)
+                        .child((index + 1).to_string()),
+                )
+                .child(div().flex_1().min_w_0().child(field.clone()))
+                .into_any_element()
+        });
+        let fields = div().flex().gap(px(8.)).children(fields.collect::<Vec<_>>());
+        let mut rows: Vec<AnyElement> = vec![
+            muted(
+                s,
+                "The two answers people get on your taps. You can still change them on a tap before you send it.",
+            )
+            .into_any_element(),
+            fields.into_any_element(),
+        ];
+        match normalize_quick_replies(&shown) {
+            Err(error) => rows.push(error_text(s, error.to_string()).into_any_element()),
+            Ok(_) if tidy_quick_replies(&shown).as_ref() != Some(&saved) => rows.push(
+                div()
+                    .flex()
+                    .gap(px(8.))
+                    .child(
+                        menu_button(s, "save-replies", "Save", None, Kind::Secondary, false, busy)
+                            .when(!busy, |button| {
+                                button.on_click(cx.listener(|this, _, _, cx| this.save_replies(cx)))
+                            }),
+                    )
+                    .child(
+                        menu_button(s, "cancel-replies", "Cancel", None, Kind::Plain, false, false).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                let saved = this.reply_defaults.clone();
+                                this.set_reply_fields(saved, cx);
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .into_any_element(),
+            ),
+            Ok(_) if saved != default_quick_replies() => rows.push(
+                menu_button(
+                    s,
+                    "preset-replies",
+                    "Use On it and In 10 min",
+                    None,
+                    Kind::Plain,
+                    false,
+                    busy,
+                )
+                .when(!busy, |button| {
+                    button.on_click(cx.listener(|this, _, _, cx| {
+                        this.run_account(
+                            cx,
+                            |account| account.set_quick_replies(&default_quick_replies()),
+                            |_, _| {},
+                        );
+                    }))
+                })
+                .into_any_element(),
+            ),
+            Ok(_) => {}
+        }
+        Some(section(s, "Reply options", rows).into_any_element())
+    }
+
     fn account_section(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
         let email = self.model.read(cx).account_state.email.clone().unwrap_or_default();
         let busy = self.account_busy;

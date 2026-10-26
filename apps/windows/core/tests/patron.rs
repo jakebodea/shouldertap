@@ -144,7 +144,7 @@ fn an_active_membership_gives_this_pc_its_own_key_and_themed_taps() {
     assert_eq!(state.membership.unwrap().paid_until, Some(1_800_000_000_000.0));
 
     f.senders
-        .send("s1s1s1s1", "Hi", f.patron.state().sending_theme())
+        .send("s1s1s1s1", "Hi", f.patron.state().sending_theme(), None)
         .unwrap();
     assert!(eventually(|| f.stub.count("/v1/taps") == 1));
     let body = f.stub.body_for("/v1/taps").unwrap();
@@ -194,7 +194,7 @@ fn the_fifth_delivered_tap_brings_the_first_nudge() {
     f.patron.refresh().unwrap();
     assert!(!f.patron.state().nudge_due());
 
-    f.senders.send("s1s1s1s1", "Hi", TapTheme::Default).unwrap();
+    f.senders.send("s1s1s1s1", "Hi", TapTheme::Default, None).unwrap();
     assert!(eventually(|| f.patron.state().settings.sent == 5));
     assert!(f.patron.state().nudge_due());
 

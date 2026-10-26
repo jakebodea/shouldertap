@@ -308,6 +308,38 @@ private struct AcceptForm: View {
   }
 }
 
+/// The two one-tap answers a tap offers, editable. The number on each is the
+/// key that sends it from a computer.
+struct QuickReplyFields: View {
+  @Binding var replies: [String]
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ForEach(0..<2, id: \.self) { index in
+        HStack(spacing: 6) {
+          Text("\(index + 1)").font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary)
+          TextField(
+            "Reply \(index + 1)",
+            text: Binding(
+              get: { replies.indices.contains(index) ? replies[index] : "" },
+              set: { value in
+                var next = replies + Array(repeating: "", count: max(0, 2 - replies.count))
+                next[index] = String(value.prefix(maxQuickReplyLength))
+                replies = next
+              })
+          )
+          .textFieldStyle(.plain)
+          .font(.system(size: 13, weight: .medium))
+          .accessibilityLabel("Reply option \(index + 1)")
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
+      }
+    }
+  }
+}
+
 /// How a tap from you looks on their screen: your color on the frame, your
 /// name on its edge, the message on the page.
 struct SenderPreview: View {
@@ -347,6 +379,9 @@ private struct Composer: View {
 
   @State private var draft = ""
   @State private var editingSelf = false
+  /// This tap's answers when changed here; nil follows the account's defaults.
+  @State private var replies: [String]?
+  @State private var savingReplies = false
   @State private var confirmUnpair = false
   @State private var confirmDelete = false
   @State private var deleting: Tap?
@@ -357,6 +392,8 @@ private struct Composer: View {
   private var trimmed: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
   /// The draft in the style previews, or a sample before there is one.
   private var previewMessage: String { trimmed.isEmpty ? "Dinner's ready." : trimmed }
+  private var defaultReplies: [String] { account.me?.defaultReplies ?? defaultQuickReplies }
+  private var shownReplies: [String] { replies ?? defaultReplies }
 
   var body: some View {
     ScrollView {
@@ -384,6 +421,7 @@ private struct Composer: View {
                   .foregroundStyle(.secondary).padding(8)
               }
             }
+          replyOptions
           HStack {
             Text("⌘↩ to send").font(.system(size: 11)).foregroundStyle(.tertiary)
             Spacer()
@@ -395,7 +433,7 @@ private struct Composer: View {
             }
             .buttonStyle(SenderPill(color: session.color))
             .keyboardShortcut(.return, modifiers: .command)
-            .disabled(trimmed.isEmpty)
+            .disabled(trimmed.isEmpty || tidyQuickReplies(shownReplies) == nil)
           }
           StyleRow(
             patron: patron, name: session.pairing.senderName, color: session.color, message: previewMessage
@@ -458,6 +496,34 @@ private struct Composer: View {
     }
   }
 
+  /// The two answers this tap offers, editable for it alone.
+  private var replyOptions: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("\(recipient) can answer").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+      QuickReplyFields(replies: Binding(get: { shownReplies }, set: { replies = $0 }))
+      if case .failure(let problem) = normalizeQuickReplies(shownReplies) {
+        Text(problem.localizedDescription).font(.system(size: 12)).foregroundStyle(.red)
+      } else if let chosen = tidyQuickReplies(shownReplies), chosen != defaultReplies {
+        HStack(spacing: 12) {
+          if account.me != nil {
+            Button("Use these for every tap") {
+              savingReplies = true
+              Task {
+                if await account.saveQuickReplies(chosen) { replies = nil }
+                savingReplies = false
+              }
+            }
+            .disabled(savingReplies)
+          }
+          Button("Reset") { replies = nil }
+        }
+        .buttonStyle(.link)
+        .font(.system(size: 12))
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
   private var recent: some View {
     VStack(alignment: .leading, spacing: 0) {
       Text("Recent").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary).padding(.bottom, 4)
@@ -511,8 +577,9 @@ private struct Composer: View {
 
   private func send() {
     do {
-      try withAnimation(.easeOutExpo(0.5)) { try session.send(draft) }
+      try withAnimation(.easeOutExpo(0.5)) { try session.send(draft, replies: shownReplies) }
       draft = ""
+      replies = nil
     } catch {
       // The button is disabled for empty drafts and the field caps length.
     }

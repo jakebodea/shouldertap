@@ -7,6 +7,10 @@ import Foundation
 public let maxTapLength = 280
 public let maxReplyLength = 280
 public let maxNameLength = 40
+/// Short enough to fit an answer button on every theme.
+public let maxQuickReplyLength = 24
+/// `DEFAULT_QUICK_REPLIES` from packages/domain/src/responses.ts.
+public let defaultQuickReplies = ["On it", "In 10 min"]
 
 /// Epoch milliseconds, as the server sends them.
 public typealias Timestamp = Double
@@ -94,6 +98,43 @@ public struct TapResponse: Sendable, Codable, Hashable {
   }
 }
 
+/// One answer a recipient can give a tap in one tap, and what it sends.
+public struct QuickReply: Sendable, Hashable {
+  public var label: String
+  public var response: TapResponse
+}
+
+/// Why two reply options can't be used (`normalizeQuickReplies`).
+public enum QuickRepliesError: Error, Equatable, LocalizedError {
+  case missing, tooLong, same
+
+  public var errorDescription: String? {
+    switch self {
+    case .missing: "Write both reply options"
+    case .tooLong: "Keep each reply option to \(maxQuickReplyLength) characters"
+    case .same: "Make the two reply options different"
+    }
+  }
+}
+
+/// `normalizeQuickReplies` from packages/domain/src/responses.ts: trimmed,
+/// each 1 to `maxQuickReplyLength` characters and different from the other.
+/// Nil when they're the defaults, so the tap needn't carry them.
+public func normalizeQuickReplies(_ replies: [String]) -> Result<[String]?, QuickRepliesError> {
+  let tidied = replies.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+  guard tidied.count == 2, !tidied[0].isEmpty, !tidied[1].isEmpty else { return .failure(.missing) }
+  guard tidied.allSatisfy({ $0.count <= maxQuickReplyLength }) else { return .failure(.tooLong) }
+  guard tidied[0].lowercased() != tidied[1].lowercased() else { return .failure(.same) }
+  return .success(tidied == defaultQuickReplies ? nil : tidied)
+}
+
+/// The two replies as a tap would offer them, the defaults included; nil
+/// when they can't be used.
+public func tidyQuickReplies(_ replies: [String]) -> [String]? {
+  guard case .success(let tidied) = normalizeQuickReplies(replies) else { return nil }
+  return tidied ?? defaultQuickReplies
+}
+
 public struct Tap: Sendable, Codable, Identifiable, Hashable {
   public enum State: String, Sendable, Codable {
     case pending, acknowledged
@@ -115,14 +156,28 @@ public struct Tap: Sendable, Codable, Identifiable, Hashable {
   /// the tap. Missing from older servers and older taps; unknown values from a
   /// newer server decode as Default.
   public var theme: TapTheme?
+  /// The two answers its sender offered instead of On it and In 10 min.
+  /// Missing from older servers and on taps that offer those.
+  public var replies: [String]?
 
   /// What the sender chose, Default when they chose nothing.
   public var senderTheme: TapTheme { theme ?? .default }
 
+  /// `quickRepliesFor` from packages/domain/src/responses.ts: the two
+  /// one-tap answers, in order (keys 1 and 2). A sender's own answer goes
+  /// back as text, so they see its label on any client.
+  public var quickReplies: [QuickReply] {
+    guard let replies, replies.count == 2 else {
+      return [QuickReply(label: "On it", response: .onIt), QuickReply(label: "In 10 min", response: .in10)]
+    }
+    return replies.map { QuickReply(label: $0, response: TapResponse(kind: .text, text: $0)) }
+  }
+
   public init(
     id: String, senderId: String, senderName: String, senderColor: PersonColor, body: String, createdAt: Timestamp,
     state: State = .pending, displayedAt: Timestamp? = nil, acknowledgedAt: Timestamp? = nil,
-    acknowledgedBy: String? = nil, response: TapResponse? = nil, sequence: Int = 0, theme: TapTheme? = nil
+    acknowledgedBy: String? = nil, response: TapResponse? = nil, sequence: Int = 0, theme: TapTheme? = nil,
+    replies: [String]? = nil
   ) {
     self.id = id
     self.senderId = senderId
@@ -137,6 +192,7 @@ public struct Tap: Sendable, Codable, Identifiable, Hashable {
     self.response = response
     self.sequence = sequence
     self.theme = theme
+    self.replies = replies
   }
 }
 

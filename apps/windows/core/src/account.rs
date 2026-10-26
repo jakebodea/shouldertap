@@ -227,6 +227,19 @@ impl AccountStore {
         Ok(())
     }
 
+    /// The two answers every tap offers unless changed on it. On it and In
+    /// 10 min clear the setting.
+    pub fn set_quick_replies(&self, replies: &[String]) -> Result<(), ApiError> {
+        let tidied = normalize_quick_replies(replies).map_err(|error| ApiError::invalid(format!("{error}.")))?;
+        let api = self.inner.session()?;
+        let me = self.inner.checked(api.set_quick_replies(tidied.as_deref()))?;
+        self.inner.update(|state| {
+            state.email = Some(me.email.clone());
+            state.me = Some(me);
+        });
+        Ok(())
+    }
+
     // Syncing
 
     /// Sends every token this PC holds and keeps what comes back: an inbox
