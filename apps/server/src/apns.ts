@@ -18,6 +18,8 @@ import * as Effect from "effect/Effect";
  *
  * A sender's iPhone registers too, with its sender key: when one of its taps
  * is answered, it gets a notification saying how ("Sam: On it").
+ *
+ * When someone accepts an invite, the inviter's iPhones hear who joined.
  */
 
 /** The signed provider token the Inbox sends with every push. */
@@ -254,6 +256,22 @@ export const senderAnswerPayload = (tap: Tap, recipientName: string) => ({
     "thread-id": `answers-${recipientName}`,
   },
   answeredTapId: tap.id,
+});
+
+/**
+ * Tells the inviter's iPhones that someone accepted their invite, e.g.
+ * "Sam accepted your invite" / "Tap them to say hi."
+ */
+export const inviteAcceptedPayload = (name: string) => ({
+  aps: {
+    alert: {
+      title: `${name} accepted your invite`,
+      body: `You're connected on Shouldertap. Tap ${name} to say hi.`,
+    },
+    sound: "default",
+    "thread-id": "invites",
+  },
+  joinedName: name,
 });
 
 /** Wakes the app to clear what's left of an answered or deleted tap. */
