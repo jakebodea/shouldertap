@@ -4,7 +4,7 @@
  * boundary, so prod and dev credentials sit in separate projects, each
  * readable by its own identity.
  */
-import * as Infisical from "alchemy/Infisical";
+import * as Infisical from "@alchemy.run/infisical";
 
 import { isProduction } from "../domains.ts";
 import { previewNumber } from "../scripts/cloudflare/previews.ts";

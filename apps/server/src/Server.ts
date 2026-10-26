@@ -1,3 +1,4 @@
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import {
   Authorization,
   Caller,
@@ -14,7 +15,6 @@ import {
 } from "@shouldertap/domain";
 import { Stage, makeRandom } from "alchemy";
 import type { RuntimeContext } from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
