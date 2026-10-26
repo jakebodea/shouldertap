@@ -5,6 +5,7 @@ import {
   answeredNotificationPayload,
   answerLabel,
   endActivityPayload,
+  inviteAcceptedPayload,
   isDeadToken,
   notificationPayload,
   senderAnswerPayload,
@@ -148,6 +149,16 @@ describe("payloads", () => {
       senderAnswerPayload({ ...replied, response: { kind: "on_it" } }, "Sam")
         .aps.alert.body
     ).toBe("On it");
+  });
+
+  it("the inviter hears who accepted their invite", () => {
+    const payload = inviteAcceptedPayload("Sam");
+    expect(payload.aps.alert).toStrictEqual({
+      title: "Sam accepted your invite",
+      body: "You're connected on Shouldertap. Tap Sam to say hi.",
+    });
+    expect(payload.aps.sound).toBe("default");
+    expect(payload.joinedName).toBe("Sam");
   });
 
   it("dead tokens are recognized", () => {
