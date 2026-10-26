@@ -16,7 +16,7 @@ import {
   phone,
   loupe,
   monitor,
-  laptop,
+  pcLaptop,
   browserFrame,
 } from "./devices.mjs";
 
@@ -35,6 +35,7 @@ const data = (file) =>
 const capture = (name) => data(`captures/${name}.png`);
 // Captures are named for the tap they show (messages.mjs), so slides rotate messages.
 const mac = capture("mac-overlay-trash");
+const pc = capture("pc-overlay-trash");
 const takeover = capture("iphone-takeover-dinner");
 const takeoverTrash = capture("iphone-takeover-trash");
 const compact = capture("iphone-island-compact-come");
@@ -90,6 +91,8 @@ const at = (left, top, html, z = 1) =>
 
 const css = `@font-face{font-family:B;src:url(data:font/woff2;base64,${font});font-weight:200 800}*{box-sizing:border-box}body{margin:0;font-family:B,sans-serif;font-variation-settings:"opsz" 96}h1{margin:0;font-weight:800;letter-spacing:-.04em;line-height:.98}p{margin:0;font-weight:500;font-variation-settings:"opsz" 24}.brand{display:flex;align-items:center;gap:.32em;font-weight:800;letter-spacing:-.035em}.mark{width:1.05em;height:1.05em}.note{font-weight:500;font-variation-settings:"opsz" 14;opacity:.78}${deviceCss}`;
 
+// Header note on the slides that introduce the app.
+const free = "Free on iPhone · Mac and PC optional";
 const graphite = { bg: "#2b2c30", ink: "#f1f1ee" };
 const slides = [
   (() => {
@@ -97,7 +100,8 @@ const slides = [
     return {
       name: "01-hard-to-miss",
       title: "A tap that’s<br>hard to miss.",
-      sub: "From someone you know.<br>Right across your screen.",
+      sub: "From someone you know.<br>With answers they picked.",
+      note: free,
       ...graphite,
       art: `${p.html}${knock(540, 350, 50, "#f1f1ee")}`,
     };
@@ -134,10 +138,10 @@ const slides = [
   {
     name: "04-connected-screens",
     title: "One tap.<br>Every linked screen.",
-    sub: "Every display on their Mac, plus their linked iPhone. One answer clears them all.",
+    sub: "Every display on their Mac or PC, plus their iPhone. One answer clears them all.",
     bg: "#e8b022",
     ink: "#1f1a0e",
-    art: `${at(40, 420, monitor(mac, 580))}${at(52, 880, laptop(mac, 380), 2)}${placePhone(takeoverTrash, { left: 392, top: 770, width: 236 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
+    art: `${at(40, 420, monitor(mac, 580))}${at(52, 880, pcLaptop(pc, 380), 2)}${placePhone(takeoverTrash, { left: 392, top: 770, width: 236 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
   },
   (() => {
     const p = placePhone(reply, { left: 110, top: 372, width: 440 });
@@ -156,6 +160,7 @@ const slides = [
       name: "06-invite",
       title: "Only people<br>you invite.",
       sub: "Share a link or QR code. Remove anyone, any time.",
+      note: free,
       bg: "#d9432b",
       ink: "#fff4ef",
       art: p.html,
@@ -171,10 +176,10 @@ const slides = [
   },
 ];
 const portrait = (s) =>
-  `<!doctype html><html><head><style>${css}body{width:660px;height:1434px;background:${s.bg};color:${s.ink};padding:46px 46px 0;position:relative;overflow:hidden}header{display:flex;justify-content:space-between;align-items:center}.brand{font-size:23px}.note{font-size:13.5px}h1{margin-top:44px;font-size:68px}p{margin-top:18px;font-size:22px;line-height:1.32;max-width:520px}.hold{position:absolute;left:0;right:0;text-align:center;font-size:17px;font-weight:600;opacity:.85}.hold:after{content:"";display:block;width:2px;height:22px;margin:8px auto 0;background:currentColor;opacity:.6;border-radius:2px}</style></head><body><header><div class="brand">${mark}Shouldertap</div></header><h1>${s.title}</h1><p>${s.sub}</p>${s.art}</body></html>`;
+  `<!doctype html><html><head><style>${css}body{width:660px;height:1434px;background:${s.bg};color:${s.ink};padding:46px 46px 0;position:relative;overflow:hidden}header{display:flex;justify-content:space-between;align-items:center}.brand{font-size:23px}.note{font-size:13.5px}h1{margin-top:44px;font-size:68px}p{margin-top:18px;font-size:22px;line-height:1.32;max-width:520px}.hold{position:absolute;left:0;right:0;text-align:center;font-size:17px;font-weight:600;opacity:.85}.hold:after{content:"";display:block;width:2px;height:22px;margin:8px auto 0;background:currentColor;opacity:.6;border-radius:2px}</style></head><body><header><div class="brand">${mark}Shouldertap</div>${s.note ? `<div class="note">${s.note}</div>` : ""}</header><h1>${s.title}</h1><p>${s.sub}</p>${s.art}</body></html>`;
 
 const heroPhone = placePhone(lock, { left: 1548, top: 236, width: 300 });
-const wide = `<!doctype html><html><head><style>${css}body{width:1920px;height:1080px;background:#f6f5f1;color:#161616;padding:84px 90px;position:relative;overflow:hidden}.brand{font-size:30px}h1{font-size:96px;margin-top:150px}p{font-size:27px;line-height:1.35;margin-top:26px;color:#3d3c39}.note{position:absolute;left:90px;bottom:60px;font-size:18px;color:#6f6e69;opacity:1}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>A little tap.<br>Across your<br>screens.</h1><p>Send a tap. Get an answer.<br>Across your screens.</p>${at(736, 92, monitor(mac, 760))}${at(690, 640, laptop(mac, 430), 2)}${at(1182, 520, browserFrame(web, { width: 340, crop: webCrop, source: webSource }), 3)}${heroPhone.html.replace("position:absolute", "position:absolute;z-index:4")}${zoom(heroPhone, lock, regions.lockActivity, { width: 380, radius: 17, dx: -24 })}</body></html>`;
+const wide = `<!doctype html><html><head><style>${css}body{width:1920px;height:1080px;background:#f6f5f1;color:#161616;padding:84px 90px;position:relative;overflow:hidden}.brand{font-size:30px}h1{font-size:96px;margin-top:150px}p{font-size:27px;line-height:1.35;margin-top:26px;color:#3d3c39}.note{position:absolute;left:90px;bottom:60px;font-size:18px;color:#6f6e69;opacity:1}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>A little tap.<br>Across your<br>screens.</h1><p>Send a tap. Get an answer.<br>Across your screens.</p>${at(736, 92, monitor(mac, 760))}${at(690, 640, pcLaptop(pc, 430), 2)}${at(1182, 520, browserFrame(web, { width: 340, crop: webCrop, source: webSource }), 3)}${heroPhone.html.replace("position:absolute", "position:absolute;z-index:4")}${zoom(heroPhone, lock, regions.lockActivity, { width: 380, radius: 17, dx: -24 })}</body></html>`;
 
 const browser = await chromium.launch({ headless: true, channel: "chrome" });
 const exportsPath = path.join(here, "exports");
@@ -233,7 +238,7 @@ try {
     1920,
     1080
   );
-  const gallery = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}body{background:#f6f5f1;color:#161616;padding:40px;max-width:1500px;margin:auto}h1{font-size:40px;margin-top:24px}.brand{font-size:22px}.row{display:flex;gap:18px;overflow:auto;margin:30px 0}.row a{flex:none}.row img{width:228px;border-radius:14px;display:block}p{font-size:17px;line-height:1.45;max-width:80ch;margin-top:14px;color:#3d3c39}.wide{width:100%;border-radius:10px;display:block}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>Screen experiences · App Store draft v4</h1><p>Real native and web views with fictional people (messages.mjs), composed into authored device frames. Enlarged details are the same capture pixels, not redrawn UI. Verify against the approved binary before uploading.</p><div class="row">${slides.map((s) => `<a href="exports/${s.name}-large.png"><img alt="${s.name}" src="${data(`exports/${s.name}-large.png`)}"></a>`).join("")}</div><img class="wide" alt="From browser to connected screens" src="${data("exports/marketing-screen-story-1920x1080.png")}"><p>Seven App Store images at 1320 × 2868 and 1206 × 2622, plus one 1920 × 1080 marketing image. The repeated Mac overlay illustrates one Mac with two displays; this is not a multi-device delivery test.</p></body></html>`;
+  const gallery = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}body{background:#f6f5f1;color:#161616;padding:40px;max-width:1500px;margin:auto}h1{font-size:40px;margin-top:24px}.brand{font-size:22px}.row{display:flex;gap:18px;overflow:auto;margin:30px 0}.row a{flex:none}.row img{width:228px;border-radius:14px;display:block}p{font-size:17px;line-height:1.45;max-width:80ch;margin-top:14px;color:#3d3c39}.wide{width:100%;border-radius:10px;display:block}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>Screen experiences · App Store draft v4</h1><p>Real native and web views with fictional people (messages.mjs), composed into authored device frames. Enlarged details are the same capture pixels, not redrawn UI. Verify against the approved binary before uploading.</p><div class="row">${slides.map((s) => `<a href="exports/${s.name}-large.png"><img alt="${s.name}" src="${data(`exports/${s.name}-large.png`)}"></a>`).join("")}</div><img class="wide" alt="From browser to connected screens" src="${data("exports/marketing-screen-story-1920x1080.png")}"><p>Seven App Store images at 1320 × 2868 and 1206 × 2622, plus one 1920 × 1080 marketing image. The Mac and Windows overlays are native renders of the same tap; this is not a multi-device delivery test.</p></body></html>`;
   writeFileSync(path.join(here, "index.html"), gallery);
   writeFileSync(
     path.join(here, "manifest.json"),

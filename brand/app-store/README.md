@@ -9,7 +9,7 @@ Revised October 21, 2026 (v3). Draft for review; nothing uploaded or published.
 1. **A tap that’s hard to miss** — the native iPhone full-screen receiving view, on Graphite so Maya's Moss frame reads as the loud thing on the slide. Her own quick replies ("Coming!", "Save me a plate") are the buttons. The mark's three knock marks land on the phone's shoulder.
 2. **A familiar face. In your Island** — the compact Dynamic Island, enlarged, then "Press and hold" into the expanded island with native answer buttons. The phone bleeds off the bottom; the home screen below is not the story.
 3. **Right on your Lock Screen** — the actual Live Activity card, enlarged over the phone where it sits.
-4. **One tap. Every linked screen** — one Mac with an external display and its built-in display, both showing the native overlay, plus the linked iPhone.
+4. **One tap. Every linked screen** — a Mac display and a Windows laptop, each showing its native overlay, plus the linked iPhone.
 5. **Get an answer. Carry on** — native sender with a typed reply; the reply card is enlarged.
 6. **Only people you invite** — the iPhone Add People screen with its invite link and QR code.
 7. **A browser. A little tap** — the actual browser sender, then the iPhone receiving view.
@@ -30,7 +30,7 @@ Each Mac overlay pill shows thin vertical slivers at its left and right edges (v
 - Dynamic Island: use `xcrun simctl io <udid> screenshot --mask=black ...`. The default unmasked screenshot omits this system layer. Both compact and expanded views were inspected. The Lock Screen layout was captured through Notification Center's cover sheet.
 - Mac: `capture-mac.sh` compiles the existing native `OverlayView`, Theme, Icons and Core into a temporary harness, registers the app fonts and captures an offscreen `NSHostingView`. It does not launch the user's installed Mac app or cover their real displays.
 - Web: `capture-web.mjs` renders the real `/tap` route against fictional local state. Its browser boundary supplies CORS and the API's expected POST status for the fixture.
-- Device bodies, desktop browser toolbar, knock marks and loupe shadows are authored presentation. The same Mac capture is repeated to illustrate the implemented connected-display behavior (one Mac, two displays), not to claim a live multi-device delivery test. The source controller creates one overlay for each connected Mac display.
+- Device bodies, desktop browser toolbar, knock marks and loupe shadows are authored presentation. The Mac and PC overlays are separate native renders of the same tap; together with the iPhone they illustrate that a tap reaches every linked screen, not a live multi-device delivery test.
 
 Source checkout: `e991275`, plus the simulator-only capture trigger in this worktree. The approved distribution binary has not been compared with this checkout. App Store Connect required login in this session. Compare against the approved build and confirm the editable version/slots before upload. Historical `docs/app-store/readiness.md` does not establish current listing state.
 
@@ -58,6 +58,8 @@ Use an available shared simulator per AGENTS.md; never create one, and shut down
 9. POST `/capture/display` or `/capture/reply` (optional `{"text": ...}`) for sender states. After capture, answer the fixture tap and foreground the app to reconcile/end the activity; then shut down your simulator.
 
 Mac: `bash brand/app-store/capture-mac.sh`.
+
+PC: `bash brand/app-store/capture-pc.sh`. It renders the real Windows overlay (`apps/windows`, GPUI) on this Mac through the dev build's snapshot mode: one 1440 × 900 window opens on screen for about four seconds, `screencapture` takes only that window (found by `window-id.swift`), and the app quits. The terminal running it needs Screen Recording permission.
 
 Web: run `VITE_SERVER_URL=http://127.0.0.1:4318 bun run --cwd apps/web dev:bare --host 127.0.0.1 --port 4319`, then `node brand/app-store/capture-web.mjs` while the fixture has a tap.
 
