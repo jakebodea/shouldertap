@@ -213,17 +213,11 @@ impl AccountStore {
     /// first time, the server creates the person's inbox; sync then hands
     /// this PC its credential.
     pub fn set_profile(&self, name: &str, color: PersonColor) -> Result<(), ApiError> {
-        let name = name.trim();
-        if !(1..=MAX_NAME_LENGTH).contains(&name.chars().count()) {
-            return Err(ApiError::invalid(format!(
-                "Enter your name (up to {MAX_NAME_LENGTH} characters)."
-            )));
-        }
-        let api = self.inner.session()?;
-        let profile = Profile {
+        let profile = checked_profile(&Profile {
             name: name.into(),
             color,
-        };
+        })?;
+        let api = self.inner.session()?;
         let me = self.inner.checked(api.set_profile(&profile))?;
         self.inner.update(|state| {
             state.email = Some(me.email.clone());
@@ -322,18 +316,41 @@ impl AccountStore {
     }
 
     /// Connects you and the person who sent the invite, both ways, and
-    /// keeps your new key to tap them.
-    pub fn accept(&self, invite: &str) -> Result<Accepted, ApiError> {
+    /// keeps your new key to tap them. `profile` is how just they will see
+    /// you; None means `me.send_profile`.
+    pub fn accept(&self, invite: &str, profile: Option<&Profile>) -> Result<Accepted, ApiError> {
         let code = checked_invite(invite)?;
+        let profile = profile.map(checked_profile).transpose()?;
         let api = self.inner.session()?;
         let config = &self.inner.config;
-        let accepted = self
-            .inner
-            .checked(api.accept_invite(&code, config.platform, &self.inner.device_name()))?;
+        let accepted = self.inner.checked(api.accept_invite(
+            &code,
+            profile.as_ref(),
+            config.platform,
+            &self.inner.device_name(),
+        ))?;
         if let Some(sender) = &accepted.sender {
             config.senders.add(sender)?;
         }
         Ok(accepted)
+    }
+
+    /// Changes how one person you tap sees you, on every device; their
+    /// screens restyle your taps, old ones too.
+    pub fn update_send_profile(&self, pairing_id: &str, profile: &Profile) -> Result<(), ApiError> {
+        let profile = checked_profile(profile)?;
+        let senders = &self.inner.config.senders;
+        let Some(id) = senders
+            .state()
+            .session(pairing_id)
+            .and_then(|session| session.pairing.account_id())
+        else {
+            return Err(ApiError::invalid("No such person"));
+        };
+        let api = self.inner.session()?;
+        let saved = self.inner.checked(api.update_send_profile(&id, &profile))?;
+        senders.seen_as(pairing_id, &saved);
+        Ok(())
     }
 
     /// Stops tapping someone from every device on the account, then forgets
@@ -497,4 +514,18 @@ fn checked_email(email: &str) -> Result<String, ApiError> {
 
 fn checked_invite(invite: &str) -> Result<String, ApiError> {
     invite_code(invite).ok_or_else(|| ApiError::invalid("That doesn't look like a Shouldertap invite link."))
+}
+
+/// A name and color the server will take: the name trimmed, 1–40 characters.
+fn checked_profile(profile: &Profile) -> Result<Profile, ApiError> {
+    let name = profile.name.trim();
+    if !(1..=MAX_NAME_LENGTH).contains(&name.chars().count()) {
+        return Err(ApiError::invalid(format!(
+            "Enter your name (up to {MAX_NAME_LENGTH} characters)."
+        )));
+    }
+    Ok(Profile {
+        name: name.into(),
+        color: profile.color,
+    })
 }

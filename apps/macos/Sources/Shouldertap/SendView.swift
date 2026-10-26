@@ -178,8 +178,13 @@ private struct AcceptForm: View {
   @State private var connected: (name: String, id: String?, mutual: Bool)?
   @State private var pending = false
   @State private var error: String?
+  /// Picked for just this person; nil sends `me.sendProfile`.
+  @State private var seenAs: Profile?
+  @State private var choosing = false
 
   private var code: String? { inviteCode(from: invite) }
+  /// How they'll see you unless you change it: the profile you picked last.
+  private var sendDefault: Profile? { account.me?.sendProfile ?? account.me?.profile }
 
   var body: some View {
     ScrollView {
@@ -218,7 +223,7 @@ private struct AcceptForm: View {
       Text(preview.map { "\($0.name) invited you" } ?? "Add someone").font(Bricolage.extraBold(28)).tracking(-0.9)
       Text(preview == nil
         ? "Paste the invite link they sent you."
-        : "Accept to tap each other. They'll see you as \(account.me?.profile?.name ?? "you").")
+        : "Accept to tap each other. A tap covers their screen until they answer.")
         .font(.system(size: 13)).foregroundStyle(.secondary)
     }
 
@@ -231,18 +236,34 @@ private struct AcceptForm: View {
 
     if let preview {
       SenderPreview(name: preview.name, color: preview.swatchColor)
+      if let profile = seenAs ?? sendDefault {
+        if choosing {
+          SeenAsEditor(
+            note: "Only \(preview.name) sees this. Everyone else keeps seeing you as before.",
+            saveLabel: "Use for them", initial: profile,
+            onCancel: { choosing = false },
+            onSave: { picked in
+              seenAs = picked
+              choosing = false
+            })
+        } else {
+          SeenAsRow(lead: "They'll see you as", profile: profile) { choosing = true }
+        }
+      }
     }
 
     if let error { Text(error).font(.system(size: 12)).foregroundStyle(.red) }
 
-    HStack {
-      if canCancel { Button("Cancel") { onDone(nil) }.keyboardShortcut(.cancelAction) }
-      Spacer()
-      if pending { ProgressView().controlSize(.small) }
-      Button("Accept", action: accept)
-        .buttonStyle(SenderPill(color: color))
-        .keyboardShortcut(.defaultAction)
-        .disabled(pending || code == nil)
+    if !choosing {
+      HStack {
+        if canCancel { Button("Cancel") { onDone(nil) }.keyboardShortcut(.cancelAction) }
+        Spacer()
+        if pending { ProgressView().controlSize(.small) }
+        Button("Accept", action: accept)
+          .buttonStyle(SenderPill(color: color))
+          .keyboardShortcut(.defaultAction)
+          .disabled(pending || code == nil)
+      }
     }
   }
 
@@ -272,7 +293,8 @@ private struct AcceptForm: View {
       defer { pending = false }
       do {
         let result = try await account.accept(
-          code: code, platform: .mac, deviceName: Host.current().localizedName ?? "Mac", senders: store)
+          code: code, profile: seenAs, platform: .mac, deviceName: Host.current().localizedName ?? "Mac",
+          senders: store)
         invite = ""
         if let person = result.person.color { color = person }
         let id =
@@ -324,6 +346,7 @@ private struct Composer: View {
   @Bindable var selection: SendSelection
 
   @State private var draft = ""
+  @State private var editingSelf = false
   @State private var confirmUnpair = false
   @State private var confirmDelete = false
   @State private var deleting: Tap?
@@ -395,6 +418,19 @@ private struct Composer: View {
         patron: patron, name: session.pairing.senderName, color: session.color, message: previewMessage
       ) { selection.styling = false }
     }
+    .sheet(isPresented: $editingSelf) {
+      SeenAsEditor(
+        note: "Only \(recipient) sees this. It changes your taps they already have too.",
+        saveLabel: "Save", initial: Profile(name: session.pairing.senderName, color: session.color),
+        onCancel: { editingSelf = false },
+        onSave: { profile in
+          try await account.updateSendProfile(session.id, name: profile.name, color: profile.color, senders: store)
+          editingSelf = false
+        }
+      )
+      .padding(24)
+      .frame(width: 380)
+    }
     .confirmationDialog("Stop tapping \(recipient)?", isPresented: $confirmUnpair, titleVisibility: .visible) {
       Button("Remove", role: .destructive) {
         Task {
@@ -454,6 +490,7 @@ private struct Composer: View {
       Text("You're \(session.pairing.senderName) on \(recipient)'s devices.")
       Spacer(minLength: 8)
       Menu("Options") {
+        Button("How they see you") { editingSelf = true }
         Button("Remove \(recipient)…") { confirmUnpair = true }
         Button("Delete my data with \(recipient)…") { confirmDelete = true }
       }
@@ -695,4 +732,89 @@ private struct SenderPill: ButtonStyle {
   guard let tap = session.taps.first else { return session.loaded ? "Nothing sent yet" : "Paired" }
   if let response = tap.response, tap.state == .acknowledged { return "\(response.label) · \(ago(tap.createdAt, now: now))" }
   return tap.displayedAt == nil ? "Sent \(ago(tap.createdAt, now: now))" : "On their screen · \(ago(tap.createdAt, now: now))"
+}
+
+// MARK: How they see you
+
+/// "{lead} ● {name} · Change": how one person will see you, before accepting.
+private struct SeenAsRow: View {
+  let lead: String
+  let profile: Profile
+  let onChange: () -> Void
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Circle().fill(profile.color.base).frame(width: 10, height: 10)
+      Text("\(lead) \(Text(profile.name).bold())")
+      Button("Change", action: onChange).buttonStyle(.link)
+    }
+    .font(.system(size: 13))
+    .foregroundStyle(.secondary)
+  }
+}
+
+/// A name and color for one person only (docs/onboarding.md, "Change how
+/// one person sees you"). Mirrors apps/web/src/components/seen-as.tsx.
+private struct SeenAsEditor: View {
+  let note: String
+  let saveLabel: String
+  let onCancel: () -> Void
+  let onSave: (Profile) async throws -> Void
+
+  @State private var name: String
+  @State private var color: PersonColor
+  @State private var pending = false
+  @State private var error: String?
+
+  init(
+    note: String, saveLabel: String, initial: Profile, onCancel: @escaping () -> Void,
+    onSave: @escaping (Profile) async throws -> Void
+  ) {
+    self.note = note
+    self.saveLabel = saveLabel
+    self.onCancel = onCancel
+    self.onSave = onSave
+    _name = State(initialValue: initial.name)
+    _color = State(initialValue: initial.color)
+  }
+
+  private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("How they see you").font(Bricolage.extraBold(22)).tracking(-0.6)
+        Text(note).font(.system(size: 13)).foregroundStyle(.secondary)
+      }
+      TextField("Your name", text: $name)
+        .textFieldStyle(.roundedBorder)
+        .onSubmit(save)
+        .onChange(of: name) { _, value in
+          if value.count > maxNameLength { name = String(value.prefix(maxNameLength)) }
+        }
+      ColorGrid(selection: $color)
+      SenderPreview(name: trimmed.isEmpty ? "You" : trimmed, color: color)
+      if let error { Text(error).font(.system(size: 12)).foregroundStyle(.red) }
+      HStack {
+        Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
+        Spacer()
+        if pending { ProgressView().controlSize(.small) }
+        Button(saveLabel, action: save)
+          .buttonStyle(SenderPill(color: color))
+          .keyboardShortcut(.defaultAction)
+          .disabled(pending || trimmed.isEmpty)
+      }
+    }
+  }
+
+  private func save() {
+    guard !pending, !trimmed.isEmpty else { return }
+    pending = true
+    error = nil
+    let picked = Profile(name: trimmed, color: color)
+    Task {
+      defer { pending = false }
+      do { try await onSave(picked) } catch { self.error = error.localizedDescription }
+    }
+  }
 }

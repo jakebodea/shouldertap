@@ -14,9 +14,9 @@ use gpui::{
     Subscription, Task, Window, div, prelude::*, px, svg,
 };
 use shouldertap_core::{
-    AccountStore, ApiError, InvitePreview, LiveStatus, MAX_TAP_LENGTH, OutgoingTap, PatronStore, PersonColor,
-    ResponseKind, SenderSession, SenderState, SenderStore, Tap, TapState, TapTheme, Timestamp, invite_code, now_ms,
-    token_inbox_id,
+    AccountStore, ApiError, InvitePreview, LiveStatus, MAX_NAME_LENGTH, MAX_TAP_LENGTH, OutgoingTap, PatronStore,
+    PersonColor, Profile, ResponseKind, SenderSession, SenderState, SenderStore, Tap, TapState, TapTheme, Timestamp,
+    invite_code, now_ms, token_inbox_id,
 };
 
 use crate::assets::{Icon, MARK_PATH};
@@ -40,6 +40,14 @@ enum Confirm {
     Remove,
     DeleteData,
     Tap(String),
+}
+
+/// Where "How they see you" is open: for the invite being accepted, or for
+/// someone this PC taps (docs/onboarding.md, "Change how one person sees you").
+#[derive(Clone, Debug, PartialEq)]
+enum SeenAsEdit {
+    Invite,
+    Person(String),
 }
 
 #[derive(Clone, Copy)]
@@ -75,6 +83,15 @@ pub struct SendView {
     preview: Option<(String, Option<InvitePreview>)>,
     /// "You and Sam are connected", once accepted.
     connected: Option<String>,
+    /// Picked for just the person whose invite this is; None sends the
+    /// account's latest profile.
+    seen_as: Option<Profile>,
+    // How they see you
+    seen_edit: Option<SeenAsEdit>,
+    seen_name: Entity<TextField>,
+    seen_color: PersonColor,
+    seen_busy: bool,
+    seen_error: Option<String>,
     // Options and deleting
     confirming: Option<Confirm>,
     busy: bool,
@@ -113,6 +130,7 @@ impl SendView {
                 .colors(paper::tone(), paper::ink())
         });
         let invite = field(cx, "Paste the invite link they sent you", 512);
+        let seen_name = field(cx, "Your name", MAX_NAME_LENGTH);
         let preview_reply = field(cx, "", 0);
         let subscriptions = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
@@ -134,6 +152,14 @@ impl SendView {
                 TextFieldEvent::Submit => this.accept(cx),
                 TextFieldEvent::Changed => this.invite_changed(cx),
                 TextFieldEvent::Cancel => this.cancel_adding(cx),
+            }),
+            cx.subscribe(&seen_name, |this, _, event, cx| match event {
+                TextFieldEvent::Submit => this.save_seen_as(cx),
+                TextFieldEvent::Changed => {
+                    this.seen_error = None;
+                    cx.notify()
+                }
+                TextFieldEvent::Cancel => this.close_seen_as(cx),
             }),
         ];
         // "3m ago" moves on while the window is open.
@@ -159,6 +185,12 @@ impl SendView {
             accept_error: None,
             preview: None,
             connected: None,
+            seen_as: None,
+            seen_edit: None,
+            seen_name,
+            seen_color: PersonColor::Cobalt,
+            seen_busy: false,
+            seen_error: None,
             confirming: None,
             busy: false,
             action_error: None,
@@ -353,6 +385,11 @@ impl SendView {
             return;
         }
         self.preview = code.clone().map(|code| (code, None));
+        // A different person: they start with the latest profile again.
+        self.seen_as = None;
+        if self.seen_edit == Some(SeenAsEdit::Invite) {
+            self.seen_edit = None;
+        }
         cx.notify();
         let Some(code) = code else { return };
         let account = self.account(cx);
@@ -382,7 +419,10 @@ impl SendView {
         self.accepting = true;
         self.accept_error = None;
         let account = self.account(cx);
-        let task = cx.background_executor().spawn(async move { account.accept(&invite) });
+        let profile = self.seen_as.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { account.accept(&invite, profile.as_ref()) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -404,6 +444,7 @@ impl SendView {
                 });
                 this.invite.update(cx, |field, cx| field.clear(cx));
                 this.preview = None;
+                this.seen_as = None;
                 match id {
                     Some(id) => this.select(id, cx),
                     None => this.account(cx).sync_in_background(),
@@ -413,6 +454,181 @@ impl SendView {
             });
         })
         .detach();
+    }
+
+    // How they see you
+
+    /// How a new connection sees you unless you pick otherwise.
+    fn send_default(&self, cx: &App) -> Option<Profile> {
+        let me = self.model.read(cx).account_state.me.clone()?;
+        me.send_profile.or(me.profile)
+    }
+
+    fn open_seen_as(&mut self, edit: SeenAsEdit, initial: Profile, cx: &mut Context<Self>) {
+        self.seen_name.update(cx, |field, cx| field.set_text(&initial.name, cx));
+        self.seen_color = initial.color;
+        self.seen_edit = Some(edit);
+        self.seen_error = None;
+        self.confirming = None;
+        cx.notify();
+    }
+
+    fn close_seen_as(&mut self, cx: &mut Context<Self>) {
+        self.seen_edit = None;
+        self.seen_error = None;
+        cx.notify();
+    }
+
+    /// For the invite, keeps the pick until Accept; for someone this PC taps,
+    /// saves it to the account. Stays open with the error, to try again.
+    fn save_seen_as(&mut self, cx: &mut Context<Self>) {
+        let name = self.seen_name.read(cx).text().trim().to_string();
+        if name.is_empty() || self.seen_busy {
+            return;
+        }
+        let profile = Profile {
+            name,
+            color: self.seen_color,
+        };
+        match self.seen_edit.clone() {
+            None => {}
+            Some(SeenAsEdit::Invite) => {
+                self.seen_as = Some(profile);
+                self.close_seen_as(cx);
+            }
+            Some(SeenAsEdit::Person(id)) => {
+                self.seen_busy = true;
+                self.seen_error = None;
+                let account = self.account(cx);
+                let task = cx
+                    .background_executor()
+                    .spawn(async move { account.update_send_profile(&id, &profile) });
+                cx.spawn(async move |this, cx| {
+                    let result = task.await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.seen_busy = false;
+                        match result {
+                            Ok(()) => this.close_seen_as(cx),
+                            Err(error) => {
+                                this.seen_error = Some(error.to_string());
+                                cx.notify();
+                            }
+                        }
+                    });
+                })
+                .detach();
+                cx.notify();
+            }
+        }
+    }
+
+    /// "{lead} ● {name} · Change".
+    fn seen_as_row(&mut self, lead: &str, profile: Profile, edit: SeenAsEdit, cx: &mut Context<Self>) -> AnyElement {
+        let initial = profile.clone();
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .text_size(px(13.))
+            .text_color(paper::tone())
+            .child(div().size(px(10.)).rounded_full().bg(theme::base(profile.color)))
+            .child(format!("{lead} {}", profile.name))
+            .child(
+                div()
+                    .id("seen-as-change")
+                    .text_color(paper::ink())
+                    .underline()
+                    .cursor_pointer()
+                    .child("Change")
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_seen_as(edit.clone(), initial.clone(), cx))),
+            )
+            .into_any_element()
+    }
+
+    /// Name, color and a preview, for one person only.
+    fn seen_as_editor(&mut self, note: String, save_label: &str, cx: &mut Context<Self>) -> AnyElement {
+        let name = self.seen_name.read(cx).text().trim().to_string();
+        let ready = !name.is_empty() && !self.seen_busy;
+        let color = self.seen_color;
+        let swatches = PersonColor::ALL.map(|option| {
+            let selected = option == color;
+            div()
+                .id(SharedString::from(format!("seen-color-{}", option.swatch().label)))
+                .flex_1()
+                .h(px(40.))
+                .p(px(3.))
+                .rounded_full()
+                .border_2()
+                .border_color(if selected {
+                    paper::ink().into()
+                } else {
+                    gpui::transparent_black()
+                })
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.seen_color = option;
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .size_full()
+                        .rounded_full()
+                        .bg(theme::base(option))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when(selected, |swatch| {
+                            swatch.child(
+                                svg()
+                                    .path(Icon::OnIt.path())
+                                    .size(px(18.))
+                                    .text_color(theme::ink(option)),
+                            )
+                        }),
+                )
+        });
+        let [a, b, c, d, e, f, g, h] = swatches;
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(heading("How they see you"))
+            .child(tone_text(&note))
+            .child(labeled("Your name", input(&self.seen_name, cx)))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(div().flex().gap(px(8.)).child(a).child(b).child(c).child(d))
+                    .child(div().flex().gap(px(8.)).child(e).child(f).child(g).child(h)),
+            )
+            .child(preview_frame(if name.is_empty() { "You" } else { &name }, color))
+            .when_some(self.seen_error.clone(), |el, error| el.child(danger_text(error)))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(8.))
+                    .child(
+                        pill("seen-as-cancel", "Cancel", None, None, false)
+                            .flex_1()
+                            .on_click(cx.listener(|this, _, _, cx| this.close_seen_as(cx))),
+                    )
+                    .child(
+                        pill(
+                            "seen-as-save",
+                            if self.seen_busy { "Saving…" } else { save_label },
+                            None,
+                            Some(color),
+                            !ready,
+                        )
+                        .flex_1()
+                        .when(ready, |pill| {
+                            pill.on_click(cx.listener(|this, _, _, cx| this.save_seen_as(cx)))
+                        }),
+                    ),
+            )
+            .into_any_element()
     }
 
     /// Stops tapping them from every device on the account (or just this PC,
@@ -884,10 +1100,28 @@ impl SendView {
     fn options(&mut self, session: &SenderSession, cx: &mut Context<Self>) -> AnyElement {
         let recipient = session.pairing.recipient_name.clone();
         let id = session.id().to_string();
+        let seen = Profile {
+            name: session.pairing.sender_name.clone(),
+            color: session.color(),
+        };
+        let editing = self.seen_edit == Some(SeenAsEdit::Person(id.clone()));
+        let editor = editing.then(|| {
+            self.seen_as_editor(
+                format!("Only {recipient} sees this. It changes your taps they already have too."),
+                "Save",
+                cx,
+            )
+        });
+        let edit_id = id.clone();
         let buttons = div()
             .flex()
             .flex_wrap()
             .gap(px(8.))
+            .child(
+                pill("seen-as", "How they see you", None, None, false).on_click(cx.listener(move |this, _, _, cx| {
+                    this.open_seen_as(SeenAsEdit::Person(edit_id.clone()), seen.clone(), cx)
+                })),
+            )
             .child(
                 pill("remove", &format!("Remove {recipient}"), None, None, false).on_click(cx.listener(
                     |this, _, _, cx| {
@@ -931,6 +1165,7 @@ impl SendView {
                 session.pairing.sender_name
             )))
             .child(buttons)
+            .children(editor)
             .children(confirmation)
             .into_any_element()
     }
@@ -1450,6 +1685,15 @@ impl SendView {
                         .child(preview_frame(&preview.name, color))
                         .into_any_element(),
                 );
+                if self.seen_edit == Some(SeenAsEdit::Invite) {
+                    let note = format!(
+                        "Only {} sees this. Everyone else keeps seeing you as before.",
+                        preview.name
+                    );
+                    page.push(self.seen_as_editor(note, "Use for them", cx));
+                } else if let Some(profile) = self.seen_as.clone().or_else(|| self.send_default(cx)) {
+                    page.push(self.seen_as_row("They'll see you as", profile, SeenAsEdit::Invite, cx));
+                }
             }
             Some((_, None)) => page.push(tone_text("Looking up the invite…").into_any_element()),
             None if !self.invite.read(cx).text().trim().is_empty() => {
@@ -1460,7 +1704,7 @@ impl SendView {
         if let Some(error) = self.accept_error.clone() {
             page.push(danger_text(error).into_any_element());
         }
-        let ready = code.is_some() && !self.accepting;
+        let ready = code.is_some() && !self.accepting && self.seen_edit != Some(SeenAsEdit::Invite);
         page.push(
             div()
                 .flex()

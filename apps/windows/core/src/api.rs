@@ -483,13 +483,23 @@ impl ApiClient {
         )
     }
 
-    pub fn accept_invite(&self, code: &str, platform: DevicePlatform, device_name: &str) -> Result<Accepted, ApiError> {
+    /// `profile` is how just this person will see you; None sends
+    /// `me.sendProfile`.
+    pub fn accept_invite(
+        &self,
+        code: &str,
+        profile: Option<&Profile>,
+        platform: DevicePlatform,
+        device_name: &str,
+    ) -> Result<Accepted, ApiError> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Body<'a> {
             code: &'a str,
             platform: DevicePlatform,
             device_name: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            profile: Option<&'a Profile>,
         }
         self.send(
             "POST",
@@ -498,6 +508,27 @@ impl ApiClient {
                 code,
                 platform,
                 device_name,
+                profile,
+            }),
+        )
+    }
+
+    /// Changes how one person you tap sees you. `id` is the sender id from
+    /// sync or accept.
+    pub fn update_send_profile(&self, id: &str, profile: &Profile) -> Result<Profile, ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            id: &'a str,
+            name: &'a str,
+            color: PersonColor,
+        }
+        self.send(
+            "POST",
+            "/account/send-profile",
+            Some(&Body {
+                id,
+                name: &profile.name,
+                color: profile.color,
             }),
         )
     }

@@ -11,6 +11,8 @@ Every client (iPhone, Mac, Windows, browser) runs the same flow and calls the sa
 5. **Notifications** — only on platforms that receive (iPhone). Mac asks for Accessibility as it does today; Windows asks nothing.
 6. **Home** — "Add your people": "Invite someone" (share link + QR) and "Got a link? Paste or scan".
 
+Each person you tap sees you your way: a **send profile** (name and color) per connection. Accepting an invite shows "{name} will see you as {profile} · Change"; Change picks a name and color for just them. Without a change it's the profile picked for your latest connection (or your own from the You step, if you saved that since). Later, "Tapping as {name} · Change" next to a person changes how only they see you, on every device, and their screens restyle your taps, past ones too. The person who sent the invite starts out shown to you in their latest profile, and can change it the same way.
+
 An invite link opened before sign-in shows "{name} invited you to Shouldertap" with a tap preview in their color and "Accept", runs steps 2–5, then accepts and lands on "You and {name} are connected".
 
 Gone everywhere: typed device-authorization codes, "Create my inbox", "Link a device" / pairing-code QR, "Restore with email", "Save this device to my account", picking an inbox. Invite QR codes stay, and sign-in QR codes replace device linking.
@@ -75,6 +77,7 @@ GET /account/me → Me
 Me = {
   "email": string,
   "profile": { "name": string, "color": PersonColor } | null,   // null → show the You step
+  "sendProfile": Profile | null,                                // how a new connection sees you unless you change it
   "suggestedName": string | null,
   "inboxId": string | null                                      // the person's inbox, once the profile exists
 }
@@ -131,7 +134,7 @@ GET /v1/invites/preview?code=<code> → { "name": string, "color": PersonColor |
 Accept (account session; requires a profile):
 
 ```
-POST /account/accept { "code": string, "platform": ..., "deviceName": string }
+POST /account/accept { "code": string, "platform": ..., "deviceName": string, "profile"?: Profile }   // profile: for just this person; omitted → me.sendProfile
 → {
   "person": { "name": string, "color": PersonColor | null },
   "sender": { id, grant, name, color } | null,  // you → them; null if you were already connected
@@ -140,6 +143,17 @@ POST /account/accept { "code": string, "platform": ..., "deviceName": string }
 ```
 
 The server adds both directions: a sender credential for you in their inbox, and one for them in yours, each with that person's profile name and color. Their devices get a `credentials` socket event and pick up their new key with `/account/sync`. Your own invite answers 400 "That's your own invite".
+
+A profile given here becomes `me.sendProfile` for the next connection. The reverse half shows the inviter in their own `sendProfile`.
+
+### Change how one person sees you
+
+```
+POST /account/send-profile { "id": string, "name": string (1–40), "color": PersonColor }   // id: the sender id from sync/accept
+→ { "id": string, "name": string, "color": PersonColor }
+```
+
+Changes that connection's sender credential in their inbox, so their screens show the new name and color on every tap from you, old ones included (they get a `credentials` socket event). Your other devices pick it up from their next sender snapshot (`senderName`/`senderColor`) and from `/account/sync`, which reports each connection's own profile. It doesn't change `me.sendProfile`. 404 "No such person" for a connection the account doesn't own.
 
 ### Remove someone you tap
 

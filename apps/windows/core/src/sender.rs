@@ -401,6 +401,19 @@ impl SenderStore {
         }
     }
 
+    /// How this person sees you changed (`AccountStore::update_send_profile`).
+    pub fn seen_as(&self, id: &str, profile: &Profile) {
+        let mut changed = None;
+        self.inner.update_session(id, |session| {
+            session.pairing.sender_name = profile.name.clone();
+            session.pairing.color = Some(profile.color);
+            changed = Some(session.pairing.clone());
+        });
+        if let Some(pairing) = changed {
+            let _ = self.inner.config.persistence.save_pairing(&pairing);
+        }
+    }
+
     /// The pairing that taps this inbox, if any.
     pub fn session_for_inbox(&self, inbox_id: &str) -> Option<String> {
         self.state()
@@ -578,10 +591,16 @@ impl Inner {
                     inner.update_session(&id, |session| {
                         session.taps = merge_snapshot(&session.taps, &snapshot.taps);
                         session.loaded = true;
-                        // Pairings made before colors existed learn theirs here.
+                        // Their inbox has the current names and color: pairings
+                        // made before colors learn theirs, and a change made on
+                        // another device shows here.
                         let pairing = &mut session.pairing;
-                        if pairing.color.is_none() || pairing.recipient_name != snapshot.recipient_name {
-                            pairing.color = pairing.color.or(Some(snapshot.sender_color));
+                        if pairing.color != Some(snapshot.sender_color)
+                            || pairing.sender_name != snapshot.sender_name
+                            || pairing.recipient_name != snapshot.recipient_name
+                        {
+                            pairing.color = Some(snapshot.sender_color);
+                            pairing.sender_name = snapshot.sender_name.clone();
                             pairing.recipient_name = snapshot.recipient_name.clone();
                             changed_pairing = Some(pairing.clone());
                         }
