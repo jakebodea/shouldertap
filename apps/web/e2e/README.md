@@ -7,4 +7,4 @@ bunx playwright install webkit
 bun run test:e2e
 ```
 
-The suite builds the production site and checks it in iPhone-sized WebKit. The header and footer download links start `Shouldertap.dmg` before the instructions page, the instructions page can start that download again, and opening `/download` directly does not start one but links both the Mac and Windows installers.
+The suite builds the production site and checks it in iPhone-sized WebKit. The landing page offers what the visitor's device can install: on a Mac the header and footer download links start `Shouldertap.dmg` before the instructions page, and the instructions page can start that download again; on Windows they start `Shouldertap-Setup.exe`; on an iPhone they link the App Store. Opening `/download` directly does not start a download but links the Mac and Windows installers and the iPhone app. A mistyped address shows a page that leads back into the site.

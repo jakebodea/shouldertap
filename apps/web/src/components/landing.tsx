@@ -14,8 +14,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { DocLinks } from "@/components/document";
+import { DownloadLink } from "@/components/download-link";
 import { InkIcon, InkMark, InkText } from "@/components/ink";
-import { MacDownloadLink } from "@/components/mac-download-link";
 import { Mark, Wordmark } from "@/components/mark";
 import { PageShell } from "@/components/page-shell";
 import { Swept } from "@/components/swept";
@@ -420,12 +420,16 @@ const Close = () => (
       Dinner&apos;s ready. Really.
     </p>
     <div className="flex flex-wrap items-center gap-4">
-      <MacDownloadLink className="pill pill-ink">
-        <HugeiconsIcon className="size-5" icon={Download04Icon} />
-        Download for Mac
-      </MacDownloadLink>
+      <DownloadLink className="pill pill-ink">
+        {(label) => (
+          <>
+            <HugeiconsIcon className="size-5" icon={Download04Icon} />
+            {label}
+          </>
+        )}
+      </DownloadLink>
       <span className="text-tone text-[0.9375rem]">
-        Mac, iPhone, or any phone with Safari.
+        Mac, Windows and iPhone, or any phone’s browser.
       </span>
     </div>
     <footer className="border-line text-tone mt-16 flex flex-wrap items-center justify-between gap-4 border-t-[1.5px] pt-6 text-sm">
@@ -617,11 +621,12 @@ export const Landing = () => {
               </span>
             </a>
           ) : (
-            <MacDownloadLink className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base">
-              <span className="frame-fill-text">
-                Download<span className="hidden sm:inline">&nbsp;for Mac</span>
-              </span>
-            </MacDownloadLink>
+            <DownloadLink
+              className="ink-fill inline-flex h-10 items-center rounded-full px-4 text-sm font-bold whitespace-nowrap transition-transform active:scale-[0.97] md:h-[2.875rem] md:px-5 md:text-base"
+              short
+            >
+              {(label) => <span className="frame-fill-text">{label}</span>}
+            </DownloadLink>
           )}
         </>
       }
