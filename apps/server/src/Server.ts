@@ -295,28 +295,30 @@ export default class Server extends Cloudflare.Worker<Server>()(
           .handle("redeemInvite", ({ payload }) => {
             const code = parseToken(payload.code);
             return code
-              ? inboxes
-                  .getByName(code.inboxId)
-                  .redeemInvite(code, payload)
-                  .pipe(
-                    Effect.tap((grant) =>
-                      track(
-                        {
-                          name: "invite_redeemed",
-                          inboxId: code.inboxId,
-                          credentialId: grant.credentialId,
-                          kind: grant.kind,
-                          userId: null,
-                          // Senders' platform is ignored; older Macs omit it.
-                          platform:
-                            grant.kind === "device"
-                              ? (payload.platform ?? "mac")
-                              : null,
-                        },
-                        Date.now()
-                      )
+              ? pushContext.pipe(
+                  Effect.flatMap((push) =>
+                    inboxes
+                      .getByName(code.inboxId)
+                      .redeemInvite(code, payload, push)
+                  ),
+                  Effect.tap((grant) =>
+                    track(
+                      {
+                        name: "invite_redeemed",
+                        inboxId: code.inboxId,
+                        credentialId: grant.credentialId,
+                        kind: grant.kind,
+                        userId: null,
+                        // Senders' platform is ignored; older Macs omit it.
+                        platform:
+                          grant.kind === "device"
+                            ? (payload.platform ?? "mac")
+                            : null,
+                      },
+                      Date.now()
                     )
                   )
+                )
               : Effect.fail(
                   new NotFound({ message: "This invite link isn't valid" })
                 );
@@ -781,6 +783,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
                   inboxes,
                   patrons,
                   track,
+                  pushContext,
                 };
                 const action = Effect.gen(function* dispatchAccount() {
                   if (path.startsWith("/account/patron/")) {

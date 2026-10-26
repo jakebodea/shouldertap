@@ -43,6 +43,7 @@ import migrations from "../drizzle/migrations.js";
 import {
   answeredNotificationPayload,
   endActivityPayload,
+  inviteAcceptedPayload,
   isDeadToken,
   notificationPayload,
   removedActivityPayload,
@@ -199,9 +200,14 @@ export interface InboxRpc {
   readonly recordPurchase: (purchase: Purchase) => Rpc<{ applied: boolean }>;
   /** Undoes the purchase with this order id, if it's the one on record. */
   readonly recordRefund: (orderId: string) => Rpc<{ applied: boolean }>;
+  /**
+   * `push` (when APNs is configured) tells the inbox's iPhones who joined
+   * when a sender invite is accepted.
+   */
   readonly redeemInvite: (
     code: ParsedToken,
-    request: RedeemInviteRequest
+    request: RedeemInviteRequest,
+    push?: PushContext
   ) => Rpc<CredentialGrant, NotFound | Expired | Conflict>;
   readonly registerPush: (
     token: ParsedToken,
@@ -726,6 +732,32 @@ export const InboxLive = Inbox.make(
           );
         }).pipe(Effect.catchCause((cause) => Effect.logError(cause)));
 
+      /** Someone accepted a sender invite: tell the inbox's iPhones who. */
+      const notifyJoined = (name: string, push: PushContext) =>
+        Effect.gen(function* deliverJoined() {
+          const targets = yield* pushTargets;
+          // oxlint-disable-next-line unicorn/no-array-for-each -- Effect.forEach, not Array#forEach
+          yield* Effect.forEach(
+            targets,
+            (target) =>
+              target.deviceToken
+                ? deliver(
+                    push,
+                    {
+                      environment: target.environment,
+                      topic: target.topic,
+                      priority: 10,
+                      pushType: "alert",
+                      token: target.deviceToken,
+                      payload: inviteAcceptedPayload(name),
+                    },
+                    clearToken(target.credentialId, "deviceToken")
+                  )
+                : Effect.void,
+            { concurrency: "unbounded", discard: true }
+          );
+        }).pipe(Effect.catchCause((cause) => Effect.logError(cause)));
+
       /** A deleted pending tap: end its Live Activities, clear the rest. */
       const notifyRemoval = (
         tap: Tap,
@@ -1188,7 +1220,8 @@ export const InboxLive = Inbox.make(
 
         redeemInvite: Effect.fn("Inbox.redeemInvite")(function* redeemInvite(
           code,
-          request
+          request,
+          push
         ) {
           const secretHash = yield* hashSecret(code.secret);
           const credential = yield* issueCredential("sender", request.name);
@@ -1239,6 +1272,9 @@ export const InboxLive = Inbox.make(
             })
           );
           yield* broadcastCredentials;
+          if (grant.kind === "sender" && push) {
+            yield* state.waitUntil(notifyJoined(request.name, push));
+          }
           return grant;
         }, orDieOnStorage),
 

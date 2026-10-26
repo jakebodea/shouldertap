@@ -121,7 +121,9 @@ struct OnboardingFlow: View {
       if let preview, inviteCode(from: invite) != nil {
         InvitedStep(preview: preview, color: $color) { go { started = true } }
       } else {
-        WelcomeStep(color: $color, knock: $knock, invalidInvite: previewFailed) { go { started = true } }
+        WelcomeStep(color: $color, knock: $knock, invalidInvite: previewFailed, onInvite: { invite = $0 }) {
+          go { started = true }
+        }
       }
     case .email:
       EmailStep(account: account, email: $email, color: color, scanError: $scanError) { signInLink = $0 }
@@ -215,9 +217,16 @@ private struct WelcomeStep: View {
   @Binding var color: PersonColor
   @Binding var knock: Int
   var invalidInvite = false
+  /// An invite link pasted here, e.g. one the website copied on the way to
+  /// the App Store.
+  let onInvite: @MainActor (String) -> Void
   let onStart: () -> Void
 
   @State private var sample = 0
+  /// Whether there's text to paste. Checked without reading it, so iOS
+  /// doesn't ask; the system Paste button reads it without asking either.
+  @State private var canPaste = false
+  @State private var pastedNonInvite = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private static let samples: [(name: String, color: PersonColor, message: String)] = [
@@ -251,6 +260,26 @@ private struct WelcomeStep: View {
         Text("That invite has expired or was already used. Ask for a new one once you're set up.")
           .font(Bricolage.medium(15))
           .foregroundStyle(Paper.tone)
+      } else if canPaste {
+        VStack(alignment: .leading, spacing: 10) {
+          Text(
+            pastedNonInvite
+              ? "That doesn't look like a Shouldertap invite link."
+              : "Got an invite link? Paste it to accept."
+          )
+          .font(Bricolage.medium(15))
+          .foregroundStyle(Paper.tone)
+          PasteButton(payloadType: String.self) { [onInvite] strings in
+            let link = strings.first { inviteCode(from: $0) != nil }
+            Task { @MainActor in
+              if let link { onInvite(link) } else { pastedNonInvite = true }
+            }
+          }
+          .buttonBorderShape(.capsule)
+          .tint(Paper.ink)
+          .accessibilityIdentifier("welcome-paste-invite")
+        }
+        .arrive(after: 0.28)
       }
     } actions: {
       Button("Get started", action: onStart)
@@ -262,7 +291,10 @@ private struct WelcomeStep: View {
         .accessibilityIdentifier("welcome-account")
         .arrive(after: 0.4)
     }
-    .onAppear { color = current.color }
+    .onAppear {
+      color = current.color
+      canPaste = UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs
+    }
     .task {
       // The first knock once the screen has settled.
       guard (try? await Task.sleep(for: .seconds(0.7))) != nil else { return }

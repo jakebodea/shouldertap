@@ -27,11 +27,14 @@ import {
   thisDevice,
 } from "@/lib/account";
 import { revokePairing } from "@/lib/api";
+import { IPHONE_APP_LIVE, IPHONE_APP_URL } from "@/lib/download";
 import {
   codeFromPaste,
   codeFromScan,
   failureMessage,
   inviteFailure,
+  inviteLink,
+  isIPhoneBrowser,
   OFFLINE_MESSAGE,
 } from "@/lib/onboarding";
 import {
@@ -132,6 +135,11 @@ const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
   }, [load]);
 
   const invite = lookup.kind === "found" ? lookup.invite : null;
+  // Reaching this page on an iPhone means the app isn't installed yet.
+  const onIPhone = useMemo(
+    () => IPHONE_APP_LIVE && isIPhoneBrowser(navigator.userAgent),
+    []
+  );
   const theirColor = invite?.color ?? fallbackColor(inboxOf(code) ?? code);
   // A first color for the You step that isn't the inviter's own.
   const suggestedColor: PersonColor =
@@ -296,20 +304,68 @@ const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
                 {failure}
               </p>
             ) : null}
-            <button
-              className="pill pill-frame w-full"
-              disabled={pending}
-              onClick={accept}
-              type="button"
-            >
-              {pending ? "Accepting…" : "Accept"}
-            </button>
+            {onIPhone ? (
+              <GetTheApp code={code} name={invite.name} onSafari={accept} />
+            ) : (
+              <button
+                className="pill pill-frame w-full"
+                disabled={pending}
+                onClick={accept}
+                type="button"
+              >
+                {pending ? "Accepting…" : "Accept"}
+              </button>
+            )}
           </div>
         </>
       ) : (
         <output className="text-tone block py-8">Opening your invite…</output>
       )}
     </Frame>
+  );
+};
+
+/**
+ * An invite opened on an iPhone without the app: get it from the App Store.
+ * The link is copied on the way, so the app can pick the invite up on its
+ * first screen; opening the link again once it's installed works too.
+ */
+const GetTheApp = ({
+  code,
+  name,
+  onSafari,
+}: {
+  code: string;
+  name: string;
+  onSafari: () => void;
+}) => {
+  const getApp = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        inviteLink(window.location.origin, code)
+      );
+    } catch {
+      // Without the clipboard, opening the link again still works.
+    }
+    window.location.href = IPHONE_APP_URL;
+  };
+  return (
+    <>
+      <p className="text-tone text-[0.9375rem]">
+        Get Shouldertap for iPhone, then open it and tap Paste to accept {name}
+        &apos;s invite. Or come back and open this link again.
+      </p>
+      <button className="pill pill-frame w-full" onClick={getApp} type="button">
+        Get Shouldertap on the App Store
+      </button>
+      <button
+        className="text-tone self-center text-[0.9375rem] underline underline-offset-[3px]"
+        onClick={onSafari}
+        type="button"
+      >
+        Accept in Safari instead
+      </button>
+    </>
   );
 };
 

@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 
 import { accountResources, claimAccountResource } from "./account-identity";
 import type { Track } from "./analytics";
+import type { PushContext } from "./apns";
 import type { InboxRpc } from "./Inbox";
 
 /** Account-first onboarding (docs/onboarding.md): the account is the person,
@@ -24,6 +25,8 @@ interface Dependencies {
 /** Actions that create people or connections report them. */
 interface TrackedDependencies extends Dependencies {
   track: Track;
+  /** A signed APNs token, so the inviter's iPhones hear who joined. */
+  pushContext?: Effect.Effect<PushContext | undefined>;
 }
 
 export interface Profile {
@@ -501,7 +504,7 @@ export const invitePreview = Effect.fn(function* invitePreview(
  * removed again if redeeming the invite fails.
  */
 export const acceptInvite = Effect.fn(function* acceptInvite(
-  { db, inboxes, track }: TrackedDependencies,
+  { db, inboxes, track, pushContext }: TrackedDependencies,
   userId: string,
   input: Record<string, unknown>
 ) {
@@ -551,13 +554,18 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
   );
   let sender: AccountSender | null = null;
   if (!already) {
+    const push = pushContext ? yield* pushContext : undefined;
     const grant = yield* inboxes
       .getByName(code.inboxId)
-      .redeemInvite(code, {
-        code: input.code as string,
-        name: profile.name,
-        color: profile.color,
-      })
+      .redeemInvite(
+        code,
+        {
+          code: input.code as string,
+          name: profile.name,
+          color: profile.color,
+        },
+        push
+      )
       .pipe(Effect.tapError(() => undoReverse));
     const id = `${code.inboxId}:${grant.credentialId}`;
     yield* claimAccountResource(db, userId, {
