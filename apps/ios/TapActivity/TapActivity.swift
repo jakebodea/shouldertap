@@ -94,10 +94,13 @@ enum TapActivities {
       do {
         _ = try Activity<TapActivityAttributes>.request(
           attributes: TapActivityAttributes(
-            tapId: "marketing-tap-01", senderName: "Sam", senderColor: .moss,
+            tapId: "marketing-tap-01", senderName: environment["SHOULDERTAP_CAPTURE_SENDER"] ?? "Marcus",
+            senderColor: PersonColor(rawValue: environment["SHOULDERTAP_CAPTURE_COLOR"] ?? "") ?? .tomato,
             createdAt: Date.now.timeIntervalSince1970 * 1000),
           content: ActivityContent(
-            state: .init(body: environment["SHOULDERTAP_CAPTURE_BODY"] ?? "Dinner's ready", answer: nil), staleDate: nil),
+            state: .init(
+              body: environment["SHOULDERTAP_CAPTURE_BODY"] ?? "Can you come here?", answer: nil,
+              replies: environment["SHOULDERTAP_CAPTURE_REPLIES"]?.components(separatedBy: "|")),, staleDate: nil),
           pushType: nil)
       } catch {
         print("Marketing Live Activity capture failed: \(error)")

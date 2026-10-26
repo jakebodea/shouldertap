@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 
-import { messages } from "./messages.mjs";
+import { messages, recipient, senders } from "./messages.mjs";
 
 const here = import.meta.dirname;
 const { chromium } = createRequire(
@@ -40,9 +40,9 @@ try {
           {
             token: "marketing.sender01.fictional00000001",
             credentialId: "sender01",
-            recipientName: "Alex",
-            senderName: "Sam",
-            color: "moss",
+            recipientName: recipient,
+            senderName: senders.dinner.name,
+            color: senders.dinner.color,
           },
         ],
         selected: "sender01",

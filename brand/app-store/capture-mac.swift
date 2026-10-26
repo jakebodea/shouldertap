@@ -13,7 +13,7 @@ struct CaptureMac {
     for font in try FileManager.default.contentsOfDirectory(at: root.appending(path: "apps/macos/Resources/Fonts"), includingPropertiesForKeys: nil) where font.pathExtension == "ttf" {
       CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
     }
-    let tap = Tap(id: "marketing-tap-01", senderId: "sender01", senderName: "Sam", senderColor: .moss,
+    let tap = Tap(id: "marketing-tap-01", senderId: "sender01", senderName: CommandLine.arguments[4], senderColor: PersonColor(rawValue: CommandLine.arguments[5]) ?? .moss,
                   body: body, createdAt: Date.now.timeIntervalSince1970 * 1000,
                   state: .pending, sequence: 1)
     let model = OverlayModel(active: ActiveTap(tap: tap, queued: 0), reduceMotion: true, respond: { _, _ in })

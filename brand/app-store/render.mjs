@@ -42,6 +42,7 @@ const expanded = capture("iphone-island-expanded-come");
 const lock = capture("iphone-lock-screen-call");
 const web = capture("web-sender-dinner");
 const reply = capture("iphone-reply-call");
+const invite = capture("iphone-invite");
 
 // Regions of the captures, in capture pixels (1206 × 2622 for iPhone).
 const regions = {
@@ -123,7 +124,7 @@ const slides = [
     return {
       name: "03-lock-screen",
       title: "Right on your<br>Lock Screen.",
-      sub: "Answer “On it” or “In 10 min”<br>right from the Lock Screen.",
+      sub: "Answer with one tap,<br>right from the Lock Screen.",
       bg: "#6d2657",
       ink: "#f8eef3",
       art: `${p.html}${zoom(p, lock, regions.lockActivity, { width: 580, radius: 25, dy: -10 })}`,
@@ -137,25 +138,36 @@ const slides = [
     ink: "#1f1a0e",
     art: `${at(40, 420, monitor(mac, 580))}${at(52, 880, laptop(mac, 380), 2)}${placePhone(takeoverTrash, { left: 392, top: 770, width: 236 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
   },
+  (() => {
+    const p = placePhone(reply, { left: 110, top: 372, width: 440 });
+    return {
+      name: "05-reply",
+      title: "Get an answer.<br>Carry on.",
+      sub: "They answer with a tap or a few words, and you see where they saw it.",
+      bg: "#f2c4bd",
+      ink: "#3b1219",
+      art: `${p.html}${zoom(p, reply, regions.replyAnswer, { width: 580, radius: 22 })}`,
+    };
+  })(),
+  (() => {
+    const p = placePhone(invite, { left: 110, top: 372, width: 440 });
+    return {
+      name: "06-invite",
+      title: "Only people<br>you invite.",
+      sub: "Share a link or QR code. Remove anyone, any time.",
+      bg: "#d9432b",
+      ink: "#fff4ef",
+      art: p.html,
+    };
+  })(),
   {
-    name: "05-browser",
+    name: "07-browser",
     title: "A browser.<br>A little tap.",
     sub: "Invited people can send from the web. It reaches every linked screen.",
     bg: "#9cc9ec",
     ink: "#0d2233",
     art: `${at(28, 392, browserFrame(web, { width: 560, crop: webCrop, source: webSource }))}${placePhone(takeover, { left: 392, top: 856, width: 240 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
   },
-  (() => {
-    const p = placePhone(reply, { left: 110, top: 372, width: 440 });
-    return {
-      name: "06-reply",
-      title: "Get an answer.<br>Carry on.",
-      sub: "Their reply comes straight back, and says where they saw it.",
-      bg: "#f2c4bd",
-      ink: "#3b1219",
-      art: `${p.html}${zoom(p, reply, regions.replyAnswer, { width: 580, radius: 22 })}`,
-    };
-  })(),
 ];
 const portrait = (s) =>
   `<!doctype html><html><head><style>${css}body{width:660px;height:1434px;background:${s.bg};color:${s.ink};padding:46px 46px 0;position:relative;overflow:hidden}header{display:flex;justify-content:space-between;align-items:center}.brand{font-size:23px}.note{font-size:13.5px}h1{margin-top:44px;font-size:68px}p{margin-top:18px;font-size:22px;line-height:1.32;max-width:520px}.hold{position:absolute;left:0;right:0;text-align:center;font-size:17px;font-weight:600;opacity:.85}.hold:after{content:"";display:block;width:2px;height:22px;margin:8px auto 0;background:currentColor;opacity:.6;border-radius:2px}</style></head><body><header><div class="brand">${mark}Shouldertap</div></header><h1>${s.title}</h1><p>${s.sub}</p>${s.art}</body></html>`;
@@ -220,7 +232,7 @@ try {
     1920,
     1080
   );
-  const gallery = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}body{background:#f6f5f1;color:#161616;padding:40px;max-width:1500px;margin:auto}h1{font-size:40px;margin-top:24px}.brand{font-size:22px}.row{display:flex;gap:18px;overflow:auto;margin:30px 0}.row a{flex:none}.row img{width:228px;border-radius:14px;display:block}p{font-size:17px;line-height:1.45;max-width:80ch;margin-top:14px;color:#3d3c39}.wide{width:100%;border-radius:10px;display:block}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>Screen experiences · App Store draft v4</h1><p>Real native and web views with fictional Sam and Alex, composed into authored device frames. Enlarged details are the same capture pixels, not redrawn UI. Verify against the approved binary before uploading.</p><div class="row">${slides.map((s) => `<a href="exports/${s.name}-large.png"><img alt="${s.name}" src="${data(`exports/${s.name}-large.png`)}"></a>`).join("")}</div><img class="wide" alt="From browser to connected screens" src="${data("exports/marketing-screen-story-1920x1080.png")}"><p>Six App Store images at 1320 × 2868 and 1206 × 2622, plus one 1920 × 1080 marketing image. The repeated Mac overlay illustrates one Mac with two displays; this is not a multi-device delivery test.</p></body></html>`;
+  const gallery = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}body{background:#f6f5f1;color:#161616;padding:40px;max-width:1500px;margin:auto}h1{font-size:40px;margin-top:24px}.brand{font-size:22px}.row{display:flex;gap:18px;overflow:auto;margin:30px 0}.row a{flex:none}.row img{width:228px;border-radius:14px;display:block}p{font-size:17px;line-height:1.45;max-width:80ch;margin-top:14px;color:#3d3c39}.wide{width:100%;border-radius:10px;display:block}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>Screen experiences · App Store draft v4</h1><p>Real native and web views with fictional people (messages.mjs), composed into authored device frames. Enlarged details are the same capture pixels, not redrawn UI. Verify against the approved binary before uploading.</p><div class="row">${slides.map((s) => `<a href="exports/${s.name}-large.png"><img alt="${s.name}" src="${data(`exports/${s.name}-large.png`)}"></a>`).join("")}</div><img class="wide" alt="From browser to connected screens" src="${data("exports/marketing-screen-story-1920x1080.png")}"><p>Seven App Store images at 1320 × 2868 and 1206 × 2622, plus one 1920 × 1080 marketing image. The repeated Mac overlay illustrates one Mac with two displays; this is not a multi-device delivery test.</p></body></html>`;
   writeFileSync(path.join(here, "index.html"), gallery);
   writeFileSync(
     path.join(here, "manifest.json"),
@@ -240,7 +252,7 @@ try {
     path.join(here, "index.html"),
     path.join(here, "manifest.json"),
   ]);
-  console.log("Rendered 12 App Store PNGs, one marketing image, and gallery.");
+  console.log("Rendered 14 App Store PNGs, one marketing image, and gallery.");
 } finally {
   await browser.close();
 }

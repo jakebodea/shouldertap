@@ -10,4 +10,4 @@ done
 cp "$root/brand/app-store/capture-mac.swift" "$capture_tmp/CaptureMac.swift"
 xcrun swiftc -swift-version 5 -parse-as-library "$capture_tmp"/*.swift -o "$capture_tmp/capture"
 # One overlay per message the slides show on a Mac (see messages.mjs).
-"$capture_tmp/capture" "$root" "$root/brand/app-store/captures/mac-overlay-trash.png" "Take out the trash"
+"$capture_tmp/capture" "$root" "$root/brand/app-store/captures/mac-overlay-trash.png" "Take out the trash" Rosa plum

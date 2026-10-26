@@ -1,16 +1,24 @@
 // Local fictional data for native marketing captures, never a production service.
 // Run: bun brand/app-store/fixture-server.mjs
-import { messages } from "./messages.mjs";
+import {
+  messages,
+  recipient,
+  repliesFor,
+  senderFor,
+  senders,
+} from "./messages.mjs";
 
 const token = "marketing.sender01.fictional00000001";
 const deviceToken = "marketing.device01.fictional00000001";
 const sockets = new Set();
 const session = "marketing.session01.fictional00000001";
-const senderName = "Sam";
-const senderColor = "moss";
+// The phone's own sender key belongs to SHOULDERTAP_FIXTURE_SENDER (a messages.mjs key, default
+// "dinner"); incoming taps take their sender from their body.
+const { name: senderName, color: senderColor } =
+  senders[process.env.SHOULDERTAP_FIXTURE_SENDER ?? "dinner"];
 const me = {
-  email: "alex@example.com",
-  profile: { name: "Alex", color: "cobalt" },
+  email: "nina@example.com",
+  profile: { name: recipient, color: "sky" },
   inboxId: "inbox01",
   sendProfile: { name: senderName, color: senderColor },
 };
@@ -45,8 +53,8 @@ const server = Bun.serve({
       req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const device = req.headers.get("authorization") === `Bearer ${deviceToken}`;
     const { json } = Response;
-    // Account sign-in (any email, any six-digit code): the phone is Alex's
-    // inbox and holds Sam's key to tap Alex, so it shows both sides.
+    // Account sign-in (any email, any six-digit code): the phone is Nina's
+    // inbox and holds one sender's key to tap Nina, so it shows both sides.
     if (path === "/api/auth/email-otp/send-verification-otp") {
       return json({ success: true });
     }
@@ -66,7 +74,7 @@ const server = Bun.serve({
           kind: "device",
           credentialId: "device01",
           token: deviceToken,
-          recipientName: "Alex",
+          recipientName: recipient,
         },
         senders: [
           {
@@ -75,7 +83,7 @@ const server = Bun.serve({
               kind: "sender",
               credentialId: "sender01",
               token,
-              recipientName: "Alex",
+              recipientName: recipient,
             },
             name: senderName,
             color: senderColor,
@@ -91,17 +99,17 @@ const server = Bun.serve({
       return json({
         kind: device ? "device" : "sender",
         credentialId: device ? "device01" : "sender01",
-        recipientName: "Alex",
+        recipientName: recipient,
         senderName,
         senderColor,
         sequence,
         taps,
         credentials: [
           credential("sender01", "sender", senderName, { color: senderColor }),
-          credential("mac00001", "device", "Alex’s MacBook", {
+          credential("mac00001", "device", `${recipient}’s MacBook`, {
             platform: "mac",
           }),
-          credential("device01", "device", "Alex’s iPhone", {
+          credential("device01", "device", `${recipient}’s iPhone`, {
             platform: "iphone",
           }),
         ],
@@ -112,9 +120,10 @@ const server = Bun.serve({
       const tap = {
         id: body.requestId,
         senderId: "sender01",
-        senderName,
-        senderColor,
+        senderName: senderFor(body.body).name,
+        senderColor: senderFor(body.body).color,
         body: body.body,
+        replies: body.replies ?? repliesFor(body.body),
         createdAt: Date.now(),
         state: "pending",
         displayedAt: null,
@@ -139,7 +148,7 @@ const server = Bun.serve({
         Object.assign(tap, {
           state: "acknowledged",
           acknowledgedAt: Date.now(),
-          acknowledgedBy: "Alex’s MacBook",
+          acknowledgedBy: `${recipient}’s MacBook`,
           response: { kind: "text", text: body.text ?? messages.reply },
         });
       }
