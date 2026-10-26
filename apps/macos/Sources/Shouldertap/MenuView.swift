@@ -504,7 +504,7 @@ private struct InviteCard: View {
           .clipShape(RoundedRectangle(cornerRadius: 6))
           .accessibilityLabel("QR code for the invite link")
       }
-      Muted("Scan with their iPhone camera, or send them the link to open on their phone or computer. It works once and expires in 7 days.")
+      Muted("Scan with their iPhone camera, or send them the link to open on their phone or computer. Anyone you send it to can use it for 7 days.")
         .multilineTextAlignment(.center)
         .frame(maxWidth: 360)
       Mono(invite.url.absoluteString, lines: 2).frame(maxWidth: 360)

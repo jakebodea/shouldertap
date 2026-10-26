@@ -283,7 +283,7 @@ const Consent = () => {
   const facts = [
     {
       icon: UserAdd01Icon,
-      text: "Only people you invite can tap you. Invite links work once and expire after a week.",
+      text: "Only people you invite can tap you. Invite links expire after a week, and you can remove anyone.",
     },
     {
       icon: ComputerIcon,

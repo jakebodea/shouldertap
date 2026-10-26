@@ -19,6 +19,8 @@ An invite link opened before sign-in shows "{name} invited you to Shouldertap" w
 
 An invite opened on an iPhone that has the app opens the app (`apple-app-site-association`). Reaching the website's `/join` on an iPhone therefore means the app isn't installed: the invite card's main button is "Get Shouldertap on the App Store", with "Accept in Safari instead" under it. The button copies the invite link before leaving for the App Store, so the app's Welcome screen offers a system Paste button ("Got an invite link? Paste it to accept.") whenever there's text on the clipboard; pasting an invite continues as if the link had been opened. Opening the link again once the app is installed works too. Until the App Store listing is public (`IPHONE_APP_LIVE` in `apps/web/src/lib/download.ts`), iPhones get the same Accept as every other browser.
 
+An invite link works for everyone it's sent to (a group chat, several friends) until it expires after 7 days, up to the inbox's sender cap. Each person who accepts is connected separately. Links that add your own devices still work once.
+
 When someone accepts a sender invite, the inviter's linked iPhones get a notification: "{name} accepted your invite".
 
 Gone everywhere: typed device-authorization codes, "Create my inbox", "Link a device" / pairing-code QR, "Restore with email", "Save this device to my account", picking an inbox. Invite QR codes stay, and sign-in QR codes replace device linking.
