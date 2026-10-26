@@ -587,7 +587,7 @@ private struct NotificationsStep: View {
     Page {
       StepHeader(
         title: "Know when someone taps you",
-        text: "Taps arrive on your Lock Screen and in the Dynamic Island, and you can answer right there.")
+        text: "Taps arrive on your Lock Screen and in the Dynamic Island, and you can answer right there. You'll also hear when someone answers yours.")
       TapPreview(name: "Mom", color: .cobalt, message: "Dinner's ready", replies: true)
     } actions: {
       Button {

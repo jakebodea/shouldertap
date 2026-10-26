@@ -127,7 +127,7 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
       success: Tap,
       error: [NotFound, InvalidRequest],
     }),
-    // A linked iPhone's push tokens; devices only.
+    // An iPhone's push tokens: a linked one's for taps, a sender's for answers.
     HttpApiEndpoint.put("registerPush", "/push", {
       payload: RegisterPushRequest,
       success: Schema.Struct({ registered: Schema.Literal(true) }),

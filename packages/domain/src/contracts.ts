@@ -207,9 +207,11 @@ const PushToken = Schema.String.pipe(
 );
 
 /**
- * A linked iPhone's push setup, sent on every launch and whenever it
- * changes. Taps reach it as a Live Activity when it has a push-to-start token
- * and Live Activities are on, otherwise as a Time Sensitive notification.
+ * An iPhone's push setup, sent on every launch and whenever it changes. Taps
+ * reach a linked iPhone as a Live Activity when it has a push-to-start token
+ * and Live Activities are on, otherwise as a Time Sensitive notification. A
+ * sender's iPhone registers with its sender key and only needs the device
+ * token: answers to its taps arrive as notifications.
  */
 export const RegisterPushRequest = Schema.Struct({
   environment: PushEnvironment,

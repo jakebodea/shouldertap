@@ -48,6 +48,7 @@ import {
   removedActivityPayload,
   resolvedPayload,
   sendPush,
+  senderAnswerPayload,
   startActivityPayload,
 } from "./apns";
 import type { ApnsRequest, PushContext } from "./apns";
@@ -499,8 +500,46 @@ export const InboxLive = Inbox.make(
           credentials,
           eq(credentials.id, pushRegistrations.credentialId)
         )
-        .where(isNull(credentials.revokedAt))
+        .where(
+          and(eq(credentials.kind, "device"), isNull(credentials.revokedAt))
+        )
         .pipe(Effect.map((rows) => rows.map((row) => row.registration)));
+
+      /**
+       * A sender's phones with a push setup: its keys (registrations are
+       * kept per key), while the sender itself is still paired.
+       */
+      const senderPushTargets = (senderId: string) =>
+        Effect.gen(function* senderTargets() {
+          const [sender] = yield* db
+            .select({ id: credentials.id })
+            .from(credentials)
+            .where(
+              and(eq(credentials.id, senderId), isNull(credentials.revokedAt))
+            );
+          if (!sender) {
+            return [];
+          }
+          const rows = yield* db
+            .select({ registration: pushRegistrations })
+            .from(pushRegistrations)
+            .innerJoin(
+              credentials,
+              eq(credentials.id, pushRegistrations.credentialId)
+            )
+            .where(
+              and(
+                eq(credentials.kind, "sender"),
+                or(
+                  eq(credentials.id, senderId),
+                  eq(credentials.parentId, senderId)
+                ),
+                isNull(credentials.revokedAt),
+                isNull(credentials.keyRevokedAt)
+              )
+            );
+          return rows.map((row) => row.registration);
+        });
 
       /** Sends one push and forgets the token if APNs says it's dead. */
       const deliver = Effect.fn("Inbox.push")(function* deliver(
@@ -647,6 +686,37 @@ export const InboxLive = Inbox.make(
           yield* db
             .delete(activityTokens)
             .where(eq(activityTokens.tapId, tap.id));
+        }).pipe(Effect.catchCause((cause) => Effect.logError(cause)));
+
+      /** An answered tap: tell the sender's phones how. */
+      const notifySender = (tap: Tap, push: PushContext) =>
+        Effect.gen(function* deliverAnswer() {
+          const row = yield* inboxRow;
+          const targets = yield* senderPushTargets(tap.senderId);
+          // oxlint-disable-next-line unicorn/no-array-for-each -- Effect.forEach, not Array#forEach
+          yield* Effect.forEach(
+            targets,
+            (target) =>
+              target.deviceToken
+                ? deliver(
+                    push,
+                    {
+                      environment: target.environment,
+                      topic: target.topic,
+                      priority: 10,
+                      pushType: "alert",
+                      token: target.deviceToken,
+                      collapseId: `answer-${tap.id}`,
+                      payload: senderAnswerPayload(
+                        tap,
+                        row?.recipientName ?? "Your tap"
+                      ),
+                    },
+                    clearToken(target.credentialId, "deviceToken")
+                  )
+                : Effect.void,
+            { concurrency: "unbounded", discard: true }
+          );
         }).pipe(Effect.catchCause((cause) => Effect.logError(cause)));
 
       /** A deleted pending tap: end its Live Activities, clear the rest. */
@@ -1253,6 +1323,7 @@ export const InboxLive = Inbox.make(
             yield* broadcastTap(tap);
             if (push) {
               yield* state.waitUntil(notifyResolution(tap, push));
+              yield* state.waitUntil(notifySender(tap, push));
             }
           }
           return tap;
@@ -1262,7 +1333,9 @@ export const InboxLive = Inbox.make(
           token,
           request
         ) {
-          const actor = yield* requireDevice(token);
+          // Linked iPhones get taps; senders' iPhones get the answers to
+          // theirs. A sender's registration is kept per key, one per phone.
+          yield* authenticate(token);
           const row = {
             environment: request.environment,
             topic: request.topic,
@@ -1273,7 +1346,7 @@ export const InboxLive = Inbox.make(
           };
           yield* db
             .insert(pushRegistrations)
-            .values({ credentialId: actor.id, ...row })
+            .values({ credentialId: token.id, ...row })
             .onConflictDoUpdate({
               target: pushRegistrations.credentialId,
               set: row,
@@ -1328,7 +1401,7 @@ export const InboxLive = Inbox.make(
           if (revoked.length === 0) {
             return yield* new NotFound({ message: "No such pairing" });
           }
-          // A removed iPhone gets no more taps.
+          // A removed iPhone gets no more taps, an unpaired one no answers.
           yield* db
             .delete(pushRegistrations)
             .where(eq(pushRegistrations.credentialId, credentialId));
@@ -1399,6 +1472,9 @@ export const InboxLive = Inbox.make(
                 .where(eq(tickets.credentialId, actor.id));
               yield* tx.delete(invites).where(eq(invites.createdBy, actor.id));
               yield* tx.delete(credentials).where(eq(credentials.id, actor.id));
+              yield* tx
+                .delete(pushRegistrations)
+                .where(eq(pushRegistrations.credentialId, token.id));
             })
           );
           for (const { socket, session } of yield* sessions) {

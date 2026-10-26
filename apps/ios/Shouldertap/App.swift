@@ -170,6 +170,7 @@ struct RootView: View {
       if phase == .ready { receiver.sync() }
     }
     .onChange(of: inbox.credentialId) { _, _ in receiver.sync() }
+    .onChange(of: store.sessions.map(\.id)) { _, _ in receiver.sync() }
     .onChange(of: inbox.taps) { _, taps in receiver.reconcile(taps) }
     .onChange(of: scenePhase) { _, phase in
       switch phase {

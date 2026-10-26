@@ -145,9 +145,16 @@ Not verifiable in the simulator, so check on a real iPhone:
 - On it / In 10 min on the Live Activity itself. After a few dozen pushes in a row, iOS moved the app's Live Activity pushes to opportunistic delivery (its push budget). `NSSupportsLiveActivitiesFrequentUpdates` raises that budget, and real use is a few taps an hour.
 - Ending a Live Activity when the tap is answered elsewhere. That needs the activity's push token, which the simulator never issued, or the background push, which the simulator wouldn't deliver to the app. Opening the app clears it either way.
 
+## Step 3, built: answers reach the sender's iPhone
+
+When a tap is answered, the iPhone that sent it gets a notification under the recipient's name with the answer: "Sam" / "On it", or the typed reply.
+
+- **Server.** `PUT /v1/push` now also takes a sender key. Registrations are kept per key, so each of a sender's phones has its own. Taps still go only to `device` registrations; on an answer, the Inbox also sends `senderAnswerPayload` (category `answer`, collapse id `answer-<tap id>`) to the device token of every live key of the tap's sender. Unpairing a key or deleting the sender's data drops its registration.
+- **iPhone.** `Receiver` registers the device token with every sender key as well as the inbox, and re-registers when pairings change. The notification needs no app code; tapping it opens the app. The Notifications onboarding step now mentions it.
+- **Not verified.** Delivery on a real device, and on a phone that is both linked to an inbox and sending (it gets both kinds of push on one device token).
+
 ## What's left
 
-1. **Sender notifications.** Senders' phones could get a push when their tap is answered (the old "PUSH SEAM" idea); the APNs plumbing is now there.
-2. **Notification Content Extension (optional).** Without it, the long-pressed notification is plain iOS. One would give it the frame-color paper look from the mockup.
-3. **iPad.** The app is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`). iPad has Lock Screen Live Activities but no Dynamic Island.
-4. **Tests.** There's no iOS UI test target any more; the server's payloads and the Swift registration are unit-tested, and the flows were checked by hand in the simulator.
+1. **Notification Content Extension (optional).** Without it, the long-pressed notification is plain iOS. One would give it the frame-color paper look from the mockup.
+2. **iPad.** The app is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`). iPad has Lock Screen Live Activities but no Dynamic Island.
+3. **Tests.** There's no iOS UI test target any more; the server's payloads and the Swift registration are unit-tested, and the flows were checked by hand in the simulator.

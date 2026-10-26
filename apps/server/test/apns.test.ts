@@ -7,6 +7,7 @@ import {
   endActivityPayload,
   isDeadToken,
   notificationPayload,
+  senderAnswerPayload,
   signProviderToken,
   startActivityPayload,
 } from "../src/apns";
@@ -127,6 +128,26 @@ describe("payloads", () => {
     expect(payload.aps.alert.body).toBe("Answered: In 10 min · Studio Mac");
     expect("sound" in payload.aps).toBeFalsy();
     expect(payload.tapId).toBe("tap123456");
+  });
+
+  it("the sender hears the answer under the recipient's name", () => {
+    const replied: Tap = {
+      ...tap,
+      state: "acknowledged",
+      acknowledgedBy: "Studio Mac",
+      response: { kind: "text", text: "Coming down now" },
+    };
+    const payload = senderAnswerPayload(replied, "Sam");
+    expect(payload.aps.alert).toStrictEqual({
+      title: "Sam",
+      body: "Coming down now",
+    });
+    expect(payload.aps.category).toBe("answer");
+    expect(payload.answeredTapId).toBe("tap123456");
+    expect(
+      senderAnswerPayload({ ...replied, response: { kind: "on_it" } }, "Sam")
+        .aps.alert.body
+    ).toBe("On it");
   });
 
   it("dead tokens are recognized", () => {

@@ -15,6 +15,9 @@ import * as Effect from "effect/Effect";
  * phone sent us its token), its notification is replaced by a quiet
  * "Answered", and a background push tells the app to clear anything left.
  * A pending tap that's deleted is cleared the same way, minus the "Answered".
+ *
+ * A sender's iPhone registers too, with its sender key: when one of its taps
+ * is answered, it gets a notification saying how ("Sam: On it").
  */
 
 /** The signed provider token the Inbox sends with every push. */
@@ -234,6 +237,23 @@ export const answeredNotificationPayload = (tap: Tap) => ({
     "thread-id": tap.senderId,
   },
   tapId: tap.id,
+});
+
+/**
+ * Tells the sender's iPhone how their tap was answered: the recipient's
+ * name over the answer, e.g. "Sam" / "On it", or the typed reply.
+ */
+export const senderAnswerPayload = (tap: Tap, recipientName: string) => ({
+  aps: {
+    alert: {
+      title: recipientName,
+      body: tap.response ? describeResponse(tap.response) : "Answered",
+    },
+    sound: "default",
+    category: "answer",
+    "thread-id": `answers-${recipientName}`,
+  },
+  answeredTapId: tap.id,
 });
 
 /** Wakes the app to clear what's left of an answered or deleted tap. */
