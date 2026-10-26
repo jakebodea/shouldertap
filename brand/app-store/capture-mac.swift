@@ -9,11 +9,12 @@ struct CaptureMac {
     app.setActivationPolicy(.prohibited)
     let root = URL(fileURLWithPath: CommandLine.arguments[1])
     let output = URL(fileURLWithPath: CommandLine.arguments[2])
+    let body = CommandLine.arguments[3]
     for font in try FileManager.default.contentsOfDirectory(at: root.appending(path: "apps/macos/Resources/Fonts"), includingPropertiesForKeys: nil) where font.pathExtension == "ttf" {
       CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
     }
     let tap = Tap(id: "marketing-tap-01", senderId: "sender01", senderName: "Sam", senderColor: .moss,
-                  body: "Tea break? Meet me in the kitchen.", createdAt: Date.now.timeIntervalSince1970 * 1000,
+                  body: body, createdAt: Date.now.timeIntervalSince1970 * 1000,
                   state: .pending, sequence: 1)
     let model = OverlayModel(active: ActiveTap(tap: tap, queued: 0), respond: { _, _ in })
     let view = NSHostingView(rootView: OverlayView(model: model))

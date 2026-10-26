@@ -33,13 +33,15 @@ const font = readFileSync(
 const data = (file) =>
   `data:image/png;base64,${readFileSync(path.join(here, file)).toString("base64")}`;
 const capture = (name) => data(`captures/${name}.png`);
-const mac = capture("mac-overlay");
-const takeover = capture("iphone-takeover");
-const compact = capture("iphone-island-compact");
-const expanded = capture("iphone-island-expanded");
-const lock = capture("iphone-lock-screen");
-const web = capture("web-sender");
-const reply = capture("03-reply");
+// Captures are named for the tap they show (messages.mjs), so slides rotate messages.
+const mac = capture("mac-overlay-trash");
+const takeover = capture("iphone-takeover-dinner");
+const takeoverTrash = capture("iphone-takeover-trash");
+const compact = capture("iphone-island-compact-come");
+const expanded = capture("iphone-island-expanded-come");
+const lock = capture("iphone-lock-screen-call");
+const web = capture("web-sender-dinner");
+const reply = capture("iphone-reply-call");
 
 // Regions of the captures, in capture pixels (1206 × 2622 for iPhone).
 const regions = {
@@ -132,7 +134,7 @@ const slides = [
     sub: "Every display on their Mac, plus their linked iPhone. One answer clears them all.",
     bg: "#e8b022",
     ink: "#1f1a0e",
-    art: `${at(40, 420, monitor(mac, 580))}${at(52, 880, laptop(mac, 380), 2)}${placePhone(takeover, { left: 392, top: 770, width: 236 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
+    art: `${at(40, 420, monitor(mac, 580))}${at(52, 880, laptop(mac, 380), 2)}${placePhone(takeoverTrash, { left: 392, top: 770, width: 236 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
   },
   {
     name: "05-browser",
@@ -217,13 +219,13 @@ try {
     1920,
     1080
   );
-  const gallery = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}body{background:#f6f5f1;color:#161616;padding:40px;max-width:1500px;margin:auto}h1{font-size:40px;margin-top:24px}.brand{font-size:22px}.row{display:flex;gap:18px;overflow:auto;margin:30px 0}.row a{flex:none}.row img{width:228px;border-radius:14px;display:block}p{font-size:17px;line-height:1.45;max-width:80ch;margin-top:14px;color:#3d3c39}.wide{width:100%;border-radius:10px;display:block}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>Screen experiences · App Store draft v3</h1><p>Real native and web views with fictional Sam and Alex, composed into authored device frames. Enlarged details are the same capture pixels, not redrawn UI. Verify against the approved binary before uploading.</p><div class="row">${slides.map((s) => `<a href="exports/${s.name}-large.png"><img alt="${s.name}" src="${data(`exports/${s.name}-large.png`)}"></a>`).join("")}</div><img class="wide" alt="From browser to connected screens" src="${data("exports/marketing-screen-story-1920x1080.png")}"><p>Six App Store images at 1320 × 2868 and 1206 × 2622, plus one 1920 × 1080 marketing image. The repeated Mac overlay illustrates one Mac with two displays; this is not a multi-device delivery test.</p></body></html>`;
+  const gallery = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}body{background:#f6f5f1;color:#161616;padding:40px;max-width:1500px;margin:auto}h1{font-size:40px;margin-top:24px}.brand{font-size:22px}.row{display:flex;gap:18px;overflow:auto;margin:30px 0}.row a{flex:none}.row img{width:228px;border-radius:14px;display:block}p{font-size:17px;line-height:1.45;max-width:80ch;margin-top:14px;color:#3d3c39}.wide{width:100%;border-radius:10px;display:block}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>Screen experiences · App Store draft v4</h1><p>Real native and web views with fictional Sam and Alex, composed into authored device frames. Enlarged details are the same capture pixels, not redrawn UI. Verify against the approved binary before uploading.</p><div class="row">${slides.map((s) => `<a href="exports/${s.name}-large.png"><img alt="${s.name}" src="${data(`exports/${s.name}-large.png`)}"></a>`).join("")}</div><img class="wide" alt="From browser to connected screens" src="${data("exports/marketing-screen-story-1920x1080.png")}"><p>Six App Store images at 1320 × 2868 and 1206 × 2622, plus one 1920 × 1080 marketing image. The repeated Mac overlay illustrates one Mac with two displays; this is not a multi-device delivery test.</p></body></html>`;
   writeFileSync(path.join(here, "index.html"), gallery);
   writeFileSync(
     path.join(here, "manifest.json"),
     `${JSON.stringify(
       {
-        version: 3,
+        version: 4,
         screens: slides.map((s) => s.name),
         sizes: sizes.map(([, w, h]) => [w, h]),
         marketing: ["marketing-screen-story-1920x1080.png"],

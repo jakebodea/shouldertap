@@ -1,6 +1,8 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 
+import { messages } from "./messages.mjs";
+
 const here = import.meta.dirname;
 const { chromium } = createRequire(
   path.join(here, "../../apps/web/package.json")
@@ -48,10 +50,10 @@ try {
   );
   await page.goto("http://127.0.0.1:4319/tap");
   await page
-    .getByText("Tea break? Meet me in the kitchen.", { exact: true })
+    .getByText(messages.dinner, { exact: true })
     .waitFor({ timeout: 10_000 });
   await page.evaluate(() => document.fonts.ready);
-  await page.screenshot({ path: path.join(here, "captures/web-sender.png") });
+  await page.screenshot({ path: path.join(here, "captures/web-sender-dinner.png") });
 } finally {
   await browser.close();
 }

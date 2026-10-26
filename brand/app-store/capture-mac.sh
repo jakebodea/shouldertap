@@ -9,4 +9,5 @@ for source in "$root"/apps/macos/Sources/ShouldertapCore/*.swift "$root"/apps/ma
 done
 cp "$root/brand/app-store/capture-mac.swift" "$capture_tmp/CaptureMac.swift"
 xcrun swiftc -swift-version 5 -parse-as-library "$capture_tmp"/*.swift -o "$capture_tmp/capture"
-"$capture_tmp/capture" "$root" "$root/brand/app-store/captures/mac-overlay.png"
+# One overlay per message the slides show on a Mac (see messages.mjs).
+"$capture_tmp/capture" "$root" "$root/brand/app-store/captures/mac-overlay-trash.png" "Take out the trash"

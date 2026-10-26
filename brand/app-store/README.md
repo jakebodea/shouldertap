@@ -50,10 +50,11 @@ Use an available shared simulator per AGENTS.md; never create one, and shut down
 2. Build `ShouldertapIOS` with the normal Swift 6 settings. The original v3 captures used a Swift 5 override before the geometry isolation fixes; current source builds with Swift 6.
 3. Install and launch with `SIMCTL_CHILD_SHOULDERTAP_SERVER_URL=http://127.0.0.1:4318`.
 4. Pair with `shouldertap://join#marketing.invite01.fictional00000001`, Sam and Moss. Link Inbox with `shouldertap://link#marketing.invite01.fictional00000001`.
-5. POST `/v1/taps` with `{"requestId":"marketing-tap-01","body":"Tea break? Meet me in the kitchen."}`. The foreground receiving view covers the app.
-6. For the system surfaces, relaunch with `SIMCTL_CHILD_SHOULDERTAP_CAPTURE_ACTIVITY=1`. This explicitly starts a local activity for that same fictional tap. Allow Live Activities in the system prompt. The flag and helper are compiled out outside simulator Debug builds.
-7. Home shows compact Dynamic Island; press and hold it for expanded. Open Notification Center for the Lock Screen card. Use `--mask=black` for system captures. Avoid normalized status-bar overrides for these captures.
-8. POST `/capture/display` or `/capture/reply` for sender states. After capture, answer the fixture tap and foreground the app to reconcile/end the activity; then shut down your simulator.
+5. Set the plain wallpaper: `xcrun simctl addmedia <udid> brand/app-store/wallpaper.png`, then Photos → Share → Use as Wallpaper for both Lock and Home Screen. Remove the photo after capturing.
+6. POST `/v1/taps` with `{"requestId":"marketing-tap-01","body":"Dinner's ready"}` (bodies are in `messages.mjs`; each capture is named for the message it shows, e.g. `iphone-takeover-dinner.png`). The foreground receiving view covers the app.
+7. For the system surfaces, relaunch with `SIMCTL_CHILD_SHOULDERTAP_CAPTURE_ACTIVITY=1` and `SIMCTL_CHILD_SHOULDERTAP_CAPTURE_BODY=<message>`. This explicitly starts a local activity for that same fictional tap. Allow Live Activities in the system prompt. The flag and helper are compiled out outside simulator Debug builds.
+8. Home shows compact Dynamic Island; press and hold it for expanded. Open Notification Center for the Lock Screen card. Use `--mask=black` for system captures. Avoid normalized status-bar overrides for these captures.
+9. POST `/capture/display` or `/capture/reply` (optional `{"text": ...}`) for sender states. After capture, answer the fixture tap and foreground the app to reconcile/end the activity; then shut down your simulator.
 
 Mac: `bash brand/app-store/capture-mac.sh`.
 

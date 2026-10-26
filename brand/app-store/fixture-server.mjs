@@ -1,5 +1,7 @@
 // Local fictional data for native marketing captures, never a production service.
 // Run: bun brand/app-store/fixture-server.mjs
+import { messages } from "./messages.mjs";
+
 const token = "marketing.sender01.fictional00000001";
 const deviceToken = "marketing.device01.fictional00000001";
 const sockets = new Set();
@@ -105,7 +107,7 @@ const server = Bun.serve({
           state: "acknowledged",
           acknowledgedAt: Date.now(),
           acknowledgedBy: "Alex’s MacBook",
-          response: { kind: "text", text: "On my way. Put the kettle on?" },
+          response: { kind: "text", text: body.text ?? messages.reply },
         });
       }
       announce(tap);
