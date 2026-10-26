@@ -2,6 +2,8 @@
 
 Updated October 5, 2026. App Store Connect app ID: `6818330440`.
 
+The public listing (October 26, 2026) is https://apps.apple.com/us/app/shouldertap-for-iphone/id6822383031 (`IPHONE_APP_URL` in `apps/web/src/lib/download.ts`).
+
 ## Configuration
 
 - iPhone device family only, iOS 17 minimum, version 1.0.
