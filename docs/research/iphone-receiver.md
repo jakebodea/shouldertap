@@ -128,6 +128,8 @@ Every tap goes to every device at once: the Macs over their sockets, linked iPho
 - **App layout.** Two tabs: Tap (the composer, or getting an invite) and Inbox (your inbox with a badge for waiting taps, or linking it). A new phone starts at the welcome, which offers both.
 - **Release signing.** The archive is unsigned, so `scripts/release-ios.sh` stamps the entitlements (`apps/ios/Shouldertap.entitlements`) on with an ad-hoc signature before exporting; otherwise the export drops push.
 
+The takeover follows Reduce Motion (the message crossfades and Reply opens without animating) and caps Dynamic Type at Accessibility 2, so the answers still fit under the message.
+
 ### Verified (October 2, 2026)
 
 On iOS 26.3 simulators against a deployed stage with the real APNs key (sandbox):
@@ -147,6 +149,5 @@ Not verifiable in the simulator, so check on a real iPhone:
 
 1. **Sender notifications.** Senders' phones could get a push when their tap is answered (the old "PUSH SEAM" idea); the APNs plumbing is now there.
 2. **Notification Content Extension (optional).** Without it, the long-pressed notification is plain iOS. One would give it the frame-color paper look from the mockup.
-3. **Takeover polish.** A reduced-motion check and Dynamic Type limits for the message size.
-4. **iPad.** The app is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`). iPad has Lock Screen Live Activities but no Dynamic Island.
-5. **Tests.** There's no iOS UI test target any more; the server's payloads and the Swift registration are unit-tested, and the flows were checked by hand in the simulator.
+3. **iPad.** The app is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`). iPad has Lock Screen Live Activities but no Dynamic Island.
+4. **Tests.** There's no iOS UI test target any more; the server's payloads and the Swift registration are unit-tested, and the flows were checked by hand in the simulator.
