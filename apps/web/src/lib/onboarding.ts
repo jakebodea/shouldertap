@@ -88,6 +88,12 @@ export const browserDeviceName = (userAgent: string, maxTouchPoints = 0) => {
 export const isPhoneBrowser = (userAgent: string) =>
   /iPhone|Android.+Mobile/u.test(userAgent);
 
+/**
+ * An iPhone that opened an invite link in Safari: the app isn't installed
+ * (an installed app opens /join itself), so the invite leads to the App Store.
+ */
+export const isIPhoneBrowser = (userAgent: string) => /iPhone/u.test(userAgent);
+
 export const OFFLINE_MESSAGE =
   "Couldn't reach Shouldertap. Check your connection and try again.";
 
