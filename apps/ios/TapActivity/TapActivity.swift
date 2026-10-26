@@ -100,7 +100,7 @@ enum TapActivities {
           content: ActivityContent(
             state: .init(
               body: environment["SHOULDERTAP_CAPTURE_BODY"] ?? "Can you come here?", answer: nil,
-              replies: environment["SHOULDERTAP_CAPTURE_REPLIES"]?.components(separatedBy: "|")),, staleDate: nil),
+              replies: environment["SHOULDERTAP_CAPTURE_REPLIES"]?.components(separatedBy: "|")), staleDate: nil),
           pushType: nil)
       } catch {
         print("Marketing Live Activity capture failed: \(error)")

@@ -5,8 +5,9 @@
     "02-dynamic-island",
     "03-lock-screen",
     "04-connected-screens",
-    "05-browser",
-    "06-reply"
+    "05-reply",
+    "06-invite",
+    "07-browser"
   ],
   "sizes": [
     [1320, 2868],

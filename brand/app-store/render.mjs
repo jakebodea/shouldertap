@@ -46,7 +46,7 @@ const invite = capture("iphone-invite");
 
 // Regions of the captures, in capture pixels (1206 × 2622 for iPhone).
 const regions = {
-  compactIsland: [373, 42, 483, 110],
+  compactIsland: [327, 37, 595, 120],
   lockActivity: [49, 1773, 1108, 461],
   replyAnswer: [40, 1630, 1126, 356],
 };
@@ -109,14 +109,15 @@ const slides = [
       width: 520,
       islandInCapture: true,
     });
-    const pill = 483 * 0.66;
+    const { 2: islandW, 3: islandH } = regions.compactIsland;
+    const pill = islandW * 0.66;
     return {
       name: "02-dynamic-island",
       title: "A familiar face.<br>In your Island.",
       sub: "See who’s tapping. Press and hold to answer.",
       bg: "#2340c8",
       ink: "#f2f3fb",
-      art: `${loupe(compact, { box: regions.compactIsland, width: pill, radius: 999, left: Math.round(330 - pill / 2), top: 370 })}<div class="hold" style="top:${370 + 110 * 0.66 + 18}px">Press and hold</div>${p.html}`,
+      art: `${loupe(compact, { box: regions.compactIsland, width: pill, radius: 999, left: Math.round(330 - pill / 2), top: 370 })}<div class="hold" style="top:${370 + islandH * 0.66 + 18}px">Press and hold</div>${p.html}`,
     };
   })(),
   (() => {

@@ -32,22 +32,22 @@ try {
     });
   });
   await page.goto("http://127.0.0.1:4319");
-  await page.evaluate(() =>
-    localStorage.setItem(
-      "shouldertap.pairings.v2",
-      JSON.stringify({
-        pairings: [
-          {
-            token: "marketing.sender01.fictional00000001",
-            credentialId: "sender01",
-            recipientName: recipient,
-            senderName: senders.dinner.name,
-            color: senders.dinner.color,
-          },
-        ],
-        selected: "sender01",
-      })
-    )
+  // The pairing is built here and passed in: evaluate runs in the page, not Node.
+  const pairings = {
+    pairings: [
+      {
+        token: "marketing.sender01.fictional00000001",
+        credentialId: "sender01",
+        recipientName: recipient,
+        senderName: senders.dinner.name,
+        color: senders.dinner.color,
+      },
+    ],
+    selected: "sender01",
+  };
+  await page.evaluate(
+    (value) => localStorage.setItem("shouldertap.pairings.v2", value),
+    JSON.stringify(pairings)
   );
   await page.goto("http://127.0.0.1:4319/tap");
   await page
