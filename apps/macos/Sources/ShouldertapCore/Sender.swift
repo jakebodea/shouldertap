@@ -207,6 +207,12 @@ public final class SenderSession: Identifiable {
     Task { try? await api.revoke(credentialId: keyID) }
   }
 
+  /// This phone's push setup, so the server can say when a tap from here
+  /// is answered.
+  public func registerPush(_ registration: PushRegistration) async throws {
+    try await api.registerPush(registration)
+  }
+
   // MARK: Sending
 
   /// Queue a tap and deliver it. Throws only for drafts the server would

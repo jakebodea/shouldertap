@@ -259,18 +259,20 @@ test(
       },
     });
     expect(registered.registered).toBeTruthy();
-    const senderCannotRegister = yield* (yield* client(url, sender.token)).inbox
-      .registerPush({
-        payload: {
-          environment: "sandbox",
-          topic: "app.shouldertap.ios",
-          deviceToken: null,
-          startToken: null,
-          liveActivities: false,
-        },
-      })
-      .pipe(Effect.flip);
-    expect(senderCannotRegister._tag).toBe("Unauthorized");
+    // A sender's iPhone registers too, to hear how its taps are answered.
+    const senderRegistered = yield* (yield* client(
+      url,
+      sender.token
+    )).inbox.registerPush({
+      payload: {
+        environment: "sandbox",
+        topic: "app.shouldertap.ios",
+        deviceToken: "12".repeat(32),
+        startToken: null,
+        liveActivities: false,
+      },
+    });
+    expect(senderRegistered.registered).toBeTruthy();
     const saved = yield* phone.inbox.activityToken({
       params: { id: trialTap.id },
       payload: { token: "ef".repeat(40) },

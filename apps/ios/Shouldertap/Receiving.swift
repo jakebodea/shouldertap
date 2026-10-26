@@ -17,6 +17,9 @@ private let log = Logger(subsystem: "app.shouldertap.iphone", category: "Receivi
 // Once a tap is answered anywhere, the server ends its Live Activity (with
 // the token we report for it) and sends a background push; the app clears
 // whatever is left. Opening the app reconciles too.
+//
+// Taps this iPhone sends: each sender key registers the same device token,
+// and the server notifies it when the tap is answered ("Sam: On it").
 
 /// Push setup and everything about taps arriving on this phone.
 @MainActor @Observable
@@ -28,6 +31,9 @@ final class Receiver {
   var notificationsAllowed: Bool?
 
   @ObservationIgnored private var inbox: ReceiverStore?
+  /// The people this phone taps, read only when registering (so a
+  /// background launch doesn't connect them just for that).
+  @ObservationIgnored private var senders: () -> [SenderSession] = { [] }
   /// The last tokens iOS gave us, kept across launches: after a restart iOS
   /// can take a while to hand them over again, and a change (Live
   /// Activities turned off) must reach the server before the next tap.
@@ -42,7 +48,7 @@ final class Receiver {
   @ObservationIgnored private var liveActivities = ActivityAuthorizationInfo().areActivitiesEnabled
   /// What the server last accepted (or is being sent), per credential, so
   /// token callbacks arriving together don't repeat it.
-  @ObservationIgnored private var registered: (credentialId: String, registration: PushRegistration)?
+  @ObservationIgnored private var registered: [String: PushRegistration] = [:]
   @ObservationIgnored private var observing = false
   /// Taps that were waiting at the last reconcile, to notice deleted ones.
   @ObservationIgnored private var waiting: Set<String> = []
@@ -50,19 +56,21 @@ final class Receiver {
 
   nonisolated static let category = "tap"
 
-  func attach(_ inbox: ReceiverStore) {
+  func attach(_ inbox: ReceiverStore, senders: @escaping () -> [SenderSession]) {
     self.inbox = inbox
+    self.senders = senders
     TapAnswers.handler = { [weak self] tapId, response in await self?.answer(tapId: tapId, response: response) }
     observe()
   }
 
   // MARK: Push setup
 
-  /// Called whenever the inbox may have changed (launch, a new credential,
-  /// foreground): keeps the server current. Never asks for permission; the
-  /// Notifications step of onboarding does (`requestNotifications`).
+  /// Called whenever the inbox or the people you tap may have changed
+  /// (launch, a new credential or pairing, foreground): keeps the server
+  /// current. Never asks for permission; the Notifications step of
+  /// onboarding does (`requestNotifications`).
   func sync() {
-    guard let inbox, inbox.phase == .ready else { return }
+    guard inbox?.phase == .ready || !senders().isEmpty else { return }
     Task {
       let settings = await UNUserNotificationCenter.current().notificationSettings()
       switch settings.authorizationStatus {
@@ -142,25 +150,39 @@ final class Receiver {
   }
 
   private func upload() async {
-    // The credential id only arrives with the first snapshot, which can be
-    // after the tokens: don't wait for it (it only keys the "already sent" check).
-    guard let inbox, inbox.phase == .ready else { return }
-    let credentialId = inbox.credentialId ?? ""
     let registration = PushRegistration(
       environment: Self.environment, topic: Bundle.main.bundleIdentifier ?? "app.shouldertap.iphone",
       deviceToken: deviceToken, startToken: startToken, liveActivities: liveActivities)
+    if let inbox, inbox.phase == .ready {
+      // The credential id only arrives with the first snapshot, which can be
+      // after the tokens: don't wait for it (it only keys the "already sent" check).
+      await register(registration, as: "inbox:\(inbox.credentialId ?? "")", with: inbox.registerPush)
+    }
+    // Senders only hear answers, as notifications: the device token is all they need.
+    guard registration.deviceToken != nil else { return }
+    var answers = registration
+    answers.startToken = nil
+    answers.liveActivities = false
+    for session in senders() {
+      await register(answers, as: "sender:\(session.id)", with: session.registerPush)
+    }
+  }
+
+  private func register(
+    _ registration: PushRegistration, as key: String, with send: (PushRegistration) async throws -> Void
+  ) async {
     guard registration.deviceToken != nil || registration.startToken != nil else { return }
-    if let registered, registered.credentialId == credentialId, registered.registration == registration { return }
-    let previous = registered
-    registered = (credentialId, registration)
+    guard registered[key] != registration else { return }
+    let previous = registered[key]
+    registered[key] = registration
     do {
-      try await inbox.registerPush(registration)
+      try await send(registration)
       log.notice(
-        "Registered for pushes: device token \(registration.deviceToken != nil), start token \(registration.startToken != nil), Live Activities \(registration.liveActivities)"
+        "Registered \(key, privacy: .public) for pushes: device token \(registration.deviceToken != nil), start token \(registration.startToken != nil), Live Activities \(registration.liveActivities)"
       )
     } catch {
-      registered = previous
-      log.error("Couldn't register for pushes: \(error)")
+      registered[key] = previous
+      log.error("Couldn't register \(key, privacy: .public) for pushes: \(error)")
     }
   }
 
@@ -244,7 +266,8 @@ final class Receiver {
 }
 
 /// Tap notifications: while the app is open the takeover shows instead of a
-/// banner; their actions answer the tap.
+/// banner; their actions answer the tap. Answers to your own taps show as
+/// usual.
 final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
   static let shared = NotificationRouter()
 

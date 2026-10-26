@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     // Also on background launches (a Lock Screen answer, a background push),
     // which never build the UI.
     Receiver.registerCategory()
-    Receiver.shared.attach(Stores.inbox)
+    Receiver.shared.attach(Stores.inbox, senders: { Stores.senders.sessions })
     return true
   }
 

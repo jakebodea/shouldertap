@@ -210,9 +210,10 @@ public enum PushEnvironment: String, Sendable, Codable {
   case sandbox, production
 }
 
-/// A linked iPhone's push setup (`PUT /v1/push`): a tap reaches it as a Live
-/// Activity when it has a start token and Live Activities are on, otherwise
-/// as a notification.
+/// An iPhone's push setup (`PUT /v1/push`): a tap reaches a linked iPhone as
+/// a Live Activity when it has a start token and Live Activities are on,
+/// otherwise as a notification. Sent with a sender key, it's where answers to
+/// that sender's taps go.
 public struct PushRegistration: Sendable, Codable, Hashable {
   public var environment: PushEnvironment
   /// The app's bundle id.
