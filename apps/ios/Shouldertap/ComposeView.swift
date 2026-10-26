@@ -139,6 +139,9 @@ private struct ComposerPage: View {
   let session: SenderSession
 
   @State private var draft = ""
+  /// This tap's answers when changed here; nil follows the account's defaults.
+  @State private var replies: [String]?
+  @State private var savingReplies = false
   @State private var sent = 0
   @State private var deleting: Tap?
   @State private var deleteError: String?
@@ -146,6 +149,8 @@ private struct ComposerPage: View {
 
   private var recipient: String { session.pairing.recipientName }
   private var trimmed: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
+  private var defaultReplies: [String] { Stores.account.me?.defaultReplies ?? defaultQuickReplies }
+  private var shownReplies: [String] { replies ?? defaultReplies }
 
   var body: some View {
     Page {
@@ -168,6 +173,7 @@ private struct ComposerPage: View {
                 .padding(10)
             }
           }
+        replyOptions
         Button(action: send) {
           Label {
             Text("Send tap")
@@ -176,7 +182,7 @@ private struct ComposerPage: View {
           }
         }
         .buttonStyle(PillStyle(color: session.color))
-        .disabled(trimmed.isEmpty)
+        .disabled(trimmed.isEmpty || tidyQuickReplies(shownReplies) == nil)
         .accessibilityIdentifier("send-button")
       }
 
@@ -214,6 +220,38 @@ private struct ComposerPage: View {
         deleteError = (error as? APIError)?.errorDescription ?? error.localizedDescription
       }
     }
+  }
+
+  /// The two answers this tap offers, editable for it alone.
+  private var replyOptions: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("\(recipient) can answer")
+        .font(Bricolage.bold(14, relativeTo: .subheadline))
+        .foregroundStyle(Paper.tone)
+      QuickReplyFields(replies: Binding(get: { shownReplies }, set: { replies = $0 }))
+      if case .failure(let problem) = normalizeQuickReplies(shownReplies) {
+        Text(problem.localizedDescription)
+          .font(Bricolage.medium(14))
+          .foregroundStyle(.red)
+      } else if let chosen = tidyQuickReplies(shownReplies), chosen != defaultReplies {
+        HStack(spacing: 4) {
+          if Stores.account.me != nil {
+            Button("Use these for every tap") {
+              savingReplies = true
+              Task {
+                if await Stores.account.saveQuickReplies(chosen) { replies = nil }
+                savingReplies = false
+              }
+            }
+            .disabled(savingReplies)
+          }
+          Button("Reset") { replies = nil }
+        }
+        .buttonStyle(QuietStyle())
+        .padding(.horizontal, -16)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private var header: some View {
@@ -279,12 +317,44 @@ private struct ComposerPage: View {
 
   private func send() {
     do {
-      try withAnimation(.outExpo(0.5)) { try session.send(draft) }
+      try withAnimation(.outExpo(0.5)) { try session.send(draft, replies: shownReplies) }
       draft = ""
+      replies = nil
       focused = false
       sent += 1
     } catch {
       // The button is disabled for empty drafts and the field caps length.
+    }
+  }
+}
+
+/// The two one-tap answers a tap offers, editable. The number on each is the
+/// key that sends it from a computer.
+struct QuickReplyFields: View {
+  @Binding var replies: [String]
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ForEach(0..<2, id: \.self) { index in
+        HStack(spacing: 8) {
+          Text("\(index + 1)")
+            .font(Bricolage.bold(14).monospacedDigit())
+            .foregroundStyle(Paper.tone)
+          TextField(
+            "Reply \(index + 1)",
+            text: Binding(
+              get: { replies.indices.contains(index) ? replies[index] : "" },
+              set: { value in
+                var next = replies + Array(repeating: "", count: max(0, 2 - replies.count))
+                next[index] = String(value.prefix(maxQuickReplyLength))
+                replies = next
+              })
+          )
+          .submitLabel(.done)
+          .accessibilityLabel("Reply option \(index + 1)")
+        }
+        .field()
+      }
     }
   }
 }

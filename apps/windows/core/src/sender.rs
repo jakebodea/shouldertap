@@ -92,6 +92,9 @@ pub struct OutgoingTap {
     /// The theme it was sent in; missing (saved by an older version) is Default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<TapTheme>,
+    /// The answers it offers, when not On it and In 10 min.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replies: Option<Vec<String>>,
 }
 
 impl OutgoingTap {
@@ -114,6 +117,7 @@ pub trait SenderPersistence: Send + Sync {
 pub enum SendError {
     Empty,
     TooLong,
+    Replies(QuickRepliesError),
 }
 
 impl fmt::Display for SendError {
@@ -121,6 +125,7 @@ impl fmt::Display for SendError {
         match self {
             Self::Empty => f.write_str("Write a message first."),
             Self::TooLong => write!(f, "Taps are {MAX_TAP_LENGTH} characters at most."),
+            Self::Replies(error) => write!(f, "{error}."),
         }
     }
 }
@@ -274,7 +279,9 @@ impl SenderStore {
     /// Queue a tap in `theme` and deliver it. Fails only for drafts the
     /// server would refuse anyway; network trouble leaves it in the outbox to
     /// retry. A theme other than Default goes with the patron key, if any.
-    pub fn send(&self, id: &str, body: &str, theme: TapTheme) -> Result<(), SendError> {
+    /// `replies` are the two answers to offer; None (or On it and In 10 min)
+    /// offers the presets.
+    pub fn send(&self, id: &str, body: &str, theme: TapTheme, replies: Option<&[String]>) -> Result<(), SendError> {
         let trimmed = body.trim();
         if trimmed.is_empty() {
             return Err(SendError::Empty);
@@ -282,6 +289,10 @@ impl SenderStore {
         if trimmed.chars().count() > MAX_TAP_LENGTH {
             return Err(SendError::TooLong);
         }
+        let replies = match replies {
+            Some(replies) => normalize_quick_replies(replies).map_err(SendError::Replies)?,
+            None => None,
+        };
         let item = OutgoingTap {
             request_id: new_request_id(),
             body: trimmed.into(),
@@ -289,6 +300,7 @@ impl SenderStore {
             failed: false,
             error: None,
             theme: theme.is_paid().then_some(theme),
+            replies,
         };
         let queued = item.clone();
         if self.inner.update_outbox(id, move |outbox| outbox.insert(0, queued)) {
@@ -307,7 +319,7 @@ impl SenderStore {
             .cloned();
         if let Some(item) = item {
             self.discard(id, request_id);
-            let _ = self.send(id, &item.body, item.theme());
+            let _ = self.send(id, &item.body, item.theme(), item.replies.as_deref());
         }
     }
 
@@ -550,7 +562,13 @@ impl Inner {
         let id = id.to_string();
         let patron_key = self.patron_key.lock().unwrap().clone();
         std::thread::spawn(move || {
-            match api.send_tap(&item.request_id, &item.body, item.theme(), patron_key.as_deref()) {
+            match api.send_tap(
+                &item.request_id,
+                &item.body,
+                item.theme(),
+                patron_key.as_deref(),
+                item.replies.as_deref(),
+            ) {
                 Ok(tap) => {
                     inner.update_outbox(&id, |outbox| {
                         outbox.retain(|queued| queued.request_id != item.request_id)

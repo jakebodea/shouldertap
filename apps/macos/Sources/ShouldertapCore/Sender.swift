@@ -92,6 +92,8 @@ public struct OutgoingTap: Sendable, Codable, Hashable, Identifiable {
   public var error: String?
   /// The style it was sent in; nil on outboxes saved before themes (Default).
   public var theme: TapTheme?
+  /// The answers it offers, when not On it and In 10 min.
+  public var replies: [String]?
 
   public var id: String { requestId }
 }
@@ -119,11 +121,13 @@ public protocol SenderPersistence: Sendable {
 
 public enum SendError: Error, Equatable, LocalizedError {
   case empty, tooLong
+  case replies(QuickRepliesError)
 
   public var errorDescription: String? {
     switch self {
     case .empty: "Write a message first."
     case .tooLong: "Taps are \(maxTapLength) characters at most."
+    case .replies(let error): error.errorDescription.map { "\($0)." }
     }
   }
 }
@@ -215,15 +219,23 @@ public final class SenderSession: Identifiable {
 
   // MARK: Sending
 
-  /// Queue a tap and deliver it. Throws only for drafts the server would
-  /// reject anyway; network trouble leaves it in the outbox to retry.
-  public func send(_ body: String) throws(SendError) {
+  /// Queue a tap and deliver it, offering `replies` (On it and In 10 min
+  /// when nil). Throws only for drafts the server would reject anyway;
+  /// network trouble leaves it in the outbox to retry.
+  public func send(_ body: String, replies: [String]? = nil) throws(SendError) {
     let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { throw .empty }
     guard trimmed.count <= maxTapLength else { throw .tooLong }
+    var offered: [String]?
+    if let replies {
+      switch normalizeQuickReplies(replies) {
+      case .success(let tidied): offered = tidied
+      case .failure(let error): throw .replies(error)
+      }
+    }
     let item = OutgoingTap(
       requestId: newRequestId(), body: trimmed, createdAt: Date.now.timeIntervalSince1970 * 1000, failed: false,
-      theme: style().theme)
+      theme: style().theme, replies: offered)
     updateOutbox { [item] + $0 }
     deliver(item)
   }
@@ -253,7 +265,8 @@ public final class SenderSession: Identifiable {
       defer { inFlight.remove(item.requestId) }
       do {
         let tap = try await api.sendTap(
-          requestId: item.requestId, body: item.body, theme: item.theme ?? .default, patronKey: patronKey)
+          requestId: item.requestId, body: item.body, theme: item.theme ?? .default, patronKey: patronKey,
+          replies: item.replies)
         updateOutbox { $0.filter { $0.requestId != item.requestId } }
         merge(tap)
         onSent(tap)

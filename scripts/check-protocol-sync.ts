@@ -126,6 +126,51 @@ export const parseEnumCases = (source: string, name: string): string[] => {
 
 /** Every theme must render on both computers; a server can't store one
  * either client lacks (the Inbox's CHECK constraint uses the same list). */
+/** Quick replies: the length cap and the presets a tap offers by default. */
+export const quickReplyErrors = (swift: string, rust: string): string[] => {
+  const out: string[] = [];
+  const contracts = read("packages/domain/src/contracts.ts");
+  const responses = read("packages/domain/src/responses.ts");
+  const quickReply = {
+    ts: contracts.match(/export const MAX_QUICK_REPLY_LENGTH = (?<n>\d+)/u)
+      ?.groups?.n,
+    swift: swift.match(/public let maxQuickReplyLength = (?<n>\d+)/u)?.groups
+      ?.n,
+    rust: rust.match(/pub const MAX_QUICK_REPLY_LENGTH: usize = (?<n>\d+)/u)
+      ?.groups?.n,
+  };
+  if (
+    !quickReply.ts ||
+    quickReply.swift !== quickReply.ts ||
+    quickReply.rust !== quickReply.ts
+  ) {
+    out.push(
+      `MAX_QUICK_REPLY_LENGTH: TS ${quickReply.ts} / Swift ${quickReply.swift} / Rust ${quickReply.rust}`
+    );
+  }
+  const presets = {
+    ts: responses.match(
+      /export const DEFAULT_QUICK_REPLIES: QuickReplies = \[(?<v>[^\]]*)\]/u
+    )?.groups?.v,
+    swift: swift.match(/public let defaultQuickReplies = \[(?<v>[^\]]*)\]/u)
+      ?.groups?.v,
+    rust: rust.match(
+      /pub const DEFAULT_QUICK_REPLIES: \[&str; 2\] = \[(?<v>[^\]]*)\]/u
+    )?.groups?.v,
+  };
+  if (
+    !presets.ts ||
+    presets.swift !== presets.ts ||
+    presets.rust !== presets.ts
+  ) {
+    out.push(
+      `DEFAULT_QUICK_REPLIES: TS [${presets.ts}] / Swift [${presets.swift}] / Rust [${presets.rust}]`
+    );
+  }
+
+  return out;
+};
+
 const themeErrors = (swift: string, rust: string): string[] => {
   const errors: string[] = [];
   const contracts = read("packages/domain/src/contracts.ts");
@@ -215,7 +260,7 @@ export const collectProtocolSyncErrors = (): string[] => {
     );
   }
 
-  errors.push(...themeErrors(swift, rust));
+  errors.push(...quickReplyErrors(swift, rust), ...themeErrors(swift, rust));
 
   if (iosProject.includes("ShouldertapUITests")) {
     errors.push(
@@ -239,6 +284,6 @@ if (import.meta.main) {
     read("packages/domain/src/colors.ts")
   ).size;
   console.log(
-    `OK: ${colorCount} person colors, tap themes, sender theme settings and tap length limits match across Swift and Rust.`
+    `OK: ${colorCount} person colors, tap themes, sender theme settings, tap length limits and quick reply presets match across Swift and Rust.`
   );
 }

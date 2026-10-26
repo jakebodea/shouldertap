@@ -55,6 +55,10 @@ final class Receiver {
   @ObservationIgnored private var reportedActivities: Set<String> = []
 
   nonisolated static let category = "tap"
+  /// A tap whose sender chose its answers: iOS fixes a notification's
+  /// buttons when the app registers them, so it offers Reply only, and
+  /// opening it shows the sender's answers.
+  nonisolated static let replyOnlyCategory = "tap-reply"
 
   func attach(_ inbox: ReceiverStore, senders: @escaping () -> [SenderSession]) {
     self.inbox = inbox
@@ -259,7 +263,15 @@ final class Receiver {
             identifier: TapResponse.Kind.text.rawValue, title: "Reply", textInputButtonTitle: "Send",
             textInputPlaceholder: "Reply"),
         ],
-        intentIdentifiers: [])
+        intentIdentifiers: []),
+      UNNotificationCategory(
+        identifier: replyOnlyCategory,
+        actions: [
+          UNTextInputNotificationAction(
+            identifier: TapResponse.Kind.text.rawValue, title: "Reply", textInputButtonTitle: "Send",
+            textInputPlaceholder: "Reply")
+        ],
+        intentIdentifiers: []),
     ])
     center.delegate = NotificationRouter.shared
   }
@@ -274,7 +286,8 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification
   ) async -> UNNotificationPresentationOptions {
-    guard notification.request.content.categoryIdentifier == Receiver.category else { return [.banner, .sound] }
+    let category = notification.request.content.categoryIdentifier
+    guard category == Receiver.category || category == Receiver.replyOnlyCategory else { return [.banner, .sound] }
     return []
   }
 
@@ -368,10 +381,13 @@ struct TapTakeover: View {
 
   private var answerRows: some View {
     VStack(spacing: 8) {
-      Button { answer(.onIt) } label: { label(.onIt, "On it") }
+      let options = tap.quickReplies
+      // A sender's own words get no icon: a tick or a clock might not fit them.
+      let custom = tap.replies != nil
+      Button { answer(options[0].response) } label: { label(custom ? nil : .onIt, options[0].label) }
         .buttonStyle(PillStyle(color: tap.senderColor))
         .accessibilityIdentifier("takeover-on-it")
-      Button { answer(.in10) } label: { label(.in10, "In 10 min") }
+      Button { answer(options[1].response) } label: { label(custom ? nil : .in10, options[1].label) }
         .buttonStyle(PillStyle())
       Button { withAnimation(reduceMotion ? nil : .outExpo(0.4)) { replying = true } } label: { label(.reply, "Reply") }
         .buttonStyle(PillStyle())
@@ -406,10 +422,10 @@ struct TapTakeover: View {
     Task { await receiver.answer(tapId: tapId, response: response) }
   }
 
-  private func label(_ icon: Icon, _ text: String) -> some View {
+  private func label(_ icon: Icon?, _ text: String) -> some View {
     HStack(spacing: 8) {
-      IconView(icon: icon, size: 20)
-      Text(text)
+      if let icon { IconView(icon: icon, size: 20) }
+      Text(text).lineLimit(1).minimumScaleFactor(0.7)
     }
   }
 

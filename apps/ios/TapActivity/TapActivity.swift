@@ -15,6 +15,15 @@ nonisolated struct TapActivityAttributes: ActivityAttributes {
     var body: String
     /// Set once answered, e.g. "On it · Studio Mac".
     var answer: String?
+    /// The sender's own two answers, when they changed them from On it and
+    /// In 10 min.
+    var replies: [String]?
+
+    /// What the buttons offer, as `Tap.quickReplies`.
+    var quickReplies: [QuickReply] {
+      Tap(id: "", senderId: "", senderName: "", senderColor: .cobalt, body: body, createdAt: 0, replies: replies)
+        .quickReplies
+    }
   }
 
   var tapId: String
@@ -26,24 +35,34 @@ nonisolated struct TapActivityAttributes: ActivityAttributes {
   var createdDate: Date { Date(timeIntervalSince1970: createdAt / 1000) }
 }
 
-/// "On it" / "In 10 min" from the Lock Screen or the Dynamic Island,
-/// without opening the app. The system runs it in the app's process.
+/// "On it" / "In 10 min" (or the sender's own answers) from the Lock Screen
+/// or the Dynamic Island, without opening the app. The system runs it in the
+/// app's process.
 struct AnswerTapIntent: LiveActivityIntent {
   static let title: LocalizedStringResource = "Answer tap"
   static let isDiscoverable = false
 
   @Parameter(title: "Tap") var tapId: String
   @Parameter(title: "Answer") var kind: String
+  /// A sender's own answer, sent as text.
+  @Parameter(title: "Text") var text: String?
 
   init() {}
 
-  init(tapId: String, response: TapResponse.Kind) {
+  init(tapId: String, response: TapResponse) {
     self.tapId = tapId
-    kind = response.rawValue
+    kind = response.kind.rawValue
+    text = response.text
   }
 
   func perform() async throws -> some IntentResult {
-    let response = TapResponse(kind: TapResponse.Kind(rawValue: kind) ?? .onIt)
+    let chosen = TapResponse.Kind(rawValue: kind) ?? .onIt
+    let response: TapResponse =
+      if chosen == .text, let text, !text.isEmpty {
+        TapResponse(kind: .text, text: text)
+      } else {
+        TapResponse(kind: chosen == .text ? .onIt : chosen)
+      }
     await TapAnswers.answer(tapId: tapId, response: response)
     return .result()
   }

@@ -323,6 +323,7 @@ impl ApiClient {
         body: &str,
         theme: TapTheme,
         patron_key: Option<&str>,
+        replies: Option<&[String]>,
     ) -> Result<Tap, ApiError> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -333,6 +334,9 @@ impl ApiClient {
             theme: Option<TapTheme>,
             #[serde(skip_serializing_if = "Option::is_none")]
             patron_key: Option<&'a str>,
+            /// The answers to offer instead of On it and In 10 min.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            replies: Option<&'a [String]>,
         }
         let (theme, patron_key) = match patron_key {
             Some(key) if theme.is_paid() => (Some(theme), Some(key)),
@@ -346,6 +350,7 @@ impl ApiClient {
                 body,
                 theme,
                 patron_key,
+                replies,
             }),
         )
     }
@@ -454,6 +459,15 @@ impl ApiClient {
 
     pub fn set_profile(&self, profile: &Profile) -> Result<Me, ApiError> {
         self.send("POST", "/account/profile", Some(profile))
+    }
+
+    /// None goes back to On it and In 10 min (sent as null).
+    pub fn set_quick_replies(&self, replies: Option<&[String]>) -> Result<Me, ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            replies: Option<&'a [String]>,
+        }
+        self.send("POST", "/account/quick-replies", Some(&Body { replies }))
     }
 
     pub fn sync(

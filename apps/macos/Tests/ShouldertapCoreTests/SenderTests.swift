@@ -40,7 +40,11 @@ private func sentTap(_ body: String) -> String {
 }
 
 private func body(_ request: URLRequest) -> [String: String] {
-  guard let stream = request.httpBodyStream else { return [:] }
+  (try? JSONDecoder().decode([String: String].self, from: rawBody(request))) ?? [:]
+}
+
+private func rawBody(_ request: URLRequest) -> Data {
+  guard let stream = request.httpBodyStream else { return Data() }
   stream.open()
   defer { stream.close() }
   var data = Data()
@@ -50,7 +54,7 @@ private func body(_ request: URLRequest) -> [String: String] {
     if count <= 0 { break }
     data.append(buffer, count: count)
   }
-  return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+  return data
 }
 
 @MainActor
@@ -198,6 +202,32 @@ private func makeStore(_ persistence: MemorySenderPersistence, handler: @escapin
     let session = try #require(store.sessions.first)
     try session.send("Call me")
     #expect(await eventually { session.taps.first?.body == "Call me" })
+  }
+
+  @Test func aTapCarriesTheSendersOwnReplies() async throws {
+    let persistence = MemorySenderPersistence(pairings: [pairing()])
+    let sent = Collected<[[String]]>()
+    let store = makeStore(persistence) { request in
+      guard request.url!.path == "/v1/taps" else { return (503, "") }
+      let payload = try! JSONSerialization.jsonObject(with: rawBody(request)) as! [String: Any]
+      sent.append((payload["replies"] as? [String]) ?? [])
+      return (201, sentTap(payload["body"] as? String ?? ""))
+    }
+    store.start()
+    let session = try #require(store.sessions.first)
+    try session.send("Dinner's ready", replies: [" Coming! ", "Can't now"])
+    #expect(session.outbox.first?.replies == ["Coming!", "Can't now"])
+    #expect(await eventually { sent.value.count == 1 })
+    #expect(sent.value == [["Coming!", "Can't now"]])
+    #expect(throws: SendError.replies(.same)) { try session.send("Again", replies: ["Yes", "yes"]) }
+  }
+
+  @Test func onItAndInTenMinutesAreSentAsTheDefaults() throws {
+    #expect(try normalizeQuickReplies(["On it", " In 10 min"]).get() == nil)
+    #expect(throws: QuickRepliesError.missing) { try normalizeQuickReplies(["Yes", ""]).get() }
+    #expect(throws: QuickRepliesError.tooLong) {
+      try normalizeQuickReplies(["Yes", "Give me twenty-five minutes"]).get()
+    }
   }
 
   @Test func outboxesSavedBeforeThemesStillDecode() throws {

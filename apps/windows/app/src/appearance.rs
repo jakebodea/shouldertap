@@ -87,6 +87,7 @@ impl AppearanceView {
                 response: None,
                 sequence: 0,
                 theme: latest.and_then(|t| t.theme),
+                replies: None,
             },
             queued: 1,
         }

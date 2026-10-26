@@ -104,6 +104,7 @@ fn a_new_key_for_the_same_person_replaces_the_old_one_and_keeps_unsent_taps() {
         failed: true,
         error: Some("Nope".into()),
         theme: None,
+        replies: None,
     };
     persistence.save_outbox(std::slice::from_ref(&unsent), "s1");
     let store = make_store(&persistence, &Stub::new(|_| (503, String::new())));
@@ -149,7 +150,9 @@ fn sends_with_a_request_id_and_merges_the_tap() {
     });
     let store = make_store(&persistence, &stub);
     store.start();
-    store.send("s1s1s1s1", "  Dinner's ready ", TapTheme::Default).unwrap();
+    store
+        .send("s1s1s1s1", "  Dinner's ready ", TapTheme::Default, None)
+        .unwrap();
     assert_eq!(session(&store).outbox[0].body, "Dinner's ready");
     assert!(eventually(|| session(&store).outbox.is_empty()));
     assert_eq!(session(&store).taps[0].body, "Dinner's ready");
@@ -158,6 +161,55 @@ fn sends_with_a_request_id_and_merges_the_tap() {
     let body = stub.body_for("/v1/taps").unwrap();
     assert_eq!(body["body"], "Dinner's ready");
     assert_eq!(body["requestId"].as_str().unwrap().len(), 32);
+}
+
+#[test]
+fn a_tap_carries_the_senders_own_replies() {
+    let persistence = rosa();
+    let stub = Stub::new(|seen| {
+        if seen.path != "/v1/taps" {
+            return (503, String::new());
+        }
+        let body = seen.body.as_ref().unwrap();
+        (201, sent_tap(body["body"].as_str().unwrap()))
+    });
+    let store = make_store(&persistence, &stub);
+    store.start();
+    let replies = [" Coming! ".to_string(), "Can't now".to_string()];
+    store
+        .send("s1s1s1s1", "Dinner's ready", TapTheme::Default, Some(&replies))
+        .unwrap();
+    assert_eq!(
+        session(&store).outbox[0].replies,
+        Some(vec!["Coming!".to_string(), "Can't now".to_string()])
+    );
+    assert!(eventually(|| session(&store).outbox.is_empty()));
+    assert_eq!(
+        stub.body_for("/v1/taps").unwrap()["replies"],
+        serde_json::json!(["Coming!", "Can't now"])
+    );
+
+    let same = ["Yes".to_string(), "yes".to_string()];
+    assert_eq!(
+        store.send("s1s1s1s1", "Again", TapTheme::Default, Some(&same)),
+        Err(SendError::Replies(QuickRepliesError::Same))
+    );
+}
+
+#[test]
+fn on_it_and_in_ten_minutes_are_sent_as_the_defaults() {
+    let presets = ["On it".to_string(), " In 10 min".to_string()];
+    assert_eq!(normalize_quick_replies(&presets), Ok(None));
+    assert_eq!(
+        normalize_quick_replies(&["Yes".to_string(), String::new()]),
+        Err(QuickRepliesError::Missing)
+    );
+    let long = ["Yes".to_string(), "Give me twenty-five minutes".to_string()];
+    assert_eq!(normalize_quick_replies(&long), Err(QuickRepliesError::TooLong));
+    assert_eq!(
+        QuickRepliesError::TooLong.to_string(),
+        "Keep each reply option to 24 characters"
+    );
 }
 
 #[test]
@@ -173,7 +225,7 @@ fn sends_carry_the_pairing_token() {
     });
     let store = make_store(&rosa(), &stub);
     store.start();
-    store.send("s1s1s1s1", "Hi", TapTheme::Default).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Default, None).unwrap();
     assert!(eventually(|| session(&store).outbox.is_empty()));
     assert_eq!(
         *tokens.lock().unwrap(),
@@ -185,14 +237,20 @@ fn sends_carry_the_pairing_token() {
 fn rejects_empty_and_overlong_drafts() {
     let store = make_store(&rosa(), &Stub::new(|_| (503, String::new())));
     store.start();
-    assert_eq!(store.send("s1s1s1s1", "   ", TapTheme::Default), Err(SendError::Empty));
     assert_eq!(
-        store.send("s1s1s1s1", &"a".repeat(281), TapTheme::Default),
+        store.send("s1s1s1s1", "   ", TapTheme::Default, None),
+        Err(SendError::Empty)
+    );
+    assert_eq!(
+        store.send("s1s1s1s1", &"a".repeat(281), TapTheme::Default, None),
         Err(SendError::TooLong)
     );
     assert_eq!(SendError::TooLong.to_string(), "Taps are 280 characters at most.");
     // Exactly at the limit is fine.
-    assert_eq!(store.send("s1s1s1s1", &"é".repeat(280), TapTheme::Default), Ok(()));
+    assert_eq!(
+        store.send("s1s1s1s1", &"é".repeat(280), TapTheme::Default, None),
+        Ok(())
+    );
     assert_eq!(session(&store).outbox.len(), 1);
 }
 
@@ -217,7 +275,7 @@ fn offline_sends_keep_their_request_id_until_accepted() {
     });
     let store = make_store(&persistence, &stub);
     store.start();
-    store.send("s1s1s1s1", "Hi", TapTheme::Default).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Default, None).unwrap();
     assert!(eventually(|| stub.count("/v1/taps") == 1));
     std::thread::sleep(Duration::from_millis(50));
     assert!(!session(&store).outbox[0].failed);
@@ -241,7 +299,7 @@ fn refused_sends_are_marked_failed_then_retried() {
     });
     let store = make_store(&rosa(), &stub);
     store.start();
-    store.send("s1s1s1s1", "Hi", TapTheme::Default).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Default, None).unwrap();
     assert!(eventually(|| session(&store).outbox[0].failed));
     assert_eq!(session(&store).outbox[0].error.as_deref(), Some("Nope"));
     let first = session(&store).outbox[0].request_id.clone();
@@ -267,7 +325,7 @@ fn a_patrons_tap_carries_its_theme_and_key() {
     let store = make_store(&rosa(), &stub);
     store.set_patron_key(Some("stp1.patron-key".into()));
     store.start();
-    store.send("s1s1s1s1", "Hi", TapTheme::Terminal).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Terminal, None).unwrap();
     assert!(eventually(|| stub.count("/v1/taps") == 1));
     let body = stub.body_for("/v1/taps").unwrap();
     assert_eq!(body["theme"], "terminal");
@@ -282,14 +340,14 @@ fn default_or_keyless_taps_carry_no_theme() {
     });
     let store = make_store(&rosa(), &stub);
     store.start();
-    store.send("s1s1s1s1", "Hi", TapTheme::Note).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Note, None).unwrap();
     assert!(eventually(|| stub.count("/v1/taps") == 1));
     let keyless = stub.body_for("/v1/taps").unwrap();
     assert_eq!(keyless.get("theme"), None);
     assert_eq!(keyless.get("patronKey"), None);
 
     store.set_patron_key(Some("stp1.patron-key".into()));
-    store.send("s1s1s1s1", "Hi", TapTheme::Default).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Default, None).unwrap();
     assert!(eventually(|| stub.count("/v1/taps") == 2));
     let plain = stub.body_for("/v1/taps").unwrap();
     assert_eq!(plain.get("theme"), None);
@@ -305,7 +363,7 @@ fn trying_again_keeps_the_theme() {
     let store = make_store(&rosa(), &stub);
     store.set_patron_key(Some("stp1.patron-key".into()));
     store.start();
-    store.send("s1s1s1s1", "Hi", TapTheme::Billboard).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Billboard, None).unwrap();
     assert!(eventually(|| session(&store).outbox[0].failed));
     let first = session(&store).outbox[0].request_id.clone();
     store.retry("s1s1s1s1", &first);
@@ -324,8 +382,8 @@ fn delivered_taps_are_counted() {
     let count = delivered.clone();
     store.on_delivered(move || *count.lock().unwrap() += 1);
     store.start();
-    store.send("s1s1s1s1", "Hi", TapTheme::Default).unwrap();
-    store.send("s1s1s1s1", "Again", TapTheme::Default).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Default, None).unwrap();
+    store.send("s1s1s1s1", "Again", TapTheme::Default, None).unwrap();
     assert!(eventually(|| *delivered.lock().unwrap() == 2));
 }
 
@@ -345,7 +403,7 @@ fn a_paused_inbox_fails_with_its_message_and_is_not_retried() {
     });
     let store = make_store(&rosa(), &stub);
     store.start();
-    store.send("s1s1s1s1", "Hi", TapTheme::Default).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Default, None).unwrap();
     assert!(eventually(|| session(&store).outbox[0].failed));
     assert_eq!(session(&store).outbox[0].error.as_deref(), Some(paused));
     // A resync pushes queued sends again, but not refused ones.
@@ -364,7 +422,7 @@ fn a_refused_key_on_send_forgets_the_pairing() {
     });
     let store = make_store(&persistence, &stub);
     store.start();
-    store.send("s1s1s1s1", "Hi", TapTheme::Default).unwrap();
+    store.send("s1s1s1s1", "Hi", TapTheme::Default, None).unwrap();
     assert!(eventually(|| store.state().sessions.is_empty()));
     assert_eq!(store.state().notice.as_deref(), Some("Jamie removed this pairing"));
     assert_eq!(persistence.load_pairings(), []);
@@ -547,6 +605,7 @@ fn without_a_vault_pairings_and_outboxes_stay_in_files() {
         failed: true,
         error: Some("Nope".into()),
         theme: None,
+        replies: None,
     }];
     files.save_outbox(&outbox, "s1s1s1s1");
 

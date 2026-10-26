@@ -84,14 +84,14 @@ public struct APIClient: Sendable {
   /// always return the same tap; the same id with a different body is a conflict.
   /// A theme other than Default goes only with a patron key; the server
   /// checks the key and stores Default when it isn't an active patron's.
-  public func sendTap(requestId: String, body: String, theme: TapTheme = .default, patronKey: String? = nil)
-    async throws -> Tap
-  {
-    var request = ["requestId": requestId, "body": body]
-    if theme != .default, let patronKey {
-      request["theme"] = theme.rawValue
-      request["patronKey"] = patronKey
-    }
+  /// `replies` are the answers to offer instead of On it and In 10 min.
+  public func sendTap(
+    requestId: String, body: String, theme: TapTheme = .default, patronKey: String? = nil, replies: [String]? = nil
+  ) async throws -> Tap {
+    let themed = theme != .default && patronKey != nil
+    let request = SendTapBody(
+      requestId: requestId, body: body, theme: themed ? theme : nil, patronKey: themed ? patronKey : nil,
+      replies: replies)
     return try await send("POST", "/v1/taps", body: request)
   }
 
@@ -161,6 +161,14 @@ public struct APIClient: Sendable {
   // Transport
 
   private struct Acknowledge: Encodable { var response: TapResponse }
+  /// `SendTapRequest`; nil fields are left out.
+  private struct SendTapBody: Encodable {
+    var requestId: String
+    var body: String
+    var theme: TapTheme?
+    var patronKey: String?
+    var replies: [String]?
+  }
   private struct UpdateAppearance: Encodable {
     var motion: MotionPreference?  // omitted when nil: keep the saved value
     var senderThemes: SenderThemePreference?

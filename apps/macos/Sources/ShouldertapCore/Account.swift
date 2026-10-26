@@ -28,6 +28,12 @@ public struct Me: Decodable, Sendable, Hashable {
   /// How a new connection sees you unless you pick otherwise: the profile
   /// picked for your latest connection, else `profile`. Nil from older servers.
   public var sendProfile: Profile?
+  /// The answers their taps offer unless changed on one; nil (or an older
+  /// server) offers On it and In 10 min.
+  public var quickReplies: [String]?
+
+  /// What a new tap offers to start with.
+  public var defaultReplies: [String] { quickReplies ?? defaultQuickReplies }
 }
 
 /// A sender key the account hands this device: tap `grant.recipientName` as
@@ -290,6 +296,34 @@ public final class AccountStore {
     defer { busy = false }
     do {
       apply(try await request("POST", "/account/profile", body: Profile(name: name, color: color)))
+      return true
+    } catch { expireIfUnauthorized(error); report(error); return false }
+  }
+
+  private struct QuickRepliesBody: Encodable {
+    var replies: [String]?
+    // Sent as null rather than left out: null goes back to the presets.
+    func encode(to encoder: any Encoder) throws {
+      var container = encoder.container(keyedBy: CodingKeys.self)
+      try container.encode(replies, forKey: .replies)
+    }
+  }
+
+  /// The two answers every tap offers unless changed on it. On it and In 10
+  /// min clear the setting.
+  @discardableResult
+  public func saveQuickReplies(_ replies: [String]) async -> Bool {
+    let tidied: [String]?
+    switch normalizeQuickReplies(replies) {
+    case .success(let value): tidied = value
+    case .failure(let problem):
+      error = problem.errorDescription.map { "\($0)." }; return false
+    }
+    guard !busy else { return false }
+    busy = true; error = nil
+    defer { busy = false }
+    do {
+      apply(try await request("POST", "/account/quick-replies", body: QuickRepliesBody(replies: tidied)))
       return true
     } catch { expireIfUnauthorized(error); report(error); return false }
   }

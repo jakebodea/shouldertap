@@ -429,25 +429,26 @@ fn default_frame(scene: &Scene, _window: &mut Window, _cx: &mut App) -> AnyEleme
                 scene,
                 "send",
                 Act::Send,
-                Icon::Send,
-                Some("Send"),
+                Some(Icon::Send),
+                Some("Send".into()),
                 None,
                 Some(color),
                 u,
             ))
-            .child(pill(scene, "back", Act::Back, Icon::Back, None, None, None, u))
+            .child(pill(scene, "back", Act::Back, Some(Icon::Back), None, None, None, u))
             .into_any_element()
     } else {
         div()
             .flex()
             .flex_row()
             .gap(px(14. * u))
+            // A sender's own words get no icon: a tick or a clock might not fit them.
             .child(pill(
                 scene,
                 "on-it",
                 Act::OnIt,
-                Icon::OnIt,
-                Some("On it"),
+                (!tap.has_custom_replies()).then_some(Icon::OnIt),
+                Some(tap.reply_label(0, "On it")),
                 Some("1"),
                 Some(color),
                 u,
@@ -456,8 +457,8 @@ fn default_frame(scene: &Scene, _window: &mut Window, _cx: &mut App) -> AnyEleme
                 scene,
                 "in-10",
                 Act::In10,
-                Icon::In10,
-                Some("In 10 min"),
+                (!tap.has_custom_replies()).then_some(Icon::In10),
+                Some(tap.reply_label(1, "In 10 min")),
                 Some("2"),
                 None,
                 u,
@@ -466,8 +467,8 @@ fn default_frame(scene: &Scene, _window: &mut Window, _cx: &mut App) -> AnyEleme
                 scene,
                 "reply",
                 Act::Reply,
-                Icon::Reply,
-                Some("Reply"),
+                Some(Icon::Reply),
+                Some("Reply".into()),
                 Some("3"),
                 None,
                 u,
@@ -505,8 +506,8 @@ fn pill(
     scene: &Scene,
     id: &'static str,
     act: Act,
-    icon: Icon,
-    label: Option<&'static str>,
+    icon: Option<Icon>,
+    label: Option<String>,
     hint: Option<&'static str>,
     fill: Option<PersonColor>,
     u: f32,
@@ -523,7 +524,9 @@ fn pill(
         .border_2()
         .text_color(foreground)
         .font_family(BRICOLAGE)
-        .child(svg().path(icon.path()).size(px(26. * u)).text_color(foreground));
+        .when_some(icon, |pill, icon| {
+            pill.child(svg().path(icon.path()).size(px(26. * u)).text_color(foreground))
+        });
     let pill = match fill {
         Some(color) => pill.bg(theme::base(color)).border_color(theme::base(color)),
         None => pill
@@ -662,7 +665,7 @@ fn broadsheet(scene: &Scene, window: &mut Window, _cx: &mut App) -> AnyElement {
     );
 
     let side_in = ease_out(step(scene, 0.38, 0.42));
-    let answer = |id: &'static str, act: Act, n: &'static str, label: &'static str, primary: bool, last: bool| {
+    let answer = |id: &'static str, act: Act, n: &'static str, label: String, primary: bool, last: bool| {
         let row = button(scene, id, act)
             .flex()
             .flex_row()
@@ -732,9 +735,23 @@ fn broadsheet(scene: &Scene, window: &mut Window, _cx: &mut App) -> AnyElement {
         div()
             .flex()
             .flex_col()
-            .child(answer("on-it", Act::OnIt, "1", "On it", true, false))
-            .child(answer("in-10", Act::In10, "2", "In ten minutes", false, false))
-            .child(answer("reply", Act::Reply, "3", "Write back", false, true))
+            .child(answer(
+                "on-it",
+                Act::OnIt,
+                "1",
+                tap.reply_label(0, "On it"),
+                true,
+                false,
+            ))
+            .child(answer(
+                "in-10",
+                Act::In10,
+                "2",
+                tap.reply_label(1, "In ten minutes"),
+                false,
+                false,
+            ))
+            .child(answer("reply", Act::Reply, "3", "Write back".into(), false, true))
     };
     let side = div()
         .flex()
@@ -930,7 +947,7 @@ fn billboard(scene: &Scene, window: &mut Window, _cx: &mut App) -> AnyElement {
         .child(kick)
         .child(message);
 
-    let block = |id: &'static str, act: Act, label: &'static str, key: &'static str, primary: bool| {
+    let block = |id: &'static str, act: Act, label: String, key: &'static str, primary: bool| {
         button(scene, id, act)
             .flex_1()
             .h(px(128. * u))
@@ -1005,11 +1022,23 @@ fn billboard(scene: &Scene, window: &mut Window, _cx: &mut App) -> AnyElement {
             .flex()
             .when(stacked, |r| r.flex_col())
             .when(!stacked, |r| r.flex_row())
-            .child(block("on-it", Act::OnIt, "ON IT", "1", true))
+            .child(block(
+                "on-it",
+                Act::OnIt,
+                tap.reply_label(0, "ON IT").to_uppercase(),
+                "1",
+                true,
+            ))
             .child(rule())
-            .child(block("in-10", Act::In10, "IN 10 MIN", "2", false))
+            .child(block(
+                "in-10",
+                Act::In10,
+                tap.reply_label(1, "IN 10 MIN").to_uppercase(),
+                "2",
+                false,
+            ))
             .child(rule())
-            .child(block("reply", Act::Reply, "REPLY", "3", false))
+            .child(block("reply", Act::Reply, "REPLY".into(), "3", false))
     };
     let strip = div()
         .flex()
@@ -1153,7 +1182,7 @@ fn terminal(scene: &Scene, window: &mut Window, _cx: &mut App) -> AnyElement {
             .line_height(px((size * 0.98).round()))
             .child(StyledText::new(text).with_highlights(highlights)),
     );
-    let option = |id: &'static str, act: Act, key: &'static str, label: &'static str, primary: bool| {
+    let option = |id: &'static str, act: Act, key: &'static str, label: String, primary: bool| {
         button(scene, id, act)
             .flex()
             .flex_row()
@@ -1182,15 +1211,21 @@ fn terminal(scene: &Scene, window: &mut Window, _cx: &mut App) -> AnyElement {
                     .child(reply_field(scene)),
                 2. * u,
             ))
-            .child(option("back", Act::Back, "[esc]", "back", false))
+            .child(option("back", Act::Back, "[esc]", "back".into(), false))
     } else {
         div()
             .flex()
             .flex_row()
             .gap(px(44. * u))
-            .child(option("on-it", Act::OnIt, "[1]", "on it", true))
-            .child(option("in-10", Act::In10, "[2]", "in 10 min", false))
-            .child(option("reply", Act::Reply, "[3]", "reply", false))
+            .child(option("on-it", Act::OnIt, "[1]", tap.reply_label(0, "on it"), true))
+            .child(option(
+                "in-10",
+                Act::In10,
+                "[2]",
+                tap.reply_label(1, "in 10 min"),
+                false,
+            ))
+            .child(option("reply", Act::Reply, "[3]", "reply".into(), false))
     };
     // CRT power-on: a bright line opens to the full screen.
     let open = ease_out(step(scene, 0., 0.3));
@@ -1378,7 +1413,7 @@ fn note(scene: &Scene, window: &mut Window, _cx: &mut App) -> AnyElement {
         .whitespace_nowrap()
         .opacity(sig_in)
         .child(format!("— {}", tap.sender_name));
-    let tick = |id: &'static str, act: Act, label: &'static str, key: &'static str, marked: bool| {
+    let tick = |id: &'static str, act: Act, label: String, key: &'static str, marked: bool| {
         button(scene, id, act)
             .group(id)
             .flex()
@@ -1446,9 +1481,9 @@ fn note(scene: &Scene, window: &mut Window, _cx: &mut App) -> AnyElement {
             .flex_row()
             .flex_wrap()
             .gap(px(40. * u))
-            .child(tick("on-it", Act::OnIt, "On it", "1", true))
-            .child(tick("in-10", Act::In10, "In 10 min", "2", false))
-            .child(tick("reply", Act::Reply, "Reply", "3", false))
+            .child(tick("on-it", Act::OnIt, tap.reply_label(0, "On it"), "1", true))
+            .child(tick("in-10", Act::In10, tap.reply_label(1, "In 10 min"), "2", false))
+            .child(tick("reply", Act::Reply, "Reply".into(), "3", false))
     };
     let answers_in = ease_out(step(scene, written.min(0.9), 0.32));
     let foot = border_top(

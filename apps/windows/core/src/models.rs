@@ -8,6 +8,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 pub const MAX_TAP_LENGTH: usize = 280;
 pub const MAX_REPLY_LENGTH: usize = 280;
 pub const MAX_NAME_LENGTH: usize = 40;
+/// Short enough to fit an answer button on every theme.
+pub const MAX_QUICK_REPLY_LENGTH: usize = 24;
+/// `DEFAULT_QUICK_REPLIES` from packages/domain/src/responses.ts.
+pub const DEFAULT_QUICK_REPLIES: [&str; 2] = ["On it", "In 10 min"];
 
 /// Epoch milliseconds, as the server sends them.
 pub type Timestamp = f64;
@@ -189,6 +193,65 @@ impl TapResponse {
     }
 }
 
+/// One answer a recipient can give a tap in one tap, and what it sends.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuickReply {
+    pub label: String,
+    pub response: TapResponse,
+}
+
+/// Why two reply options can't be used (`normalizeQuickReplies`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuickRepliesError {
+    Missing,
+    TooLong,
+    Same,
+}
+
+impl std::fmt::Display for QuickRepliesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing => f.write_str("Write both reply options"),
+            Self::TooLong => write!(f, "Keep each reply option to {MAX_QUICK_REPLY_LENGTH} characters"),
+            Self::Same => f.write_str("Make the two reply options different"),
+        }
+    }
+}
+
+impl std::error::Error for QuickRepliesError {}
+
+pub fn default_quick_replies() -> Vec<String> {
+    DEFAULT_QUICK_REPLIES.iter().map(|reply| (*reply).to_owned()).collect()
+}
+
+/// `normalizeQuickReplies` from packages/domain/src/responses.ts: trimmed,
+/// each 1 to `MAX_QUICK_REPLY_LENGTH` characters and different from the
+/// other. None when they're the defaults, so the tap needn't carry them.
+pub fn normalize_quick_replies(replies: &[String]) -> Result<Option<Vec<String>>, QuickRepliesError> {
+    let tidied: Vec<String> = replies.iter().map(|reply| reply.trim().to_owned()).collect();
+    if tidied.len() != 2 || tidied.iter().any(String::is_empty) {
+        return Err(QuickRepliesError::Missing);
+    }
+    if tidied
+        .iter()
+        .any(|reply| reply.chars().count() > MAX_QUICK_REPLY_LENGTH)
+    {
+        return Err(QuickRepliesError::TooLong);
+    }
+    if tidied[0].to_lowercase() == tidied[1].to_lowercase() {
+        return Err(QuickRepliesError::Same);
+    }
+    Ok((tidied != DEFAULT_QUICK_REPLIES).then_some(tidied))
+}
+
+/// The two replies as a tap would offer them, the defaults included; None
+/// when they can't be used.
+pub fn tidy_quick_replies(replies: &[String]) -> Option<Vec<String>> {
+    normalize_quick_replies(replies)
+        .ok()
+        .map(|tidied| tidied.unwrap_or_else(default_quick_replies))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TapState {
@@ -216,12 +279,56 @@ pub struct Tap {
     /// values from a newer server decode as Default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<TapTheme>,
+    /// The two answers its sender offered instead of On it and In 10 min.
+    /// Missing from older servers and on taps that offer those.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replies: Option<Vec<String>>,
 }
 
 impl Tap {
     /// What the sender chose, Default when they chose nothing.
     pub fn sender_theme(&self) -> TapTheme {
         self.theme.unwrap_or_default()
+    }
+
+    /// Whether the sender chose this tap's two answers.
+    pub fn has_custom_replies(&self) -> bool {
+        self.replies.as_ref().is_some_and(|replies| replies.len() == 2)
+    }
+
+    /// `quickRepliesFor` from packages/domain/src/responses.ts: the two
+    /// one-tap answers, in order (keys 1 and 2). A sender's own answer goes
+    /// back as text, so they see its label on any client.
+    pub fn quick_replies(&self) -> Vec<QuickReply> {
+        match &self.replies {
+            Some(replies) if replies.len() == 2 => replies
+                .iter()
+                .map(|label| QuickReply {
+                    label: label.clone(),
+                    response: TapResponse::text(label.clone()),
+                })
+                .collect(),
+            _ => vec![
+                QuickReply {
+                    label: "On it".into(),
+                    response: TapResponse::on_it(),
+                },
+                QuickReply {
+                    label: "In 10 min".into(),
+                    response: TapResponse::in_10(),
+                },
+            ],
+        }
+    }
+
+    /// Answer `index` (0 for key 1, 1 for key 2) in the sender's words, or
+    /// the preset as a theme says it.
+    pub fn reply_label(&self, index: usize, preset: &str) -> String {
+        if self.has_custom_replies() {
+            self.quick_replies()[index].label.clone()
+        } else {
+            preset.into()
+        }
     }
 }
 
@@ -626,6 +733,17 @@ pub struct Me {
     /// servers.
     #[serde(default)]
     pub send_profile: Option<Profile>,
+    /// The answers their taps offer unless changed on one; None (or an
+    /// older server) offers On it and In 10 min.
+    #[serde(default)]
+    pub quick_replies: Option<Vec<String>>,
+}
+
+impl Me {
+    /// What a new tap offers to start with.
+    pub fn default_replies(&self) -> Vec<String> {
+        self.quick_replies.clone().unwrap_or_else(default_quick_replies)
+    }
 }
 
 /// A new sender key for one of your people, from `/account/sync` or

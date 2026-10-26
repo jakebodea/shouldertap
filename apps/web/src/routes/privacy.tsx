@@ -67,10 +67,10 @@ const PrivacyComponent = () => (
       <p>
         Cloudflare D1 holds account references to the inboxes, sender
         connections and patron memberships you explicitly attach, their display
-        names, your default inbox choice, and billing-operation records used to
-        prevent duplicate checkout. These references allow account recovery;
-        possession of an email address alone does not attach an existing
-        connection.
+        names, your default inbox choice, the two reply options your taps offer
+        if you change them, and billing-operation records used to prevent
+        duplicate checkout. These references allow account recovery; possession
+        of an email address alone does not attach an existing connection.
       </p>
       <p>Each inbox is kept separately and holds:</p>
       <ul>
@@ -103,7 +103,9 @@ const PrivacyComponent = () => (
         <li>
           Every tap: the message (up to 280 characters), who sent it, when it
           was sent, when it appeared on screen, when it was answered and on
-          which Mac, and the answer (On it, In 10 min, or the reply text).
+          which Mac, the two reply options it offered if the sender changed
+          them, and the answer (On it, In 10 min, one of those options, or the
+          reply text).
         </li>
       </ul>
       <p>

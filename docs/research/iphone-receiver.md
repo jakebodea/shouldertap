@@ -17,7 +17,7 @@ The closest equivalent is three layers, used by what the phone is doing when the
 | Locked | Live Activity, Lock Screen | Wakes the screen; a card in the sender's color stays pinned until answered. On it and In 10 min run without unlocking. |
 | Unlocked, another app open | Live Activity, Dynamic Island | Expands over the current app on arrival, then shrinks to a compact pill (initial and name). Long-press expands it again with the same buttons. iPhone 14 Pro and later; other models only get the Lock Screen and a banner. |
 | Shouldertap open | In-app takeover | The Mac overlay on a phone: full-screen frame color, paper page, On it / In 10 min / Reply. |
-| Live Activities turned off | Time Sensitive notification | Breaks through Focus, with On it, In 10 min and a typed Reply as notification actions. |
+| Live Activities turned off | Time Sensitive notification | Breaks through Focus, with On it, In 10 min and a typed Reply as notification actions. A tap whose sender chose its own replies offers Reply only (`tap-reply`), since iOS fixes action titles when the app registers them; opening it shows the sender's replies. |
 
 ### Options considered and rejected
 

@@ -110,6 +110,14 @@ impl OverlayView {
         }
     }
 
+    /// Sends answer `index` (0 for key 1, 1 for key 2): the sender's own, or
+    /// On it and In 10 min.
+    fn answer_option(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(option) = self.active.tap.quick_replies().into_iter().nth(index) {
+            self.answer(option.response, cx);
+        }
+    }
+
     fn send_reply(&mut self, cx: &mut Context<Self>) {
         let text = self.reply.read(cx).text().trim().to_string();
         if !text.is_empty() {
@@ -137,8 +145,8 @@ impl OverlayView {
         }
         match event.keystroke.key.as_str() {
             "escape" if self.replying => self.set_replying(false, window, cx),
-            "1" if !self.replying => self.answer(TapResponse::on_it(), cx),
-            "2" if !self.replying => self.answer(TapResponse::in_10(), cx),
+            "1" if !self.replying => self.answer_option(0, cx),
+            "2" if !self.replying => self.answer_option(1, cx),
             "3" if !self.replying => self.set_replying(true, window, cx),
             _ => return,
         }
@@ -226,8 +234,8 @@ impl Render for OverlayView {
 impl OverlayView {
     fn act(&mut self, act: Act, window: &mut Window, cx: &mut Context<Self>) {
         match act {
-            Act::OnIt => self.answer(TapResponse::on_it(), cx),
-            Act::In10 => self.answer(TapResponse::in_10(), cx),
+            Act::OnIt => self.answer_option(0, cx),
+            Act::In10 => self.answer_option(1, cx),
             Act::Reply => self.set_replying(true, window, cx),
             Act::Send => self.send_reply(cx),
             Act::Back => self.set_replying(false, window, cx),
