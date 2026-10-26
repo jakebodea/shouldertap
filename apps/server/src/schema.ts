@@ -5,6 +5,7 @@ import {
 } from "@shouldertap/domain";
 import type {
   CredentialKind,
+  QuickReplies,
   DevicePlatform,
   MotionPreference,
   PersonColor,
@@ -162,6 +163,9 @@ export const taps = sqliteTable(
     /** The sender's theme, fixed when the tap was accepted. Null on taps from
      * before sender themes, which show Default. */
     theme: text("theme").$type<TapTheme>(),
+    /** The answers its sender offered instead of On it and In 10 min, fixed
+     * when the tap was accepted. Null offers those two. */
+    replies: text("replies", { mode: "json" }).$type<QuickReplies>(),
   },
   (table) => [
     uniqueIndex("taps_sender_request").on(table.senderId, table.requestId),

@@ -1,4 +1,9 @@
-import type { CredentialGrant, Invite, PersonColor } from "@shouldertap/domain";
+import type {
+  CredentialGrant,
+  Invite,
+  PersonColor,
+  QuickReplies,
+} from "@shouldertap/domain";
 
 import { ApiError } from "./api";
 import type { ApiErrorCode } from "./api";
@@ -27,6 +32,9 @@ export interface Me {
   readonly sendProfile: Profile | null;
   readonly suggestedName: string | null;
   readonly inboxId: string | null;
+  /** The answers the person's taps offer unless changed on one. Null (or
+   * missing, from an older server) offers On it and In 10 min. */
+  readonly quickReplies?: QuickReplies | null;
 }
 
 /** A sender key for one of your people: you → them. */
@@ -337,6 +345,11 @@ export class AccountClient {
 
   setProfile(profile: Profile) {
     return this.request<Me>("POST", "/account/profile", profile);
+  }
+
+  /** Null goes back to On it and In 10 min. */
+  setQuickReplies(replies: QuickReplies | null) {
+    return this.request<Me>("POST", "/account/quick-replies", { replies });
   }
 
   sync(request: SyncRequest) {

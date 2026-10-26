@@ -82,6 +82,7 @@ export const storeTap = (
         state: "pending",
         sequence: row?.sequence ?? 0,
         theme,
+        replies: message.replies ?? null,
       });
       return { id, isNew: true };
     })
@@ -110,6 +111,7 @@ export const toTap = ({
   response: tap.response,
   sequence: tap.sequence,
   theme: tap.theme ?? "default",
+  ...(tap.replies ? { replies: tap.replies } : {}),
 });
 
 /** Taps with their sender's name and color, newest first. */

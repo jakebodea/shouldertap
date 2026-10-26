@@ -103,6 +103,28 @@ describe("payloads", () => {
     expect(payload.tapId).toBe("tap123456");
   });
 
+  it("a tap with its sender's own answers shows them on the Live Activity, and offers only Reply as a notification", () => {
+    const custom: Tap = { ...tap, replies: ["Coming!", "Can't now"] };
+    expect(
+      startActivityPayload(custom, 1_790_790_001_000).aps["content-state"]
+    ).toStrictEqual({
+      body: "Dinner's ready",
+      replies: ["Coming!", "Can't now"],
+    });
+    expect(notificationPayload(custom).aps.category).toBe("tap-reply");
+  });
+
+  it("a sender's own answer reads as its label once answered", () => {
+    const answered: Tap = {
+      ...tap,
+      replies: ["Coming!", "Can't now"],
+      state: "acknowledged",
+      acknowledgedBy: "Studio Mac",
+      response: { kind: "text", text: "Coming!" },
+    };
+    expect(answerLabel(answered)).toBe("Coming! · Studio Mac");
+  });
+
   it("an answered tap ends with who answered and how", () => {
     const answered: Tap = {
       ...tap,

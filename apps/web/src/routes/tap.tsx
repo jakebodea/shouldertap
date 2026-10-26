@@ -11,12 +11,15 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { LiveStatus } from "@shouldertap/client";
 import {
+  DEFAULT_QUICK_REPLIES,
   describeResponse,
   fallbackColor,
   MAX_TAP_LENGTH,
+  normalizeQuickReplies,
 } from "@shouldertap/domain";
 import type {
   PersonColor,
+  QuickReplies,
   Tap,
   TapResponse,
   TapTheme,
@@ -41,6 +44,7 @@ import { Frame } from "@/components/frame";
 import { InvitePanel } from "@/components/invite-panel";
 import { Mark } from "@/components/mark";
 import { MiniTap } from "@/components/mini-tap";
+import { QuickReplyFields } from "@/components/quick-reply-fields";
 import { SendProfileEditor } from "@/components/seen-as";
 import { StepHeading } from "@/components/sign-in";
 import { TapPreview } from "@/components/tap-preview/tap-preview";
@@ -80,6 +84,9 @@ const TapComponent = () => {
   const [pairings, setPairings] = useState(loadPairings);
   const [pairing, setPairing] = useState(loadPairing);
   const [inviting, setInviting] = useState(false);
+  const [defaultReplies, setDefaultReplies] = useState<QuickReplies>(
+    () => me?.quickReplies ?? DEFAULT_QUICK_REPLIES
+  );
   const reload = useCallback(() => {
     setPairings(loadPairings());
     setPairing(loadPairing());
@@ -149,7 +156,9 @@ const TapComponent = () => {
   // Keyed so each person gets their own outbox, socket and draft.
   return (
     <Composer
+      defaultReplies={defaultReplies}
       key={pairing.credentialId}
+      onDefaultReplies={setDefaultReplies}
       onInvite={() => {
         setInviting(true);
       }}
@@ -214,15 +223,19 @@ const Footer = ({ children }: { children?: ReactNode }) => (
 const Composer = ({
   pairing,
   pairings,
+  defaultReplies,
   onSelect,
   onUnpair,
   onInvite,
+  onDefaultReplies,
 }: {
   pairing: Pairing;
   pairings: readonly Pairing[];
+  defaultReplies: QuickReplies;
   onSelect: (credentialId: string) => void;
   onUnpair: () => void;
   onInvite: () => void;
+  onDefaultReplies: (replies: QuickReplies) => void;
 }) => {
   const handleRevoked = useCallback(() => {
     // Unpairing here revokes too; that's not the recipient removing us.
@@ -250,6 +263,12 @@ const Composer = ({
   const [editingSelf, setEditingSelf] = useState(false);
   const [draft, setDraft] = usePersistedDraft(pairing.credentialId);
   const style = useMemo(() => loadStyle(localStorage), []);
+  // Each tap starts from the account's defaults; changes here are for it alone.
+  const [replies, setReplies] = useState<[string, string]>(() => [
+    ...defaultReplies,
+  ]);
+  const tidied = normalizeQuickReplies(replies);
+  const repliesError = "error" in tidied ? tidied.error : null;
   const [, setTick] = useState(0);
   const color =
     pairing.color ?? senderColor ?? fallbackColor(pairing.credentialId);
@@ -290,8 +309,12 @@ const Composer = ({
     if (!trimmed) {
       return;
     }
+    if ("error" in tidied) {
+      return;
+    }
     setDraft("");
-    send(trimmed, style);
+    send(trimmed, style, tidied.replies ?? undefined);
+    setReplies([...defaultReplies]);
   };
 
   const onSubmit = (event: FormEvent) => {
@@ -348,9 +371,18 @@ const Composer = ({
           placeholder={`What does ${pairing.recipientName} need to know?`}
           value={draft}
         />
+        <ReplyOptions
+          defaults={defaultReplies}
+          error={repliesError}
+          onChange={setReplies}
+          onDefaults={onDefaultReplies}
+          recipientName={pairing.recipientName}
+          replies={replies}
+          tidied={"error" in tidied ? null : tidied.replies}
+        />
         <button
           className="pill pill-frame w-full"
-          disabled={!draft.trim()}
+          disabled={!draft.trim() || repliesError !== null}
           type="submit"
         >
           <HugeiconsIcon className="size-5" icon={SentIcon} />
@@ -375,7 +407,7 @@ const Composer = ({
                 item={item}
                 onDiscard={discard}
                 onRetry={(body) => {
-                  send(body, item.theme);
+                  send(body, item.theme, item.replies);
                 }}
               />
             </li>
@@ -439,6 +471,86 @@ const Composer = ({
         ·{" "}
       </Footer>
     </Frame>
+  );
+};
+
+const sameReplies = (a: readonly string[], b: readonly string[]) =>
+  a[0] === b[0] && a[1] === b[1];
+
+/** The two answers this tap offers, with a way to keep them for every tap. */
+const ReplyOptions = ({
+  recipientName,
+  replies,
+  tidied,
+  error,
+  defaults,
+  onChange,
+  onDefaults,
+}: {
+  recipientName: string;
+  replies: [string, string];
+  /** The replies as they'll be sent: null for On it and In 10 min. */
+  tidied: QuickReplies | null;
+  error: string | null;
+  defaults: QuickReplies;
+  onChange: (replies: [string, string]) => void;
+  onDefaults: (replies: QuickReplies) => void;
+}) => {
+  const [saving, setSaving] = useState(false);
+  const chosen = tidied ?? DEFAULT_QUICK_REPLIES;
+  const saveDefaults = async () => {
+    setSaving(true);
+    try {
+      const me = await account.setQuickReplies(tidied);
+      onDefaults(me.quickReplies ?? DEFAULT_QUICK_REPLIES);
+      toast.success("Your taps offer these from now on");
+    } catch {
+      toast.error("Couldn't save your reply options");
+    }
+    setSaving(false);
+  };
+  let note: ReactNode = null;
+  if (error) {
+    note = (
+      <p className="text-destructive text-[0.875rem] leading-snug font-semibold">
+        {error}
+      </p>
+    );
+  } else if (!sameReplies(chosen, defaults)) {
+    note = (
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.875rem]">
+        <button
+          className="text-ink font-semibold underline underline-offset-[3px]"
+          disabled={saving}
+          onClick={saveDefaults}
+          type="button"
+        >
+          Use these for every tap
+        </button>
+        <button
+          className="text-tone underline underline-offset-[3px]"
+          onClick={() => {
+            onChange([...defaults]);
+          }}
+          type="button"
+        >
+          Reset
+        </button>
+      </div>
+    );
+  }
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="text-tone mb-2 text-sm font-bold">
+        {recipientName} can answer
+      </legend>
+      <QuickReplyFields
+        id="tap-replies"
+        onChange={onChange}
+        replies={replies}
+      />
+      {note}
+    </fieldset>
   );
 };
 

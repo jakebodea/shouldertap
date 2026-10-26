@@ -8,6 +8,7 @@ import m0006 from './20261021162409_tap_appearance/migration.sql';
 import m0007 from './20261021173050_sender_themes/migration.sql';
 import m0008 from './20261021193803_perfect_power_pack/migration.sql';
 import m0009 from './20261021195047_aspiring_captain_america/migration.sql';
+import m0010 from './20261026165918_quick_replies/migration.sql';
 
   export default {
     migrations: {
@@ -20,7 +21,8 @@ import m0009 from './20261021195047_aspiring_captain_america/migration.sql';
 "20261021162409_tap_appearance": m0006,
 "20261021173050_sender_themes": m0007,
 "20261021193803_perfect_power_pack": m0008,
-"20261021195047_aspiring_captain_america": m0009
+"20261021195047_aspiring_captain_america": m0009,
+"20261026165918_quick_replies": m0010
 }
   }
   
