@@ -1,6 +1,6 @@
 # iPhone 1.0 submission
 
-Updated October 5, 2026. App Store Connect app ID: `6818330440`.
+Updated October 5, 2026. App Store Connect app ID: `6818330440`. The public listing is Shouldertap for iPhone, `id6822383031` (bundle `app.shouldertap.iphone`).
 
 ## Configuration
 

@@ -11,6 +11,7 @@ const WINDOWS_EDGE =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0";
 // The landing page offers what the visitor's device can install; these run
 // in iPhone-sized WebKit, so the desktop cases say they're a computer.
+const APP_STORE_URL = "https://apps.apple.com/app/id6822383031";
 const AS_COMPUTER = { hasTouch: false, isMobile: false } as const;
 
 test.describe("on a Mac", () => {
@@ -54,13 +55,12 @@ test.describe("on Windows", () => {
   });
 });
 
-test("on an iPhone the landing page starts on the web, not an installer", async ({
+test("on an iPhone the landing page links the App Store, not an installer", async ({
   page,
 }) => {
   await page.goto("/");
-  // Until the App Store listing is public (IPHONE_APP_LIVE).
-  const links = page.getByRole("link", { name: "Start on the web" });
-  await expect(links.last()).toHaveAttribute("href", "/tap");
+  const links = page.getByRole("link", { name: "Get the iPhone app" });
+  await expect(links.last()).toHaveAttribute("href", APP_STORE_URL);
   await expect(page.getByRole("link", { name: DOWNLOAD_LABEL })).toHaveCount(0);
 });
 
@@ -80,6 +80,9 @@ test("opening instructions directly offers a download without starting one", asy
   await expect(
     page.getByRole("link", { name: "Download for Windows" })
   ).toHaveAttribute("href", WINDOWS_INSTALLER_PATH);
+  await expect(
+    page.getByRole("link", { name: "Get the iPhone app" })
+  ).toHaveAttribute("href", APP_STORE_URL);
   await expect(page.getByText(RETRY_COPY)).toHaveCount(0);
   expect(requests).toHaveLength(0);
 });
