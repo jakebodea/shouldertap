@@ -26,7 +26,7 @@ import {
   thisDevice,
 } from "@/lib/account";
 import { revokePairing } from "@/lib/api";
-import { IPHONE_APP_URL } from "@/lib/download";
+import { IPHONE_APP_LIVE, IPHONE_APP_URL } from "@/lib/download";
 import {
   codeFromPaste,
   codeFromScan,
@@ -132,7 +132,10 @@ const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
 
   const invite = lookup.kind === "found" ? lookup.invite : null;
   // Reaching this page on an iPhone means the app isn't installed yet.
-  const onIPhone = useMemo(() => isIPhoneBrowser(navigator.userAgent), []);
+  const onIPhone = useMemo(
+    () => IPHONE_APP_LIVE && isIPhoneBrowser(navigator.userAgent),
+    []
+  );
   const theirColor = invite?.color ?? fallbackColor(inboxOf(code) ?? code);
   // A first color for the You step that isn't the inviter's own.
   const suggestedColor: PersonColor =

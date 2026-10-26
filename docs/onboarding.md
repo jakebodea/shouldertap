@@ -15,7 +15,7 @@ An invite link opened before sign-in shows "{name} invited you to Shouldertap" w
 
 ### Invites to people without the app
 
-An invite opened on an iPhone that has the app opens the app (`apple-app-site-association`). Reaching the website's `/join` on an iPhone therefore means the app isn't installed: the invite card's main button is "Get Shouldertap on the App Store", with "Accept in Safari instead" under it. The button copies the invite link before leaving for the App Store, so the app's Welcome screen offers a system Paste button ("Got an invite link? Paste it to accept.") whenever there's text on the clipboard; pasting an invite continues as if the link had been opened. Opening the link again once the app is installed works too.
+An invite opened on an iPhone that has the app opens the app (`apple-app-site-association`). Reaching the website's `/join` on an iPhone therefore means the app isn't installed: the invite card's main button is "Get Shouldertap on the App Store", with "Accept in Safari instead" under it. The button copies the invite link before leaving for the App Store, so the app's Welcome screen offers a system Paste button ("Got an invite link? Paste it to accept.") whenever there's text on the clipboard; pasting an invite continues as if the link had been opened. Opening the link again once the app is installed works too. Until the App Store listing is public (`IPHONE_APP_LIVE` in `apps/web/src/lib/download.ts`), iPhones get the same Accept as every other browser.
 
 When someone accepts a sender invite, the inviter's linked iPhones get a notification: "{name} accepted your invite".
 
