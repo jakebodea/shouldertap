@@ -63,7 +63,7 @@ const pairedInbox = Effect.fn(function* pairedInbox(url: string) {
   const macB = yield* anon.pairing.redeemInvite({
     payload: { code: deviceInvite.code, name: "Laptop" },
   });
-  return { anon, macA, macB, sender, senderInvite };
+  return { anon, macA, macB, sender, senderInvite, deviceInvite };
 });
 
 /** Opens a live connection and collects decoded events into a queue. */
@@ -143,30 +143,36 @@ test(
     const redeemed = yield* anon.pairing.redeemInvite({
       payload: { code: invite.code, name: "Sam", color: "tomato" },
     });
-    const used = yield* anon.pairing
-      .previewInvite({ query: { code: invite.code } })
-      .pipe(Effect.flip);
+    // A sender invite shared with a group keeps working until it expires.
+    const again = yield* anon.pairing.previewInvite({
+      query: { code: invite.code },
+    });
+    const second = yield* anon.pairing.redeemInvite({
+      payload: { code: invite.code, name: "Eve", color: "plum" },
+    });
     expect(preview).toStrictEqual({
       name: "Ari",
       color: null,
       expiresAt: invite.expiresAt,
     });
     expect(redeemed.recipientName).toBe("Ari");
-    expect(used._tag).toBe("Expired");
+    expect(again.name).toBe("Ari");
+    expect(second.kind).toBe("sender");
+    expect(second.credentialId).not.toBe(redeemed.credentialId);
   })
 );
 
 test(
-  "pairs devices and senders with one-time invites, and links iPhones",
+  "pairs devices with one-time invites and senders with shared ones, and links iPhones",
   Effect.gen(function* pairingFlow() {
     const url = (yield* stack).server;
     yield* Test.getWhenReady(url);
-    const { anon, macA, macB, sender, senderInvite } = yield* pairedInbox(url);
+    const { anon, macA, macB, sender, deviceInvite } = yield* pairedInbox(url);
     expect(sender.kind).toBe("sender");
     expect(macB.kind).toBe("device");
 
     const reused = yield* anon.pairing
-      .redeemInvite({ payload: { code: senderInvite.code, name: "Eve" } })
+      .redeemInvite({ payload: { code: deviceInvite.code, name: "Laptop 2" } })
       .pipe(Effect.flip);
     expect(reused._tag).toBe("Expired");
 

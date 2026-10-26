@@ -53,7 +53,7 @@ const SupportComponent = () => (
         Invite someone. In the iPhone app, choose “I have an invite” and scan
         that QR code or paste the link you send them. They enter a name, pick a
         color, and pair. They can also open the link in Safari to use the web
-        sender. Each invite works once and expires after 7 days.
+        sender. Anyone you send an invite to can use it for 7 days.
       </p>
     </DocSection>
 

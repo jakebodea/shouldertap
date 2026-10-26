@@ -342,7 +342,12 @@ const orDieOnStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     R
   >;
 
-/** A redeemable invite: it exists, the secret matches, unused and unexpired. */
+/**
+ * A redeemable invite: it exists, the secret matches and it hasn't expired.
+ * Device invites work once; sender invites work for everyone they're sent
+ * to until they expire (a link shared in a group chat), within the inbox's
+ * sender cap.
+ */
 const checkInvite = (
   invite: typeof invites.$inferSelect | undefined,
   secretHash: string,
@@ -353,7 +358,7 @@ const checkInvite = (
       new NotFound({ message: "This invite link isn't valid" })
     );
   }
-  if (invite.redeemedAt !== null) {
+  if (invite.redeemedAt !== null && invite.kind !== "sender") {
     return Effect.fail(
       new Expired({ message: "This invite link was already used" })
     );

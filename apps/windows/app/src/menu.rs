@@ -1200,7 +1200,7 @@ impl MenuView {
             .child(qr_code(&invite.url, px(176.)))
             .child(div().w(px(360.)).child(muted_center(
                 s,
-                "Scan with their iPhone camera, or send them the link to open on their phone or computer. It works once and expires in 7 days.",
+                "Scan with their iPhone camera, or send them the link to open on their phone or computer. Anyone you send it to can use it for 7 days.",
             )))
             .child(div().w(px(360.)).child(mono(s, &invite.url)))
             .child(

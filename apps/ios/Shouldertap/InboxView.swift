@@ -216,8 +216,8 @@ struct InboxScreen: View {
 
 // MARK: Inviting
 
-/// Invite someone: a QR code to scan in person, or the link to send. Each
-/// works once and lasts 7 days, like the Mac's.
+/// Invite someone: a QR code to scan in person, or the link to send. Anyone
+/// it's sent to can use it for 7 days, like the Mac's.
 struct InviteCard: View {
   let inbox: ReceiverStore
   let color: PersonColor
@@ -239,12 +239,12 @@ struct InviteCard: View {
               .background(.white, in: .rect(cornerRadius: 14, style: .continuous))
               .accessibilityLabel("QR code for the invite link")
           }
-          Text("Have them scan this with their iPhone camera, or send them the link. It works once and expires in 7 days.")
+          Text("Have them scan this with their iPhone camera, or send them the link. Anyone you send it to can use it for 7 days.")
             .font(Bricolage.medium(15))
             .foregroundStyle(Paper.tone)
             .multilineTextAlignment(.center)
           HStack(spacing: 10) {
-            ShareLink(item: invite.url, message: Text("Here's your invite to tap me on Shouldertap. It works once.")) {
+            ShareLink(item: invite.url, message: Text("Here's your invite to tap me on Shouldertap.")) {
               Label("Send link", systemImage: "square.and.arrow.up")
             }
             .buttonStyle(PillStyle(color: color, small: true))
