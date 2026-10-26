@@ -126,11 +126,15 @@ export const ChooseSeenAs = ({
   onChange,
 }: {
   person: string;
-  initial: Profile;
+  /** Null while it loads, or when signed out: nothing shows. */
+  initial: Profile | null;
   value: Profile | null;
   onChange: (profile: Profile) => void;
 }) => {
   const [choosing, setChoosing] = useState(false);
+  if (!initial) {
+    return null;
+  }
   if (choosing) {
     return (
       <SendProfileEditor

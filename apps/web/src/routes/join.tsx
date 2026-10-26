@@ -291,14 +291,12 @@ const Invite = ({ code, onReset }: { code: string; onReset: () => void }) => {
             </figcaption>
           </figure>
           <div className="mt-auto flex flex-col gap-3">
-            {sendDefault ? (
-              <ChooseSeenAs
-                initial={sendDefault}
-                onChange={setSeenAs}
-                person={invite.name}
-                value={seenAs}
-              />
-            ) : null}
+            <ChooseSeenAs
+              initial={sendDefault}
+              onChange={setSeenAs}
+              person={invite.name}
+              value={seenAs}
+            />
             {failure ? (
               <p className="text-destructive text-[0.9375rem]" role="alert">
                 {failure}
