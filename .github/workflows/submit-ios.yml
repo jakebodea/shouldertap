@@ -1,0 +1,59 @@
+# Submits an uploaded iOS build for App Review (Actions > Submit iOS for
+# review > Run workflow). The build must already be in TestFlight, uploaded
+# by release.yml. scripts/submit-ios.ts makes or reuses the App Store version,
+# attaches the build, sets What's New and submits; the App Store screenshots
+# and description stay as they are in App Store Connect.
+name: Submit iOS for review
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 0.2.1"
+        required: true
+      build:
+        description: "Build number, e.g. 11"
+        required: true
+      whats_new:
+        description: "What's New in this version"
+        required: true
+      release:
+        description: "Release when approved, or wait for a manual release"
+        type: choice
+        options: [after-approval, manual]
+        default: after-approval
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # ci-prod only trusts jobs in this environment, which only main may use.
+    environment: production
+    concurrency: { group: submit-ios, cancel-in-progress: false }
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Load the App Store Connect key
+        uses: Infisical/secrets-action@v1.0.12
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          oidc-audience: ${{ vars.INFISICAL_OIDC_AUDIENCE }}
+          domain: https://app.infisical.com
+          project-slug: shouldertap-qp-dq
+          env-slug: prod
+
+      - name: Submit for App Review
+        run: bun scripts/submit-ios.ts --version "$VERSION" --build "$BUILD" --whats-new "$WHATS_NEW" --release "$RELEASE"
+        env:
+          VERSION: ${{ inputs.version }}
+          BUILD: ${{ inputs.build }}
+          WHATS_NEW: ${{ inputs.whats_new }}
+          RELEASE: ${{ inputs.release }}
