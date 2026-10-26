@@ -287,6 +287,13 @@ public final class SenderSession: Identifiable {
     taps.removeAll { $0.id == tapId }
   }
 
+  /// How they see you changed (`AccountStore.updateSendProfile`).
+  func seen(as profile: Profile) {
+    pairing.senderName = profile.name
+    pairing.color = profile.color
+    try? persistence.savePairing(pairing)
+  }
+
   private func updateOutbox(_ update: ([OutgoingTap]) -> [OutgoingTap]) {
     outbox = update(outbox)
     persistence.saveOutbox(outbox, credentialId: pairing.credentialId)
@@ -302,9 +309,13 @@ public final class SenderSession: Identifiable {
         guard case let .sender(snapshot) = try await api.me() else { return }
         taps = mergeSnapshot(local: taps, snapshot: snapshot.taps)
         loaded = true
-        // Pairings made before colors existed learn theirs here.
-        if pairing.color == nil || pairing.recipientName != snapshot.recipientName {
-          pairing.color = pairing.color ?? snapshot.senderColor
+        // Their inbox has the current names and color: pairings made before
+        // colors learn theirs, and a change made on another device shows here.
+        if pairing.color != snapshot.senderColor || pairing.senderName != snapshot.senderName
+          || pairing.recipientName != snapshot.recipientName
+        {
+          pairing.color = snapshot.senderColor
+          pairing.senderName = snapshot.senderName
           pairing.recipientName = snapshot.recipientName
           try? persistence.savePairing(pairing)
         }

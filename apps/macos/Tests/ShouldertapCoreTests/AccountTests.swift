@@ -272,6 +272,23 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     #expect(senders.sessions.map(\.pairing.recipientName) == ["Mom"])
   }
 
+  @Test func acceptingCanPickHowJustThisPersonSeesYou() async throws {
+    let bodies = Bodies()
+    let account = try await signedIn { request in
+      bodies.record(request)
+      return request.url!.path == "/account/accept"
+        ? (200, #"{"person":{"name":"Mom","color":"plum"},"sender":{"id":"inboxMOM:mom11111","grant":{"kind":"sender","credentialId":"mom11111","token":"inboxMOM.key11111.secret222","recipientName":"Mom"},"name":"Your son","color":"sky"},"mutual":true}"#)
+        : (200, jakeMe)
+    }
+    let persistence = MemorySenderPersistence()
+    let senders = SenderStore(server: api, persistence: persistence, session: StubProtocol.session { _ in (503, "{}") })
+    _ = try await account.accept(
+      code: "inboxMOM.invite12.secret1234", profile: Profile(name: "Your son", color: .sky), platform: .iphone,
+      deviceName: "Jake’s iPhone", senders: senders)
+    #expect(bodies["/account/accept"]?["profile"] as? [String: String] == ["name": "Your son", "color": "sky"])
+    #expect(persistence.loadPairings().map(\.senderName) == ["Your son"])
+  }
+
   @Test func yourOwnInviteSaysSo() async throws {
     let account = try await signedIn { request in
       request.url!.path == "/account/accept" ? (400, #"{"error":"That's your own invite"}"#) : (200, jakeMe)
@@ -281,6 +298,34 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
       _ = try await account.accept(code: "inboxAAA.invite12.secret1234", platform: .mac, deviceName: "Mac", senders: senders)
       Issue.record("accepting your own invite should fail")
     } catch { #expect(error.localizedDescription == "That's your own invite") }
+  }
+}
+
+@Suite(.serialized) @MainActor struct AccountSendProfile {
+  private let mom = SenderPairing(
+    token: "inboxMOM.key11111.secret222", credentialId: "mom11111", recipientName: "Mom", senderName: "Jake",
+    color: .moss, pairedAt: 1)
+
+  @Test func newConnectionsStartWithTheLatestProfile() async throws {
+    let account = try await signedIn { _ in
+      (200, #"{"email":"jake@example.com","profile":{"name":"Jake","color":"moss"},"sendProfile":{"name":"Coach","color":"ochre"},"suggestedName":null,"inboxId":"inboxAAA"}"#)
+    }
+    #expect(account.me?.sendProfile == Profile(name: "Coach", color: .ochre))
+  }
+
+  @Test func changingHowOnePersonSeesYouSavesItForThem() async throws {
+    let bodies = Bodies()
+    let account = try await signedIn { request in
+      bodies.record(request)
+      return request.url!.path == "/account/send-profile"
+        ? (200, #"{"id":"inboxMOM:mom11111","name":"Your son","color":"sky"}"#) : (200, jakeMe)
+    }
+    let persistence = MemorySenderPersistence(pairings: [mom])
+    let senders = SenderStore(server: api, persistence: persistence, session: StubProtocol.session { _ in (503, "{}") })
+    senders.start()
+    try await account.updateSendProfile("mom11111", name: " Your son ", color: .sky, senders: senders)
+    #expect(bodies["/account/send-profile"] == ["id": "inboxMOM:mom11111", "name": "Your son", "color": "sky"])
+    #expect(persistence.loadPairings().map { [$0.senderName, $0.color?.rawValue] } == [["Your son", "sky"]])
   }
 }
 

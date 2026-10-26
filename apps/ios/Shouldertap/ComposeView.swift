@@ -11,6 +11,8 @@ struct ComposeView: View {
   let onAdd: () -> Void
 
   @State private var unpairing: SenderSession?
+  /// Whose "How they see you" sheet is open.
+  @State private var seenBy: SenderSession?
   @State private var risen = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -36,6 +38,17 @@ struct ComposeView: View {
     }
     .onAppear {
       withAnimation(.outExpo(0.8)) { risen = true }
+    }
+    .sheet(item: $seenBy) { person in
+      SeenAsEditor(
+        note: "Only \(person.pairing.recipientName) sees this. It changes your taps they already have too.",
+        saveLabel: "Save", initial: Profile(name: person.pairing.senderName, color: person.color),
+        onCancel: { seenBy = nil },
+        onSave: { profile in
+          try await Stores.account.updateSendProfile(
+            person.id, name: profile.name, color: profile.color, senders: store)
+          seenBy = nil
+        })
     }
     .confirmationDialog(
       unpairing.map { "Stop tapping \($0.pairing.recipientName)?" } ?? "",
@@ -70,6 +83,9 @@ struct ComposeView: View {
             // The selected person: details and unpair.
             Menu {
               Section("You're \(person.pairing.senderName) on \(person.pairing.recipientName)'s devices") {
+                Button("How they see you", systemImage: "person.crop.circle") {
+                  seenBy = person
+                }
                 Button("Remove \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
                   unpairing = person
                 }

@@ -43,6 +43,9 @@ export const desktopLabels = {
     "Quit",
   ],
   send: [
+    "How they see you",
+    "They'll see you as",
+    "Use for them",
     "Tap style",
     "Patron themes",
     "Replay",

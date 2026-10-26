@@ -22,6 +22,7 @@ const migrations = [
   "0004_account_operation",
   "0005_adoption_operation",
   "0006_profile",
+  "0007_send_profile",
 ];
 
 interface FakeCredential {
@@ -109,6 +110,21 @@ const fakeInbox = (inboxId: string): InboxRpc => {
         revoked: false,
       });
       return Effect.succeed({ credentialId: id });
+    },
+    updateAccountSender: (
+      credentialId: string,
+      name: string,
+      color: PersonColor
+    ) => {
+      const credential = live(credentialId);
+      if (!credential) {
+        return Effect.fail(
+          new Unauthorized({ message: "This sender was removed" })
+        );
+      }
+      credential.name = name;
+      credential.color = color;
+      return Effect.void;
     },
     removeAccountSender: (credentialId: string) =>
       Effect.sync(() => {
@@ -236,7 +252,12 @@ const phone = { platform: "iphone", deviceName: "Sam's iPhone" };
 
 interface SyncResult {
   inbox: { kind: string; recipientName: string } | null;
-  senders: { id: string; name: string; grant: { recipientName: string } }[];
+  senders: {
+    id: string;
+    name: string;
+    color: string;
+    grant: { recipientName: string };
+  }[];
   removed: string[];
 }
 
@@ -253,6 +274,17 @@ const connect = async () => {
     sender: { id: string; name: string; grant: { recipientName: string } };
   }>("sam", "accept", { ...phone, code: invite.code });
   return { invite, preview, accepted };
+};
+/** How `viewer`'s inbox shows the person tapping it. */
+const seenBy = async (viewer: string) => {
+  const me = await act<{ inboxId: string }>(viewer, "me");
+  return [...(world.get(me.inboxId)?.credentials.values() ?? [])]
+    .filter((c) => c.kind === "sender" && !c.parentId && !c.revoked)
+    .map((c) => [c.name, c.color]);
+};
+const inviteFrom = async (from: string) => {
+  const created = await act<{ code: string }>(from, "invite");
+  return created.code;
 };
 describe("account people", () => {
   beforeEach(() => {
@@ -290,6 +322,7 @@ describe("account people", () => {
       await expect(act("sam", "me")).resolves.toStrictEqual({
         email: "sam@example.com",
         profile: null,
+        sendProfile: null,
         suggestedName: null,
         inboxId: null,
       });
@@ -408,7 +441,7 @@ describe("account people", () => {
         senderRoom: 20,
       });
       sqlite.exec(
-        "INSERT INTO account_resource VALUES('inbox','legacyinbox','sam','legacyinbox',NULL,'Old Sam',1)"
+        "INSERT INTO account_resource(kind,id,user_id,inbox_id,credential_id,name,created_at) VALUES('inbox','legacyinbox','sam','legacyinbox',NULL,'Old Sam',1)"
       );
       const me = await act<{ suggestedName: string }>("sam", "me");
       const saved = await act<{ inboxId: string }>("sam", "profile", {
@@ -545,6 +578,118 @@ describe("account people", () => {
       expect(world.get(sam.inboxId)?.credentials.size).toBe(0);
     });
   });
+  describe("each person you tap sees you your way", () => {
+    it("starts with your profile until you choose another", async () => {
+      await act("sam", "profile", { name: "Sam", color: "tomato" });
+      const me = await act("sam", "me");
+      expect(me.sendProfile).toStrictEqual({ name: "Sam", color: "tomato" });
+    });
+
+    it("lets you choose how just the new person sees you", async () => {
+      await act("ari", "profile", { name: "Ari", color: "moss" });
+      await act("sam", "profile", { name: "Sam", color: "tomato" });
+      const accepted = await act<{ sender: { name: string; color: string } }>(
+        "sam",
+        "accept",
+        {
+          ...phone,
+          code: await inviteFrom("ari"),
+          profile: { name: "Dr. Sam", color: "sky" },
+        }
+      );
+      expect(accepted.sender).toMatchObject({ name: "Dr. Sam", color: "sky" });
+      await expect(seenBy("ari")).resolves.toStrictEqual([["Dr. Sam", "sky"]]);
+      const me = await act<{ profile: object }>("sam", "me");
+      expect(me.profile).toStrictEqual({ name: "Sam", color: "tomato" });
+    });
+
+    it("starts the next connection with the profile you used last", async () => {
+      await act("ari", "profile", { name: "Ari", color: "moss" });
+      await act("jo", "profile", { name: "Jo", color: "plum" });
+      await act("sam", "profile", { name: "Sam", color: "tomato" });
+      await act("sam", "accept", {
+        ...phone,
+        code: await inviteFrom("ari"),
+        profile: { name: "Sammy", color: "sky" },
+      });
+      const me = await act("sam", "me");
+      await act("sam", "accept", { ...phone, code: await inviteFrom("jo") });
+      expect(me.sendProfile).toStrictEqual({ name: "Sammy", color: "sky" });
+      await expect(seenBy("jo")).resolves.toStrictEqual([["Sammy", "sky"]]);
+    });
+
+    it("shows an invite as the inviter's latest profile, and taps back in it", async () => {
+      await act("ari", "profile", { name: "Ari", color: "moss" });
+      await act("jo", "profile", { name: "Jo", color: "plum" });
+      await act("ari", "accept", {
+        ...phone,
+        code: await inviteFrom("jo"),
+        profile: { name: "Coach Ari", color: "ochre" },
+      });
+      await act("sam", "profile", { name: "Sam", color: "tomato" });
+      const code = await inviteFrom("ari");
+      const preview = await Effect.runPromise(
+        invitePreview(deps(), code) as Effect.Effect<unknown, unknown>
+      );
+      await act("sam", "accept", { ...phone, code });
+      expect(preview).toMatchObject({ name: "Coach Ari", color: "ochre" });
+      await expect(seenBy("sam")).resolves.toStrictEqual([
+        ["Coach Ari", "ochre"],
+      ]);
+    });
+
+    it("changes one person's view later, on every device, leaving others alone", async () => {
+      const { accepted } = await connect();
+      await act("jo", "profile", { name: "Jo", color: "plum" });
+      await act("sam", "accept", { ...phone, code: await inviteFrom("jo") });
+      const updated = await act("sam", "send-profile", {
+        id: accepted.sender.id,
+        name: "Sam the Great",
+        color: "plum",
+      });
+      const samMac = await act<SyncResult>("sam", "sync", {
+        platform: "mac",
+        deviceName: "Sam's Mac",
+        receive: true,
+      });
+      expect(updated).toStrictEqual({
+        id: accepted.sender.id,
+        name: "Sam the Great",
+        color: "plum",
+      });
+      await expect(seenBy("ari")).resolves.toStrictEqual([
+        ["Sam the Great", "plum"],
+      ]);
+      await expect(seenBy("jo")).resolves.toStrictEqual([["Sam", "tomato"]]);
+      expect(
+        samMac.senders.map((s) => [s.grant.recipientName, s.name, s.color])
+      ).toStrictEqual([
+        ["Ari", "Sam the Great", "plum"],
+        ["Jo", "Sam", "tomato"],
+      ]);
+    });
+
+    it("can't change how someone else's connection looks", async () => {
+      const { accepted } = await connect();
+      const refused = await fails("ari", "send-profile", {
+        id: accepted.sender.id,
+        name: "Not Sam",
+        color: "moss",
+      });
+      expect(refused.message).toBe("No such person");
+    });
+
+    it("rejects a blank name for one person", async () => {
+      const { accepted } = await connect();
+      const refused = await fails("sam", "send-profile", {
+        id: accepted.sender.id,
+        name: " ",
+        color: "moss",
+      });
+      expect(refused.message).toBe("Enter a name up to 40 characters");
+    });
+  });
+
   describe("removing someone you tap", () => {
     it("keeps them off every device, while they can still tap you", async () => {
       const { accepted } = await connect();

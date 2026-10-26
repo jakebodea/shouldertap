@@ -258,6 +258,13 @@ export interface InboxRpc {
   ) => Rpc<{ credentialId: string }, Unauthorized | Conflict>;
   /** Undoes `addAccountSender` when the other half of the connection fails. */
   readonly removeAccountSender: (credentialId: string) => Rpc<void>;
+  /** The sender chose how this inbox sees them: their taps, past and new,
+   * show this name and color. */
+  readonly updateAccountSender: (
+    credentialId: string,
+    name: string,
+    color: PersonColor
+  ) => Rpc<void, Unauthorized>;
   /** A sender invite made through the account (the browser has no device). */
   readonly accountInvite: (
     inboxId: string
@@ -1124,6 +1131,30 @@ export const InboxLive = Inbox.make(
                   isNull(credentials.revokedAt)
                 )
               );
+            yield* broadcastCredentials;
+          },
+          orDieOnStorage
+        ),
+
+        updateAccountSender: Effect.fn("Inbox.updateAccountSender")(
+          function* updateAccountSender(credentialId, name, color) {
+            const updated = yield* db
+              .update(credentials)
+              .set({ name, color })
+              .where(
+                and(
+                  eq(credentials.id, credentialId),
+                  eq(credentials.kind, "sender"),
+                  isNull(credentials.parentId),
+                  isNull(credentials.revokedAt)
+                )
+              )
+              .returning({ id: credentials.id });
+            if (updated.length === 0) {
+              return yield* new Unauthorized({
+                message: "This sender was removed",
+              });
+            }
             yield* broadcastCredentials;
           },
           orDieOnStorage

@@ -25,6 +25,9 @@ public struct Me: Decodable, Sendable, Hashable {
   public var suggestedName: String?
   /// The person's inbox, once the profile exists.
   public var inboxId: String?
+  /// How a new connection sees you unless you pick otherwise: the profile
+  /// picked for your latest connection, else `profile`. Nil from older servers.
+  public var sendProfile: Profile?
 }
 
 /// A sender key the account hands this device: tap `grant.recipientName` as
@@ -348,17 +351,39 @@ public final class AccountStore {
     return try await request("GET", "/v1/invites/preview", query: [URLQueryItem(name: "code", value: code)], auth: false)
   }
 
-  private struct AcceptBody: Encodable { var code: String; var platform: DevicePlatform; var deviceName: String }
+  private struct AcceptBody: Encodable {
+    var code: String; var platform: DevicePlatform; var deviceName: String; var profile: Profile?
+  }
 
-  /// Connects you and the inviter both ways and keeps your new key to tap them.
-  public func accept(code: String, platform: DevicePlatform, deviceName: String, senders: SenderStore) async throws
-    -> Acceptance
-  {
+  /// Connects you and the inviter both ways and keeps your new key to tap
+  /// them. `profile` is how just they will see you; nil means `me.sendProfile`.
+  public func accept(
+    code: String, profile: Profile? = nil, platform: DevicePlatform, deviceName: String, senders: SenderStore
+  ) async throws -> Acceptance {
     guard let code = inviteCode(from: code) else { throw AccountError(code: "That doesn’t look like a Shouldertap invite link.") }
     let result: Acceptance = try await request("POST", "/account/accept", body: AcceptBody(
-      code: code, platform: platform, deviceName: safeDeviceName(deviceName, platform)))
+      code: code, platform: platform, deviceName: safeDeviceName(deviceName, platform), profile: profile))
     if let sender = result.sender { try senders.add(sender) }
     return result
+  }
+
+  private struct SendProfileBody: Encodable { var id: String; var name: String; var color: PersonColor }
+
+  /// Changes how one person you tap sees you, on every device; their screens
+  /// restyle your taps, old ones too. Needs a connection the account owns.
+  public func updateSendProfile(_ id: String, name: String, color: PersonColor, senders: SenderStore) async throws {
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard (1...maxNameLength).contains(name.count) else {
+      throw AccountError(code: "Enter your name (up to \(maxNameLength) characters).")
+    }
+    guard let session = senders.session(id: id), let accountId = session.pairing.accountId else {
+      throw AccountError(code: "No such person")
+    }
+    do {
+      let saved: Profile = try await request(
+        "POST", "/account/send-profile", body: SendProfileBody(id: accountId, name: name, color: color))
+      session.seen(as: saved)
+    } catch { expireIfUnauthorized(error); throw error }
   }
 
   private struct Removed: Decodable { let removed: Bool }

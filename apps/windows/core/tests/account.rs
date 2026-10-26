@@ -319,7 +319,7 @@ fn accepting_an_invite_connects_you_and_keeps_your_key() {
     });
     let accepted = f
         .account
-        .accept(&format!("https://shouldertap.app/join#{INVITE}"))
+        .accept(&format!("https://shouldertap.app/join#{INVITE}"), None)
         .unwrap();
     assert_eq!(
         f.stub.body_for("/account/accept").unwrap(),
@@ -334,15 +334,105 @@ fn accepting_an_invite_connects_you_and_keeps_your_key() {
 }
 
 #[test]
+fn accepting_can_pick_how_just_this_person_sees_you() {
+    let f = signed_in(|seen| {
+        match seen.path.as_str() {
+        "/account/accept" => (
+            200,
+            r#"{"person":{"name":"Sam","color":"plum"},"sender":{"id":"inbox999:cred1","grant":{"kind":"sender","credentialId":"cred1","token":"inbox999.key1key1.secret34","recipientName":"Sam"},"name":"Coach","color":"sky"},"mutual":true}"#.into(),
+        ),
+        _ => (503, String::new()),
+    }
+    });
+    let profile = Profile {
+        name: " Coach ".into(),
+        color: PersonColor::Sky,
+    };
+    f.account.accept(INVITE, Some(&profile)).unwrap();
+    assert_eq!(
+        f.stub.body_for("/account/accept").unwrap(),
+        serde_json::json!({
+            "code": INVITE, "platform": "windows", "deviceName": "Studio PC",
+            "profile": {"name": "Coach", "color": "sky"}
+        })
+    );
+    assert_eq!(
+        f.pairings
+            .load_pairings()
+            .iter()
+            .map(|p| p.sender_name.as_str())
+            .collect::<Vec<_>>(),
+        ["Coach"]
+    );
+}
+
+#[test]
+fn new_connections_start_with_the_latest_profile() {
+    let f = signed_in(|seen| {
+        match seen.path.as_str() {
+        "/account/me" => (
+            200,
+            r#"{"email":"jake@example.com","profile":{"name":"Jake","color":"moss"},"sendProfile":{"name":"Coach","color":"ochre"},"suggestedName":null,"inboxId":"inbox123"}"#.into(),
+        ),
+        _ => (503, String::new()),
+    }
+    });
+    let me = f.account.refresh().unwrap();
+    assert_eq!(
+        me.send_profile,
+        Some(Profile {
+            name: "Coach".into(),
+            color: PersonColor::Ochre
+        })
+    );
+}
+
+#[test]
+fn changing_how_one_person_sees_you_saves_it_for_them() {
+    let f = fixture(
+        MemoryVault::with(SESSION),
+        MemoryPersistence::default(),
+        sam_and_ana(),
+        |seen| match seen.path.as_str() {
+            "/account/send-profile" => (200, r#"{"id":"inbox999:cred1","name":"Your son","color":"sky"}"#.into()),
+            _ => (503, String::new()),
+        },
+    );
+    let profile = Profile {
+        name: " Your son ".into(),
+        color: PersonColor::Sky,
+    };
+    f.account.update_send_profile("cred1", &profile).unwrap();
+    assert_eq!(
+        f.stub.body_for("/account/send-profile").unwrap(),
+        serde_json::json!({"id": "inbox999:cred1", "name": "Your son", "color": "sky"})
+    );
+    let mut seen: Vec<_> = f
+        .pairings
+        .load_pairings()
+        .into_iter()
+        .map(|p| (p.recipient_name, p.sender_name, p.color))
+        .collect();
+    seen.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        seen,
+        [
+            ("Ana".to_string(), "Jake".to_string(), Some(PersonColor::Moss)),
+            ("Sam".to_string(), "Your son".to_string(), Some(PersonColor::Sky)),
+        ]
+    );
+}
+
+#[test]
 fn your_own_invite_reads_as_the_server_says() {
     let f = signed_in(|seen| match seen.path.as_str() {
         "/account/accept" => (400, r#"{"error":"That's your own invite"}"#.into()),
         _ => (503, String::new()),
     });
-    let error = f.account.accept(INVITE).unwrap_err();
+    let error = f.account.accept(INVITE, None).unwrap_err();
     assert_eq!(error.message, "That's your own invite");
     assert_eq!(
-        f.account.accept("not a link").unwrap_err().message,
+        f.account.accept("not a link", None).unwrap_err().message,
         "That doesn't look like a Shouldertap invite link."
     );
     assert_eq!(f.stub.count("/account/accept"), 1);

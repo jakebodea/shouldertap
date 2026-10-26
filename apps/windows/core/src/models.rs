@@ -621,6 +621,11 @@ pub struct Me {
     /// The person's inbox, once the profile exists.
     #[serde(default)]
     pub inbox_id: Option<String>,
+    /// How a new connection sees you unless you pick otherwise: the profile
+    /// picked for your latest connection, else `profile`. None from older
+    /// servers.
+    #[serde(default)]
+    pub send_profile: Option<Profile>,
 }
 
 /// A new sender key for one of your people, from `/account/sync` or

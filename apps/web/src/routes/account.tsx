@@ -271,7 +271,9 @@ const ProfileSection = ({
     setNotice(undefined);
     try {
       onSaved(await account.setProfile({ name: name.trim(), color }));
-      setNotice("Saved. People you connect with from now on see this.");
+      setNotice(
+        "Saved. People you connect with from now on see this. To change how one person sees you, use Change under your taps to them."
+      );
     } catch (error) {
       if (isSignedOutError(error)) {
         onSignedOut();

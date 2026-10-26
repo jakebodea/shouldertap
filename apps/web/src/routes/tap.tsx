@@ -41,10 +41,12 @@ import { Frame } from "@/components/frame";
 import { InvitePanel } from "@/components/invite-panel";
 import { Mark } from "@/components/mark";
 import { MiniTap } from "@/components/mini-tap";
+import { SendProfileEditor } from "@/components/seen-as";
 import { StepHeading } from "@/components/sign-in";
 import { TapPreview } from "@/components/tap-preview/tap-preview";
 import type { PreviewTap } from "@/components/tap-preview/themes";
 import {
+  account,
   isSignedOutError,
   loadSession,
   needsSignIn,
@@ -52,6 +54,7 @@ import {
 } from "@/lib/account";
 import { removePerson } from "@/lib/api";
 import {
+  inboxOf,
   loadPairing,
   loadPairings,
   removePairing,
@@ -239,9 +242,12 @@ const Composer = ({
     status,
     loaded,
     senderColor,
+    senderName,
+    resync,
     send,
     discard,
   } = useSender(pairing, handleRevoked);
+  const [editingSelf, setEditingSelf] = useState(false);
   const [draft, setDraft] = usePersistedDraft(pairing.credentialId);
   const style = useMemo(() => loadStyle(localStorage), []);
   const [, setTick] = useState(0);
@@ -259,12 +265,25 @@ const Composer = ({
     };
   }, []);
 
-  // Pairings made before colors existed learn theirs from the first snapshot.
+  // The recipient's inbox has the current name and color: pairings made
+  // before colors learn theirs, and a change from another device shows here.
   useEffect(() => {
-    if (!pairing.color && senderColor) {
-      updatePairing({ ...pairing, color: senderColor });
+    const seenColor = senderColor ?? pairing.color;
+    const seenName = senderName ?? pairing.senderName;
+    if (seenColor !== pairing.color || seenName !== pairing.senderName) {
+      updatePairing({ ...pairing, color: seenColor, senderName: seenName });
     }
-  }, [pairing, senderColor]);
+  }, [pairing, senderColor, senderName]);
+
+  const saveSelf = async (profile: { name: string; color: PersonColor }) => {
+    await account.updateSendProfile(
+      `${inboxOf(pairing.token)}:${pairing.credentialId}`,
+      profile
+    );
+    // Their inbox has it now; the snapshot brings it to this pairing.
+    await resync();
+    setEditingSelf(false);
+  };
 
   const submit = (body: string) => {
     const trimmed = body.trim();
@@ -379,8 +398,37 @@ const Composer = ({
         ) : null}
       </section>
 
+      {editingSelf ? (
+        <section aria-labelledby="seen-as" className="flex flex-col gap-3">
+          <h2 className="text-sm font-bold" id="seen-as">
+            How {pairing.recipientName} sees you
+          </h2>
+          <p className="text-tone text-[0.9375rem] leading-snug">
+            Only {pairing.recipientName} sees this. It changes on your taps they
+            already have too.
+          </p>
+          <SendProfileEditor
+            initial={{ name: pairing.senderName, color }}
+            onCancel={() => {
+              setEditingSelf(false);
+            }}
+            onSave={saveSelf}
+          />
+        </section>
+      ) : null}
+
       <Footer>
         Tapping as {pairing.senderName} ·{" "}
+        <button
+          className="text-ink underline underline-offset-[3px]"
+          onClick={() => {
+            setEditingSelf(true);
+          }}
+          type="button"
+        >
+          Change
+        </button>{" "}
+        ·{" "}
         <button
           className="text-ink underline underline-offset-[3px]"
           onClick={unpair}
