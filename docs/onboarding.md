@@ -117,13 +117,16 @@ POST /account/sync {
     "id": string,                    // `${inboxId}:${credentialId}`
     "grant": CredentialGrant,        // kind "sender"; credentialId is the person-level id, token is this device's own key
     "name": string,                  // your name as they see it
-    "color": PersonColor
+    "color": PersonColor,
+    "theme": TapTheme | null,        // what taps to them go in; null follows the device's own style
+    "chooseSeenAs": boolean          // ask once how they see you (see Accept)
   }],
-  "removed": string[]                // tokens from `tokens` whose connection is gone; drop them
+  "removed": string[],               // tokens from `tokens` whose connection is gone; drop them
+  "connections": [{ id, name, color, theme, chooseSeenAs }]   // every connection, held keys included
 }
 ```
 
-Tokens the device holds that aren't on the account yet are saved to it (existing users keep everything). A token that belongs to another account is left alone and not returned in `removed`. Requires a profile (409 otherwise).
+Tokens the device holds that aren't on the account yet are saved to it (existing users keep everything). A token that belongs to another account is left alone and not returned in `removed`. Requires a profile (409 otherwise). `connections` lets a device update pairings it already holds (match `id` to `${inboxId}:${credentialId}`), so a change saved on one device reaches the others; older servers omit it and `theme`/`chooseSeenAs`.
 
 ### Invites
 
@@ -145,32 +148,34 @@ Accept (account session; requires a profile):
 POST /account/accept { "code": string, "platform": ..., "deviceName": string, "profile"?: Profile }   // profile: for just this person; omitted → me.sendProfile
 → {
   "person": { "name": string, "color": PersonColor | null },
-  "sender": { id, grant, name, color } | null,  // you → them; null if you were already connected
+  "sender": { id, grant, name, color, theme, chooseSeenAs } | null,  // you → them; null if you were already connected
   "mutual": boolean                             // they can tap you too (false only for inviters without an account)
 }
 ```
 
 The server adds both directions: a sender credential for you in their inbox, and one for them in yours, each with that person's profile name and color. Their devices get a `credentials` socket event and pick up their new key with `/account/sync`. Your own invite answers 400 "That's your own invite".
 
-A profile given here becomes `me.sendProfile` for the next connection. The reverse half shows the inviter in their own `sendProfile`.
+A profile given here becomes `me.sendProfile` for the next connection. The reverse half shows the inviter in their own `sendProfile`, and is marked `chooseSeenAs` (the accepting person already chose): the inviter's app asks once how this person should see them, until `send-profile` is saved for it. The reverse half is put on the inviter's account before the invite is redeemed, so the sync their `credentials` event prompts already finds it.
 
 ### Change how one person sees you
 
 ```
-POST /account/send-profile { "id": string, "name": string (1–40), "color": PersonColor }   // id: the sender id from sync/accept
-→ { "id": string, "name": string, "color": PersonColor }
+POST /account/send-profile { "id": string, "name": string (1–40), "color": PersonColor, "theme"?: TapTheme | null }   // id: the sender id from sync/accept
+→ { "id": string, "name": string, "color": PersonColor, "theme": TapTheme | null }
 ```
 
 Changes that connection's sender credential in their inbox, so their screens show the new name and color on every tap from you, old ones included (they get a `credentials` socket event). Your other devices pick it up from their next sender snapshot (`senderName`/`senderColor`) and from `/account/sync`, which reports each connection's own profile. It doesn't change `me.sendProfile`. 404 "No such person" for a connection the account doesn't own.
 
+`theme` is what your devices send new taps to them in (`account_resource.send_theme`): left out keeps the saved one, null goes back to each device's own style, and a name outside `TAP_THEMES` is 400 "Choose a theme". Saving it checks no membership; the Worker verifies the patron key on each send as before, and taps already sent keep their theme. Any save, even with unchanged values, clears `chooseSeenAs` (that is how "Skip" answers the ask).
+
 ### Remove someone you tap
 
 ```
-POST /account/remove { "id": string }   // the sender id from sync/accept: `${inboxId}:${credentialId}`
+POST /account/remove { "id": string, "deleteData"?: true }   // the sender id from sync/accept: `${inboxId}:${credentialId}`
 → { "removed": true }
 ```
 
-Ends that connection for every device on the account (sync stops issuing it); then drop the local token. It doesn't stop them tapping you; they remove you from their side. Don't use `/v1/pairings/{id}` revoke for this: it only unlinks one device's key, and the next sync would issue a new one.
+Ends that connection for every device on the account (sync stops issuing it); then drop the local token. Without `deleteData` your taps stay in their inbox. With it, their Inbox deletes what `DELETE /v1/sender` would (your taps, tickets, invites and push setups) for the person-level sender and every device key restored from it, then the connection comes off the account, so a later invite connects you again. A connection their inbox already removed or deleted still comes off the account. It doesn't stop them tapping you; they remove you from their side. Don't use `/v1/pairings/{id}` revoke for this: it only unlinks one device's key, and the next sync would issue a new one.
 
 ### Older clients
 

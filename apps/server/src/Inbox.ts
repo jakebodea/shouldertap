@@ -60,6 +60,7 @@ import {
   authenticatePairing,
   connectedPairingCondition,
   connectedPairings,
+  eraseSender,
   requireSenderRestoreRoom,
   authorizePairingRevocation,
 } from "./pairing-auth";
@@ -257,8 +258,13 @@ export interface InboxRpc {
     name: string,
     color: PersonColor
   ) => Rpc<{ credentialId: string }, Unauthorized | Conflict>;
-  /** Undoes `addAccountSender` when the other half of the connection fails. */
+  /** Undoes `addAccountSender` when the other half of the connection fails,
+   * and ends a connection its sender removed (`/account/remove`). */
   readonly removeAccountSender: (credentialId: string) => Rpc<void>;
+  /** The sender removed this person and their messages with them: what
+   * `deleteSender` does, for the person-level credential and all its keys.
+   * One already gone is fine. */
+  readonly deleteAccountSender: (credentialId: string) => Rpc<void>;
   /** The sender chose how this inbox sees them: their taps, past and new,
    * show this name and color. */
   readonly updateAccountSender: (
@@ -489,6 +495,25 @@ export const InboxLive = Inbox.make(
           )
         )
       );
+
+      /** A sender and everything of theirs is gone: their sockets close and
+       * the recipient's devices refetch. */
+      const deleteSenderData = Effect.fn(function* deleteSenderData(
+        senderId: string
+      ) {
+        // Storage failures only (the transaction's error type is untyped):
+        // defects, like everywhere else here.
+        yield* db
+          .transaction((tx) => eraseSender(tx, senderId))
+          .pipe(Effect.orDie);
+        for (const { socket, session } of yield* sessions) {
+          if (session.credentialId === senderId) {
+            yield* send(socket, { v: 1, type: "revoked" });
+            yield* socket.close(4001, "deleted");
+          }
+        }
+        yield* broadcastCredentials;
+      });
 
       const nextSequence = db
         .update(inbox)
@@ -1142,6 +1167,13 @@ export const InboxLive = Inbox.make(
           orDieOnStorage
         ),
 
+        deleteAccountSender: Effect.fn("Inbox.deleteAccountSender")(
+          function* deleteAccountSender(credentialId) {
+            yield* deleteSenderData(credentialId);
+          },
+          orDieOnStorage
+        ),
+
         updateAccountSender: Effect.fn("Inbox.updateAccountSender")(
           function* updateAccountSender(credentialId, name, color) {
             const updated = yield* db
@@ -1550,26 +1582,7 @@ export const InboxLive = Inbox.make(
           token
         ) {
           const actor = yield* requireSender(token);
-          yield* db.transaction((tx) =>
-            Effect.gen(function* deleteInTransaction() {
-              yield* tx.delete(taps).where(eq(taps.senderId, actor.id));
-              yield* tx
-                .delete(tickets)
-                .where(eq(tickets.credentialId, actor.id));
-              yield* tx.delete(invites).where(eq(invites.createdBy, actor.id));
-              yield* tx.delete(credentials).where(eq(credentials.id, actor.id));
-              yield* tx
-                .delete(pushRegistrations)
-                .where(eq(pushRegistrations.credentialId, token.id));
-            })
-          );
-          for (const { socket, session } of yield* sessions) {
-            if (session.credentialId === actor.id) {
-              yield* send(socket, { v: 1, type: "revoked" });
-              yield* socket.close(4001, "deleted");
-            }
-          }
-          yield* broadcastCredentials;
+          yield* deleteSenderData(actor.id);
           return { deleted: true as const };
         }, orDieOnStorage),
 

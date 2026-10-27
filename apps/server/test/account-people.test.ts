@@ -24,6 +24,7 @@ const migrations = [
   "0006_profile",
   "0007_send_profile",
   "0008_quick_replies",
+  "0009_send_theme",
 ];
 
 interface FakeCredential {
@@ -39,6 +40,8 @@ interface FakeInbox {
   credentials: Map<string, FakeCredential>;
   invites: Map<string, { used: boolean }>;
   senderRoom: number;
+  /** Who sent each tap waiting here, by person-level sender id. */
+  taps?: { senderId: string; body: string }[];
 }
 
 let sqlite: DatabaseSync;
@@ -47,6 +50,9 @@ let world: Map<string, FakeInbox>;
 let counter: number;
 /** What would have gone to PostHog, an external service. */
 let tracked: AnalyticsEvent[];
+/** Runs when an inbox has redeemed an invite and tells its devices, as the
+ * real one does by broadcasting `credentials`. */
+let onRedeemed: (() => Promise<void>) | null;
 
 const nextId = (prefix: string) => {
   counter += 1;
@@ -134,6 +140,21 @@ const fakeInbox = (inboxId: string): InboxRpc => {
           credential.revoked = true;
         }
       }),
+    deleteAccountSender: (credentialId: string) =>
+      Effect.sync(() => {
+        const inbox = state();
+        if (!inbox) {
+          return;
+        }
+        for (const [id, credential] of inbox.credentials) {
+          if (id === credentialId || credential.parentId === credentialId) {
+            inbox.credentials.delete(id);
+          }
+        }
+        inbox.taps = (inbox.taps ?? []).filter(
+          (tap) => tap.senderId !== credentialId
+        );
+      }),
     accountInvite: (id: string) => {
       const code = nextId("i");
       state()?.invites.set(code, { used: false });
@@ -181,11 +202,15 @@ const fakeInbox = (inboxId: string): InboxRpc => {
         parentId: null,
         revoked: false,
       });
-      return Effect.succeed({
+      const grant = {
         kind: "sender" as const,
         credentialId: id,
         token: token(inboxId, id),
         recipientName: inbox.recipientName,
+      };
+      return Effect.promise(async () => {
+        await onRedeemed?.();
+        return grant;
       });
     },
     accountRestore: (_id: string, senderId: string | null, name: string) => {
@@ -257,9 +282,18 @@ interface SyncResult {
     id: string;
     name: string;
     color: string;
-    grant: { recipientName: string };
+    theme: string | null;
+    chooseSeenAs: boolean;
+    grant: { recipientName: string; token: string };
   }[];
   removed: string[];
+  connections: {
+    id: string;
+    name: string;
+    color: string;
+    theme: string | null;
+    chooseSeenAs: boolean;
+  }[];
 }
 
 const connect = async () => {
@@ -272,7 +306,11 @@ const connect = async () => {
   const accepted = await act<{
     person: object;
     mutual: boolean;
-    sender: { id: string; name: string; grant: { recipientName: string } };
+    sender: {
+      id: string;
+      name: string;
+      grant: { recipientName: string; token: string };
+    };
   }>("sam", "accept", { ...phone, code: invite.code });
   return { invite, preview, accepted };
 };
@@ -287,10 +325,20 @@ const inviteFrom = async (from: string) => {
   const created = await act<{ code: string }>(from, "invite");
   return created.code;
 };
+/** A tap from `senderId` waiting in Ari's inbox; reads back what's left. */
+const tapAtAri = async (senderId: string) => {
+  const ari = await act<{ inboxId: string }>("ari", "me");
+  const inbox = world.get(ari.inboxId);
+  if (inbox) {
+    inbox.taps = [{ senderId, body: "Lunch?" }];
+  }
+  return () => world.get(ari.inboxId)?.taps?.map((t) => t.body);
+};
 describe("account people", () => {
   beforeEach(() => {
     counter = 0;
     tracked = [];
+    onRedeemed = null;
     world = new Map();
     sqlite = new DatabaseSync(":memory:");
     sqlite.exec(
@@ -596,8 +644,33 @@ describe("account people", () => {
         code: invite.code,
       });
       const left = [...(world.get(sam.inboxId)?.credentials.values() ?? [])];
+      const ariMac = await act<SyncResult>("ari", "sync", {
+        platform: "mac",
+        deviceName: "Ari's Mac",
+        receive: true,
+      });
       expect(refused._tag).toBe("Conflict");
       expect(left.map((c) => c.revoked)).toStrictEqual([true]);
+      expect(ariMac.connections).toStrictEqual([]);
+    });
+
+    it("lets the inviter tap back as soon as their inbox says someone joined", async () => {
+      await act("ari", "profile", { name: "Ari", color: "moss" });
+      await act("sam", "profile", { name: "Sam", color: "tomato" });
+      const code = await inviteFrom("ari");
+      let ariMac: SyncResult | null = null;
+      onRedeemed = async () => {
+        onRedeemed = null;
+        ariMac = await act<SyncResult>("ari", "sync", {
+          platform: "mac",
+          deviceName: "Ari's Mac",
+          receive: true,
+        });
+      };
+      await act("sam", "accept", { ...phone, code });
+      expect(
+        (ariMac as SyncResult | null)?.senders.map((s) => s.grant.recipientName)
+      ).toStrictEqual(["Sam"]);
     });
 
     it("connects one way to an inviter who has no account", async () => {
@@ -699,6 +772,7 @@ describe("account people", () => {
         id: accepted.sender.id,
         name: "Sam the Great",
         color: "plum",
+        theme: null,
       });
       await expect(seenBy("ari")).resolves.toStrictEqual([
         ["Sam the Great", "plum"],
@@ -733,6 +807,138 @@ describe("account people", () => {
     });
   });
 
+  describe("choosing how the people you invited see you", () => {
+    it("asks the inviter once, and not the person who accepted", async () => {
+      const { accepted } = await connect();
+      const ariPhone = await act<SyncResult>("ari", "sync", {
+        platform: "iphone",
+        deviceName: "Ari's iPhone",
+        receive: true,
+      });
+      const samPhone = await act<SyncResult>("sam", "sync", {
+        ...phone,
+        receive: true,
+        tokens: [accepted.sender.grant.token],
+      });
+      expect(ariPhone.senders.map((s) => s.chooseSeenAs)).toStrictEqual([true]);
+      expect(ariPhone.connections).toStrictEqual([
+        {
+          id: ariPhone.senders[0]?.id,
+          name: "Ari",
+          color: "moss",
+          theme: null,
+          chooseSeenAs: true,
+        },
+      ]);
+      expect(samPhone.connections).toStrictEqual([
+        {
+          id: accepted.sender.id,
+          name: "Sam",
+          color: "tomato",
+          theme: null,
+          chooseSeenAs: false,
+        },
+      ]);
+    });
+
+    it("stops asking once they save, even unchanged", async () => {
+      await connect();
+      const ariPhone = await act<SyncResult>("ari", "sync", {
+        platform: "iphone",
+        deviceName: "Ari's iPhone",
+        receive: true,
+      });
+      const [sender] = ariPhone.senders;
+      await act("ari", "send-profile", {
+        id: sender?.id,
+        name: "Ari",
+        color: "moss",
+      });
+      const again = await act<SyncResult>("ari", "sync", {
+        platform: "iphone",
+        deviceName: "Ari's iPhone",
+        receive: true,
+        tokens: [sender?.grant.token],
+      });
+      expect(again.connections.map((c) => c.chooseSeenAs)).toStrictEqual([
+        false,
+      ]);
+    });
+  });
+
+  describe("a theme for each person you tap", () => {
+    it("reaches every device, including ones that already tap them", async () => {
+      const { accepted } = await connect();
+      const saved = await act("sam", "send-profile", {
+        id: accepted.sender.id,
+        name: "Sam",
+        color: "tomato",
+        theme: "terminal",
+      });
+      const samPhone = await act<SyncResult>("sam", "sync", {
+        ...phone,
+        receive: true,
+        tokens: [accepted.sender.grant.token],
+      });
+      const samMac = await act<SyncResult>("sam", "sync", {
+        platform: "mac",
+        deviceName: "Sam's Mac",
+        receive: true,
+      });
+      expect(saved).toStrictEqual({
+        id: accepted.sender.id,
+        name: "Sam",
+        color: "tomato",
+        theme: "terminal",
+      });
+      expect(samPhone.senders).toStrictEqual([]);
+      expect(samPhone.connections).toStrictEqual([
+        {
+          id: accepted.sender.id,
+          name: "Sam",
+          color: "tomato",
+          theme: "terminal",
+          chooseSeenAs: false,
+        },
+      ]);
+      expect(samMac.senders.map((s) => [s.id, s.theme])).toStrictEqual([
+        [accepted.sender.id, "terminal"],
+      ]);
+    });
+
+    it("keeps the theme when only the name changes, and null follows the device", async () => {
+      const { accepted } = await connect();
+      await act("sam", "send-profile", {
+        id: accepted.sender.id,
+        name: "Sam",
+        color: "tomato",
+        theme: "note",
+      });
+      const renamed = await act<{ theme: string | null }>(
+        "sam",
+        "send-profile",
+        { id: accepted.sender.id, name: "Sammy", color: "sky" }
+      );
+      const cleared = await act<{ theme: string | null }>(
+        "sam",
+        "send-profile",
+        { id: accepted.sender.id, name: "Sammy", color: "sky", theme: null }
+      );
+      expect([renamed.theme, cleared.theme]).toStrictEqual(["note", null]);
+    });
+
+    it("refuses a theme that doesn't exist", async () => {
+      const { accepted } = await connect();
+      const refused = await fails("sam", "send-profile", {
+        id: accepted.sender.id,
+        name: "Sam",
+        color: "tomato",
+        theme: "neon",
+      });
+      expect(refused.message).toBe("Choose a theme");
+    });
+  });
+
   describe("removing someone you tap", () => {
     it("keeps them off every device, while they can still tap you", async () => {
       const { accepted } = await connect();
@@ -760,6 +966,79 @@ describe("account people", () => {
       const { accepted } = await connect();
       const refused = await fails("ari", "remove", { id: accepted.sender.id });
       expect(refused.message).toBe("No such person");
+    });
+
+    it("leaves your taps in their inbox unless you ask", async () => {
+      const { accepted } = await connect();
+      const tapsAtAri = await tapAtAri(accepted.sender.id.split(":")[1] ?? "");
+      await act("sam", "remove", { id: accepted.sender.id });
+      expect(tapsAtAri()).toStrictEqual(["Lunch?"]);
+    });
+
+    it("can delete your taps with them, from every device", async () => {
+      const { accepted } = await connect();
+      const samMac = await act<SyncResult>("sam", "sync", {
+        platform: "mac",
+        deviceName: "Sam's Mac",
+        receive: true,
+      });
+      const macKey = samMac.senders[0]?.grant.token ?? "";
+      const tapsAtAri = await tapAtAri(accepted.sender.id.split(":")[1] ?? "");
+      const removed = await act("sam", "remove", {
+        id: accepted.sender.id,
+        deleteData: true,
+      });
+      const macAfter = await act<SyncResult>("sam", "sync", {
+        platform: "mac",
+        deviceName: "Sam's Mac",
+        receive: true,
+        tokens: [macKey],
+      });
+      expect(removed).toStrictEqual({ removed: true });
+      expect(tapsAtAri()).toStrictEqual([]);
+      await expect(seenBy("ari")).resolves.toStrictEqual([]);
+      expect([macAfter.removed, macAfter.connections]).toStrictEqual([
+        [macKey],
+        [],
+      ]);
+    });
+
+    it("lets you connect again after deleting your taps", async () => {
+      const { accepted } = await connect();
+      await act("sam", "remove", { id: accepted.sender.id, deleteData: true });
+      const again = await act<{ sender: { name: string } | null }>(
+        "sam",
+        "accept",
+        { ...phone, code: await inviteFrom("ari") }
+      );
+      expect(again.sender?.name).toBe("Sam");
+      await expect(seenBy("ari")).resolves.toStrictEqual([["Sam", "tomato"]]);
+    });
+
+    it("comes off the account when a device already deleted it, so you can connect again", async () => {
+      const { accepted } = await connect();
+      const ari = await act<{ inboxId: string }>("ari", "me");
+      // `DELETE /v1/sender` from one of Sam's devices: gone from Ari's inbox,
+      // still on Sam's account.
+      world
+        .get(ari.inboxId)
+        ?.credentials.delete(accepted.sender.id.split(":")[1] ?? "");
+      const stuck = await act<{ sender: object | null }>("sam", "accept", {
+        ...phone,
+        code: await inviteFrom("ari"),
+      });
+      const removed = await act("sam", "remove", {
+        id: accepted.sender.id,
+        deleteData: true,
+      });
+      const again = await act<{ sender: { name: string } | null }>(
+        "sam",
+        "accept",
+        { ...phone, code: await inviteFrom("ari") }
+      );
+      expect(stuck.sender).toBeNull();
+      expect(removed).toStrictEqual({ removed: true });
+      expect(again.sender?.name).toBe("Sam");
     });
   });
 });

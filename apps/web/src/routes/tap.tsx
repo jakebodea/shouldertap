@@ -262,7 +262,11 @@ const Composer = ({
   } = useSender(pairing, handleRevoked);
   const [editingSelf, setEditingSelf] = useState(false);
   const [draft, setDraft] = usePersistedDraft(pairing.credentialId);
-  const style = useMemo(() => loadStyle(localStorage), []);
+  // A theme chosen for this person on the account wins over this browser's.
+  const style = useMemo(
+    () => pairing.theme ?? loadStyle(localStorage),
+    [pairing.theme]
+  );
   // Each tap starts from the account's defaults; changes here are for it alone.
   const [replies, setReplies] = useState<[string, string]>(() => [
     ...defaultReplies,

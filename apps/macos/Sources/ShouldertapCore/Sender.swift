@@ -59,6 +59,13 @@ public struct SenderPairing: Sendable, Codable, Hashable, Identifiable {
   /// Missing on pairings made before colors; the snapshot fills it in.
   public var color: PersonColor?
   public var pairedAt: Timestamp
+  /// The theme taps to this person go in, chosen for them on the account;
+  /// nil follows this device's style (`SenderStore.style`).
+  public var theme: TapTheme?
+  /// They accepted your invite and you haven't said how they see you yet:
+  /// ask once. Saving the send profile (or skipping with it unchanged)
+  /// clears it on every device.
+  public var chooseSeenAs: Bool
 
   public var id: String { credentialId }
   public var inboxId: String? { tokenInboxId(token) }
@@ -69,7 +76,7 @@ public struct SenderPairing: Sendable, Codable, Hashable, Identifiable {
 
   public init(
     token: String, credentialId: String, recipientName: String, senderName: String, color: PersonColor?,
-    pairedAt: Timestamp
+    pairedAt: Timestamp, theme: TapTheme? = nil, chooseSeenAs: Bool = false
   ) {
     self.token = token
     self.credentialId = credentialId
@@ -77,6 +84,26 @@ public struct SenderPairing: Sendable, Codable, Hashable, Identifiable {
     self.senderName = senderName
     self.color = color
     self.pairedAt = pairedAt
+    self.theme = theme
+    self.chooseSeenAs = chooseSeenAs
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case token, credentialId, recipientName, senderName, color, pairedAt, theme, chooseSeenAs
+  }
+
+  /// Pairings saved before per-person themes have no theme and nothing to ask.
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      token: try container.decode(String.self, forKey: .token),
+      credentialId: try container.decode(String.self, forKey: .credentialId),
+      recipientName: try container.decode(String.self, forKey: .recipientName),
+      senderName: try container.decode(String.self, forKey: .senderName),
+      color: try container.decodeIfPresent(PersonColor.self, forKey: .color),
+      pairedAt: try container.decode(Timestamp.self, forKey: .pairedAt),
+      theme: try container.decodeIfPresent(TapTheme.self, forKey: .theme),
+      chooseSeenAs: try container.decodeIfPresent(Bool.self, forKey: .chooseSeenAs) ?? false)
   }
 }
 
@@ -233,9 +260,10 @@ public final class SenderSession: Identifiable {
       case .failure(let error): throw .replies(error)
       }
     }
+    // A theme chosen for this person wins over the device's own.
     let item = OutgoingTap(
       requestId: newRequestId(), body: trimmed, createdAt: Date.now.timeIntervalSince1970 * 1000, failed: false,
-      theme: style().theme, replies: offered)
+      theme: pairing.theme ?? style().theme, replies: offered)
     updateOutbox { [item] + $0 }
     deliver(item)
   }
@@ -300,10 +328,16 @@ public final class SenderSession: Identifiable {
     taps.removeAll { $0.id == tapId }
   }
 
-  /// How they see you changed (`AccountStore.updateSendProfile`).
-  func seen(as profile: Profile) {
-    pairing.senderName = profile.name
-    pairing.color = profile.color
+  /// How they see you, as the account has it (`AccountStore.sync` and
+  /// `updateSendProfile`).
+  func seen(as connection: AccountConnection) {
+    var updated = pairing
+    updated.senderName = connection.name
+    updated.color = connection.color
+    updated.theme = connection.theme
+    updated.chooseSeenAs = connection.chooseSeenAs ?? false
+    guard updated != pairing else { return }
+    pairing = updated
     try? persistence.savePairing(pairing)
   }
 
@@ -406,7 +440,8 @@ public final class SenderStore {
     if let existing = sessions.first(where: { $0.pairing.token == grant.token }) { return existing }
     let pairing = SenderPairing(
       token: grant.token, credentialId: grant.credentialId, recipientName: grant.recipientName,
-      senderName: sender.name, color: sender.color, pairedAt: Date.now.timeIntervalSince1970 * 1000)
+      senderName: sender.name, color: sender.color, pairedAt: Date.now.timeIntervalSince1970 * 1000,
+      theme: sender.theme, chooseSeenAs: sender.chooseSeenAs ?? false)
     for existing in sessions where existing.pairing.inboxId == inboxId {
       forget(id: existing.id)
     }
@@ -415,6 +450,14 @@ public final class SenderStore {
     sessions.append(session)
     session.start()
     return session
+  }
+
+  /// How each person sees you, as the account has it: pairings this device
+  /// already had learn changes made on another device.
+  public func apply(_ connections: [AccountConnection]) {
+    for connection in connections {
+      sessions.first { $0.pairing.accountId == connection.id }?.seen(as: connection)
+    }
   }
 
   /// The account says these connections are gone (`removed`): forget them

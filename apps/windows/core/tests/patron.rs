@@ -77,6 +77,8 @@ fn fixture(
         color: Some(PersonColor::Rose),
         paired_at: 1.0,
         account_id: None,
+        theme: None,
+        choose_seen_as: false,
     };
     let senders = SenderStore::new(SenderConfig {
         server: "https://api.test".into(),

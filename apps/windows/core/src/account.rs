@@ -301,6 +301,8 @@ impl AccountStore {
                 failure.get_or_insert(error);
             }
         }
+        // Keys this PC already had learn changes made on another device.
+        senders.apply_connections(&synced.connections);
         self.inner.update(|state| {
             state.email = Some(synced.me.email.clone());
             state.me = Some(synced.me);
@@ -349,8 +351,16 @@ impl AccountStore {
     }
 
     /// Changes how one person you tap sees you, on every device; their
-    /// screens restyle your taps, old ones too.
-    pub fn update_send_profile(&self, pairing_id: &str, profile: &Profile) -> Result<(), ApiError> {
+    /// screens restyle your taps, old ones too. `theme` is what new taps to
+    /// them go in (None keeps the saved one); the server still checks patron
+    /// support on each send. Saving, even unchanged, answers
+    /// `choose_seen_as`.
+    pub fn update_send_profile(
+        &self,
+        pairing_id: &str,
+        profile: &Profile,
+        theme: Option<TapTheme>,
+    ) -> Result<(), ApiError> {
         let profile = checked_profile(profile)?;
         let senders = &self.inner.config.senders;
         let Some(id) = senders
@@ -361,15 +371,17 @@ impl AccountStore {
             return Err(ApiError::invalid("No such person"));
         };
         let api = self.inner.session()?;
-        let saved = self.inner.checked(api.update_send_profile(&id, &profile))?;
+        let saved = self.inner.checked(api.update_send_profile(&id, &profile, theme))?;
         senders.seen_as(pairing_id, &saved);
         Ok(())
     }
 
     /// Stops tapping someone from every device on the account, then forgets
-    /// them here. Signed out, or for a connection the account doesn't hold,
-    /// this PC's own key is revoked instead (`SenderStore::unpair`).
-    pub fn remove(&self, pairing_id: &str) -> Result<(), ApiError> {
+    /// them here; `delete_data` also deletes your taps to them. Signed out,
+    /// or for a connection the account doesn't hold, this PC's own key goes
+    /// instead: revoked (`SenderStore::unpair`), or with `delete_data` the
+    /// sender deleted (`SenderStore::delete_data`).
+    pub fn remove(&self, pairing_id: &str, delete_data: bool) -> Result<(), ApiError> {
         let senders = &self.inner.config.senders;
         let Some(pairing) = senders
             .state()
@@ -378,13 +390,20 @@ impl AccountStore {
         else {
             return Ok(());
         };
-        let (Ok(api), Some(id)) = (self.inner.session(), pairing.account_id()) else {
-            senders.unpair(pairing_id);
-            return Ok(());
+        let by_key = || {
+            if delete_data {
+                senders.delete_data(pairing_id)
+            } else {
+                senders.unpair(pairing_id);
+                Ok(())
+            }
         };
-        match self.inner.checked(api.remove_person(&id)) {
+        let (Ok(api), Some(id)) = (self.inner.session(), pairing.account_id()) else {
+            return by_key();
+        };
+        match self.inner.checked(api.remove_person(&id, delete_data)) {
             Ok(()) => senders.forget(pairing_id),
-            Err(error) if error.code == ErrorCode::NotFound => senders.unpair(pairing_id),
+            Err(error) if error.code == ErrorCode::NotFound => return by_key(),
             Err(error) => return Err(error),
         }
         Ok(())

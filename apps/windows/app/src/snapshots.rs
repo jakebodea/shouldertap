@@ -433,6 +433,8 @@ fn snapshot_model(
         color: Some(PersonColor::Tomato),
         paired_at: 1.0,
         account_id: None,
+        theme: None,
+        choose_seen_as: false,
     });
     let store = ReceiverStore::new(StoreConfig {
         endpoints: Endpoints {

@@ -1,7 +1,11 @@
 import { MAX_SYNC_TOKENS } from "@shouldertap/client";
-import type { SenderGrant, SyncResult } from "@shouldertap/client";
+import type {
+  AccountConnection,
+  SenderGrant,
+  SyncResult,
+} from "@shouldertap/client";
 import { parseToken } from "@shouldertap/domain";
-import type { PersonColor } from "@shouldertap/domain";
+import type { PersonColor, TapTheme } from "@shouldertap/domain";
 
 /**
  * One person this phone can tap. A phone can hold several pairings, each its
@@ -13,6 +17,9 @@ export interface Pairing {
   readonly credentialId: string;
   readonly recipientName: string;
   readonly senderName: string;
+  /** The theme taps to this person go in, chosen for them on the account.
+   * Missing follows this browser's style (`loadStyle`). */
+  readonly theme?: TapTheme;
   readonly token: string;
 }
 
@@ -137,25 +144,53 @@ export const removePairing = (credentialId: string) => {
   }
 };
 
+/** The connection's id on the account (`${inboxId}:${credentialId}`). */
+const connectionId = (pairing: Pairing) =>
+  `${inboxOf(pairing.token)}:${pairing.credentialId}`;
+
+/** How the account says this person sees you, onto the pairing. */
+const withConnection = (
+  pairing: Pairing,
+  connection: AccountConnection
+): Pairing => {
+  const { theme: _previous, ...rest } = pairing;
+  return {
+    ...rest,
+    senderName: connection.name,
+    color: connection.color,
+    ...(connection.theme ? { theme: connection.theme } : {}),
+  };
+};
+
 /** A sender key from `/account/sync` or `/account/accept`, as a pairing. */
 export const pairingFromSender = (
   sender: SenderGrant,
   recipientName: string = sender.grant.recipientName
-): Pairing => ({
-  token: sender.grant.token,
-  credentialId: sender.grant.credentialId,
-  recipientName,
-  senderName: sender.name,
-  color: sender.color,
-});
+): Pairing =>
+  withConnection(
+    {
+      token: sender.grant.token,
+      credentialId: sender.grant.credentialId,
+      recipientName,
+      senderName: sender.name,
+      color: sender.color,
+    },
+    sender
+  );
 
 /**
- * The pairings left after a sync: connections that are gone drop out, and
- * each new key joins, taking the place of any older one for the same person.
+ * The pairings left after a sync: connections that are gone drop out, each
+ * new key joins, taking the place of any older one for the same person, and
+ * every pairing takes the name, color and theme the account has for it (a
+ * change made on another device).
  */
 export const mergeSync = (
   pairings: readonly Pairing[],
-  { senders, removed }: Pick<SyncResult, "senders" | "removed">
+  {
+    senders,
+    removed,
+    connections = [],
+  }: Pick<SyncResult, "senders" | "removed" | "connections">
 ): Pairing[] => {
   const gone = new Set(removed);
   let next = pairings.filter((p) => !gone.has(p.token));
@@ -171,7 +206,11 @@ export const mergeSync = (
       added,
     ];
   }
-  return next;
+  const byId = new Map(connections.map((c) => [c.id, c]));
+  return next.map((p) => {
+    const connection = byId.get(connectionId(p));
+    return connection ? withConnection(p, connection) : p;
+  });
 };
 
 /** Every token this browser holds, for `/account/sync`. */
@@ -181,7 +220,9 @@ export const syncTokens = (): string[] =>
     .slice(0, MAX_SYNC_TOKENS);
 
 /** Stores a sync's result; the composer keeps showing whoever it showed. */
-export const applySync = (result: Pick<SyncResult, "senders" | "removed">) => {
+export const applySync = (
+  result: Pick<SyncResult, "senders" | "removed" | "connections">
+) => {
   const stored = load();
   const pairings = mergeSync(stored.pairings, result);
   const kept = new Set(pairings.map((p) => p.credentialId));
