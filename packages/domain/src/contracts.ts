@@ -174,6 +174,10 @@ export const CreateInviteRequest = Schema.Struct({
 export type CreateInviteRequest = typeof CreateInviteRequest.Type;
 
 export const Invite = Schema.Struct({
+  /** Public share-card data only; never used to authorize accepting. */
+  inviter: Schema.optionalKey(
+    Schema.Struct({ name: Name, color: PersonColor })
+  ),
   kind: CredentialKind,
   code: Schema.String,
   expiresAt: Timestamp,

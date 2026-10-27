@@ -207,6 +207,16 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(invite.url.absoluteString == "https://web.test/join#inbox.id.secret")
   }
 
+  @Test func personalizedInviteKeepsOnlyNameAndColorOutsideTheFragment() async throws {
+    let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in
+      request.url!.path == "/v1/invites"
+        ? (201, #"{"kind":"sender","code":"inbox.id.secret","expiresAt":1,"inviter":{"name":"Jake & Ana","color":"moss"}}"#) : (503, "")
+    }
+    store.start()
+    let invite = try await store.createSenderInvite()
+    #expect(invite.url.absoluteString == "https://web.test/join?from=Jake%20%26%20Ana&color=moss#inbox.id.secret")
+  }
+
   @Test func registeringPushPutsEveryKey() async throws {
     let raw = SentRaw()
     let store = makeStore(persistence: MemoryPersistence(credential: "a.b.c")) { request in

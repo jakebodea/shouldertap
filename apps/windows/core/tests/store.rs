@@ -180,6 +180,30 @@ fn sender_invite_link_carries_the_code_in_the_fragment() {
 }
 
 #[test]
+fn personalized_invite_keeps_only_name_and_color_outside_the_fragment() {
+    let stub = Stub::new(|seen| {
+        if seen.path == "/v1/invites" {
+            (
+                201,
+                r#"{"kind":"sender","code":"inbox.id.secret","expiresAt":1,"inviter":{"name":"Jake & Ana","color":"moss"}}"#.into(),
+            )
+        } else {
+            (503, String::new())
+        }
+    });
+    let store = make_store(&MemoryPersistence::with("a.b.c"), &stub);
+    store.start();
+    assert_eq!(
+        store.create_sender_invite().unwrap().url,
+        "https://web.test/join?from=Jake+%26+Ana&color=moss#inbox.id.secret"
+    );
+    assert_eq!(
+        stub.body_for("/v1/invites").unwrap(),
+        serde_json::json!({"kind": "sender"})
+    );
+}
+
+#[test]
 fn refused_self_removal_keeps_the_pairing() {
     let persistence = MemoryPersistence::with("inbox.dev1.secret");
     let stub = Stub::new(|seen| match seen.path.as_str() {

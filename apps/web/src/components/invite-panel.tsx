@@ -53,7 +53,7 @@ export const InvitePanel = ({ onDone }: { onDone: () => void }) => {
       const invite = await account.createInvite();
       setState({
         kind: "ready",
-        link: inviteLink(window.location.origin, invite.code),
+        link: inviteLink(window.location.origin, invite.code, invite.inviter),
         expiresAt: invite.expiresAt,
       });
     } catch (error) {

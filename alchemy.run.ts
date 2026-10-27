@@ -54,7 +54,9 @@ export default Alchemy.Stack(
 
     const web = yield* Cloudflare.Website.Vite("web", {
       rootDir: path.resolve(import.meta.dirname, "apps/web"),
+      main: "worker/index.ts",
       assets: {
+        runWorkerFirst: ["/join", "/invite-card.png"],
         htmlHandling: "auto-trailing-slash",
         notFoundHandling: "single-page-application",
       },

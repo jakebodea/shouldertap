@@ -168,3 +168,16 @@ describe("an invite that won't open", () => {
     });
   });
 });
+
+describe("personalized invite links", () => {
+  it("shares public inviter details while keeping the pairing secret in the fragment", () => {
+    const link = inviteLink("https://shouldertap.app", "inbox.id.secret", {
+      name: "Jake & Ana",
+      color: "moss",
+    });
+    expect(link).toBe(
+      "https://shouldertap.app/join?from=Jake+%26+Ana&color=moss#inbox.id.secret"
+    );
+    expect(codeFromScan(link)).toBe("inbox.id.secret");
+  });
+});

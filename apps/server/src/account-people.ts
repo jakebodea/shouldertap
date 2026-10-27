@@ -510,8 +510,9 @@ export const accountInvite = Effect.fn(function* accountInvite(
   { db, inboxes }: Dependencies,
   userId: string
 ) {
-  const { inbox } = yield* requireProfile(db, userId);
-  return yield* inboxes.getByName(inbox.id).accountInvite(inbox.id);
+  const { inbox, sendDefault } = yield* requireProfile(db, userId);
+  const invite = yield* inboxes.getByName(inbox.id).accountInvite(inbox.id);
+  return { ...invite, inviter: sendDefault };
 });
 
 const inviterOf = Effect.fn(function* inviterOf(

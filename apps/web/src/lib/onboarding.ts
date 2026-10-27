@@ -1,4 +1,5 @@
 import { ApiError } from "@shouldertap/client";
+import type { Invite } from "@shouldertap/domain";
 
 /** Pure pieces of the sign-in, invite and accept flow (docs/onboarding.md). */
 
@@ -45,8 +46,19 @@ export const codeFromScan = (value: string) => {
 };
 
 /** The link an invite is shared as; the code rides in the fragment. */
-export const inviteLink = (origin: string, code: string) =>
-  `${origin}/join#${encodeURIComponent(code)}`;
+export const inviteLink = (
+  origin: string,
+  code: string,
+  inviter?: Invite["inviter"]
+) => {
+  const url = new URL("/join", origin);
+  if (inviter) {
+    url.searchParams.set("from", inviter.name);
+    url.searchParams.set("color", inviter.color);
+  }
+  url.hash = encodeURIComponent(code);
+  return url.href;
+};
 
 const BROWSERS = [
   ["Edg/", "Edge"],

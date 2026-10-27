@@ -220,6 +220,11 @@ public struct CredentialGrant: Sendable, Codable {
 }
 
 public struct Invite: Sendable, Codable {
+  public struct Inviter: Sendable, Codable {
+    public var name: String
+    public var color: PersonColor
+  }
+  public var inviter: Inviter? = nil
   public var kind: CredentialKind
   public var code: String
   public var expiresAt: Timestamp
