@@ -1,0 +1,44 @@
+# Sets the App Store promotional text (Actions > Set iOS promotional text >
+# Run workflow) on the live version and any version in review, which Apple
+# allows at any time. scripts/ios-promo-text.ts reads it from
+# brand/app-store/listing-copy.md unless "text" is given.
+name: Set iOS promotional text
+
+on:
+  workflow_dispatch:
+    inputs:
+      text:
+        description: "Promotional text (empty: brand/app-store/listing-copy.md)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  promo-text:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # ci-prod only trusts jobs in this environment, which only main may use.
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Load the App Store Connect key
+        uses: Infisical/secrets-action@v1.0.12
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          oidc-audience: ${{ vars.INFISICAL_OIDC_AUDIENCE }}
+          domain: https://app.infisical.com
+          project-slug: shouldertap-qp-dq
+          env-slug: prod
+
+      - name: Set the promotional text
+        run: bun scripts/ios-promo-text.ts --text "$TEXT"
+        env:
+          TEXT: ${{ inputs.text }}
