@@ -2,6 +2,10 @@
 //! theme in a real GPUI window, captures it mid-arrival and settled with
 //! `screencapture`, then quits. Checks the renderers against the approved
 //! mockup without a server.
+//!
+//! `SHOULDERTAP_RENDER_TAP=<body>` (with `SHOULDERTAP_RENDER_SENDER` and
+//! `SHOULDERTAP_RENDER_COLOR`) renders just that one tap in the default theme
+//! instead, for the App Store artwork (brand/app-store/capture-pc.sh).
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -21,11 +25,41 @@ struct Case {
     name: String,
     theme: TapTheme,
     color: PersonColor,
-    body: &'static str,
+    sender: String,
+    body: String,
+    queued: usize,
+    /// How long ago the tap arrived, in ms.
+    age: f64,
     width: f32,
     height: f32,
     replying: bool,
     frames: Vec<f32>,
+}
+
+/// The one tap `SHOULDERTAP_RENDER_TAP` asks for, full screen and settled.
+fn single_tap() -> Option<Case> {
+    let body = std::env::var("SHOULDERTAP_RENDER_TAP").ok()?;
+    let color = std::env::var("SHOULDERTAP_RENDER_COLOR").ok();
+    Some(Case {
+        name: "tap".into(),
+        theme: TapTheme::Default,
+        color: PersonColor::ALL
+            .into_iter()
+            .find(|c| {
+                color
+                    .as_deref()
+                    .is_some_and(|name| c.swatch().label.eq_ignore_ascii_case(name))
+            })
+            .unwrap_or(PersonColor::Moss),
+        sender: std::env::var("SHOULDERTAP_RENDER_SENDER").unwrap_or_else(|_| "Maya".into()),
+        body,
+        queued: 0,
+        age: 0.,
+        width: 1440.,
+        height: 900.,
+        replying: false,
+        frames: vec![4.],
+    })
 }
 
 fn cases() -> Vec<Case> {
@@ -43,7 +77,10 @@ fn cases() -> Vec<Case> {
             name: format!("{name}-{}", theme.label().to_lowercase()),
             theme,
             color,
-            body,
+            sender: "Maya".into(),
+            body: String::from(body),
+            queued: 1,
+            age: 120_000.,
             width,
             height,
             replying,
@@ -93,19 +130,24 @@ impl Render for Shot {
 pub fn run(directory: String, cx: &mut App) {
     let _ = std::fs::create_dir_all(&directory);
     let only = std::env::var("SHOULDERTAP_RENDER_ONLY").ok();
-    let queue: Vec<Case> = cases()
-        .into_iter()
-        .filter(|c| only.as_ref().is_none_or(|o| c.name.contains(o)))
-        .collect();
+    let single = single_tap();
+    let queue: Vec<Case> = match single {
+        Some(case) => vec![case],
+        None => cases()
+            .into_iter()
+            .filter(|c| only.as_ref().is_none_or(|o| c.name.contains(o)))
+            .collect(),
+    };
+    let only_one = queue.len() == 1 && queue[0].name == "tap";
     cx.spawn(async move |cx| {
         for case in queue {
             let tap = Tap {
                 id: case.name.clone(),
                 sender_id: "s1".into(),
-                sender_name: "Maya".into(),
+                sender_name: case.sender.clone(),
                 sender_color: case.color,
-                body: case.body.into(),
-                created_at: now_ms() - 120_000.,
+                body: case.body.clone(),
+                created_at: now_ms() - case.age,
                 state: TapState::Pending,
                 displayed_at: None,
                 acknowledged_at: None,
@@ -128,10 +170,13 @@ pub fn run(directory: String, cx: &mut App) {
                         ..Default::default()
                     },
                     |_, cx| {
-                        let reply = cx.new(|cx| TextField::new(cx, "Reply to Maya", 280));
+                        let reply = cx.new(|cx| TextField::new(cx, format!("Reply to {}", case.sender), 280));
                         cx.new(|_| Shot {
                             scene_theme: case.theme,
-                            active: ActiveTap { tap, queued: 1 },
+                            active: ActiveTap {
+                                tap,
+                                queued: case.queued,
+                            },
                             replying: case.replying,
                             reply,
                             start: Instant::now(),
@@ -175,6 +220,10 @@ pub fn run(directory: String, cx: &mut App) {
                 }
             }
             let _ = cx.update(|cx| handle.update(cx, |_, window, _| window.remove_window()));
+        }
+        if only_one {
+            let _ = cx.update(|cx| cx.quit());
+            return;
         }
         // The Appearance window, with no server: Default, nothing to change.
         let bounds = Bounds::new(point(px(40.), px(60.)), size(px(760.), px(800.)));

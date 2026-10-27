@@ -10,6 +10,8 @@ export const deviceCss = `
 .monitor .neck{width:18%;height:calc(var(--mw,600px)*.13);margin:0 auto;background:linear-gradient(90deg,#9a9995,#e4e3df 45%,#b4b3ae 70%,#8f8e8a);clip-path:polygon(8% 0,92% 0,100% 100%,0 100%)}.monitor .foot{width:34%;height:calc(var(--mw,600px)*.014);margin:0 auto;background:linear-gradient(#e2e1dc,#a3a29d);border-radius:2px 2px 6px 6px;box-shadow:0 10px 18px -6px #0005}
 .laptop{position:relative}.laptop .lid{padding:2.4% 2.4% 3.2%;background:#0c0c0d;border-radius:calc(var(--lw,400px)*.04) calc(var(--lw,400px)*.04) 0 0;box-shadow:0 0 0 2px #bdbcb7,0 0 0 3px #8a8985}.laptop .lid img{display:block;width:100%}
 .laptop .base{position:relative;left:-7%;width:114%;height:calc(var(--lw,400px)*.034);background:linear-gradient(#ecebe7,#c9c8c3 45%,#8e8d89);border-radius:2px 2px calc(var(--lw,400px)*.05) calc(var(--lw,400px)*.05)/2px 2px calc(var(--lw,400px)*.03) calc(var(--lw,400px)*.03);box-shadow:0 14px 22px -8px #0006}.laptop .base:before{content:"";position:absolute;left:42%;width:16%;top:0;height:42%;background:#a9a8a3;border-radius:0 0 6px 6px}
+.pc{position:relative}.pc .lid{padding:1.6% 1.6% 2.6%;background:#161719;border-radius:calc(var(--pw,400px)*.016) calc(var(--pw,400px)*.016) 0 0;box-shadow:0 0 0 2px #3a3b3f,0 0 0 3px #1d1e21}.pc .lid img{display:block;width:100%}
+.pc .base{position:relative;left:-5%;width:110%;height:calc(var(--pw,400px)*.03);background:linear-gradient(#4a4b50,#2c2d31 55%,#1a1b1d);border-radius:2px 2px calc(var(--pw,400px)*.02) calc(var(--pw,400px)*.02);box-shadow:0 14px 22px -8px #0006}
 .browser{overflow:hidden;border-radius:12px;background:#e8e7e3;box-shadow:0 0 0 1px #0000001f,0 30px 50px -16px #0006}.browser .toolbar{height:38px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid #d3d2cd}.browser .dot{width:11px;height:11px;border-radius:100%}.browser .address{display:flex;align-items:center;justify-content:center;gap:5px;font:500 12.5px system-ui;color:#3d3d3a;margin:0 auto;background:#f6f5f1;border-radius:7px;width:58%;padding:5px 0}.browser .address svg{width:10px;height:10px}.browser .shot{display:block;width:100%;background-repeat:no-repeat}
 .loupe{position:absolute;overflow:hidden;background-repeat:no-repeat;box-shadow:0 0 0 1.5px #ffffff2e,0 26px 44px -12px #000a,0 6px 14px #0003}
 `;
@@ -30,6 +32,10 @@ export const loupe = (
 
 export const monitor = (src, width = 600) =>
   `<div class="monitor" style="--mw:${width}px;width:${width}px"><div class="panel"><img src="${src}" alt="Shouldertap covers the Mac display"></div><div class="neck"></div><div class="foot"></div></div>`;
+
+// A generic Windows laptop: dark, thin-bezeled, no Apple cues.
+export const pcLaptop = (src, width = 400) =>
+  `<div class="pc" style="--pw:${width}px;width:${width}px"><div class="lid"><img src="${src}" alt="The same tap on a Windows PC"></div><div class="base"></div></div>`;
 
 export const laptop = (src, width = 400) =>
   `<div class="laptop" style="--lw:${width}px;width:${width}px"><div class="lid"><img src="${src}" alt="The same tap on the Mac's built-in display"></div><div class="base"></div></div>`;

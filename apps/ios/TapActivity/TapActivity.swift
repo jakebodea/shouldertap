@@ -86,17 +86,21 @@ enum TapActivities {
   #if DEBUG && targetEnvironment(simulator)
     /// Render the real widget for artwork without APNs or production credentials.
     @MainActor static func startMarketingCaptureIfRequested() async {
-      guard ProcessInfo.processInfo.environment["SHOULDERTAP_CAPTURE_ACTIVITY"] == "1" else { return }
+      let environment = ProcessInfo.processInfo.environment
+      guard environment["SHOULDERTAP_CAPTURE_ACTIVITY"] == "1" else { return }
       for activity in Activity<TapActivityAttributes>.activities {
         await activity.end(nil, dismissalPolicy: .immediate)
       }
       do {
         _ = try Activity<TapActivityAttributes>.request(
           attributes: TapActivityAttributes(
-            tapId: "marketing-tap-01", senderName: "Sam", senderColor: .moss,
+            tapId: "marketing-tap-01", senderName: environment["SHOULDERTAP_CAPTURE_SENDER"] ?? "Marcus",
+            senderColor: PersonColor(rawValue: environment["SHOULDERTAP_CAPTURE_COLOR"] ?? "") ?? .tomato,
             createdAt: Date.now.timeIntervalSince1970 * 1000),
           content: ActivityContent(
-            state: .init(body: "Tea break? Meet me in the kitchen.", answer: nil), staleDate: nil),
+            state: .init(
+              body: environment["SHOULDERTAP_CAPTURE_BODY"] ?? "Can you come here?", answer: nil,
+              replies: environment["SHOULDERTAP_CAPTURE_REPLIES"]?.components(separatedBy: "|")), staleDate: nil),
           pushType: nil)
       } catch {
         print("Marketing Live Activity capture failed: \(error)")

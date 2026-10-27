@@ -38,7 +38,7 @@ Support: https://shouldertap.app/support Marketing: https://shouldertap.app
 
 ## Screenshots
 
-Upload the six numbered portrait exports in order, using the matching size for each slot. The widescreen artwork is not an iPhone screenshot.
+Upload the seven numbered portrait exports in order, using the matching size for each slot. The widescreen artwork is not an iPhone screenshot.
 
 ## Verified App Store Connect state
 
