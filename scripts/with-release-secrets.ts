@@ -14,7 +14,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
-import { mintAccessToken } from "alchemy/Infisical";
+import { mintAccessToken } from "@alchemy.run/infisical";
 import * as Effect from "effect/Effect";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Redacted from "effect/Redacted";

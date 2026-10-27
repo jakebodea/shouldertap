@@ -10,9 +10,11 @@
     "db:generate:patron": "drizzle-kit generate --config drizzle.patron.config.ts"
   },
   "dependencies": {
-    "@effect/sql-sqlite-do": "4.0.4",
+    "@alchemy.run/cloudflare": "catalog:",
+    "@alchemy.run/drizzle": "catalog:",
+    "@effect/sql-sqlite-do": "4.0.6",
     "@shouldertap/domain": "workspace:*",
-    "alchemy": "2.0.0-beta.82",
+    "alchemy": "2.0.0-beta.84",
     "better-auth": "1.7.12",
     "creem": "1.13.0",
     "drizzle-orm": "1.0.0-rc.5-ab785fc",

@@ -1,7 +1,7 @@
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { makeShouldertapClient } from "@shouldertap/client";
 import { ServerEvent } from "@shouldertap/domain";
 import type { Tap } from "@shouldertap/domain";
-import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Vitest";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
