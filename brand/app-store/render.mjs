@@ -91,8 +91,6 @@ const at = (left, top, html, z = 1) =>
 
 const css = `@font-face{font-family:B;src:url(data:font/woff2;base64,${font});font-weight:200 800}*{box-sizing:border-box}body{margin:0;font-family:B,sans-serif;font-variation-settings:"opsz" 96}h1{margin:0;font-weight:800;letter-spacing:-.04em;line-height:.98}p{margin:0;font-weight:500;font-variation-settings:"opsz" 24}.brand{display:flex;align-items:center;gap:.32em;font-weight:800;letter-spacing:-.035em}.mark{width:1.05em;height:1.05em}.note{font-weight:500;font-variation-settings:"opsz" 14;opacity:.78}${deviceCss}`;
 
-// Header note on the slides that introduce the app.
-const free = "Free on iPhone · Mac and PC optional";
 const graphite = { bg: "#2b2c30", ink: "#f1f1ee" };
 const slides = [
   (() => {
@@ -101,7 +99,6 @@ const slides = [
       name: "01-hard-to-miss",
       title: "A tap that’s<br>hard to miss.",
       sub: "From someone you know.<br>With answers they picked.",
-      note: free,
       ...graphite,
       art: `${p.html}${knock(540, 350, 50, "#f1f1ee")}`,
     };
@@ -160,7 +157,6 @@ const slides = [
       name: "06-invite",
       title: "Only people<br>you invite.",
       sub: "Share a link or QR code. Remove anyone, any time.",
-      note: free,
       bg: "#d9432b",
       ink: "#fff4ef",
       art: p.html,
@@ -176,7 +172,7 @@ const slides = [
   },
 ];
 const portrait = (s) =>
-  `<!doctype html><html><head><style>${css}body{width:660px;height:1434px;background:${s.bg};color:${s.ink};padding:46px 46px 0;position:relative;overflow:hidden}header{display:flex;justify-content:space-between;align-items:center}.brand{font-size:23px}.note{font-size:13.5px}h1{margin-top:44px;font-size:68px}p{margin-top:18px;font-size:22px;line-height:1.32;max-width:520px}.hold{position:absolute;left:0;right:0;text-align:center;font-size:17px;font-weight:600;opacity:.85}.hold:after{content:"";display:block;width:2px;height:22px;margin:8px auto 0;background:currentColor;opacity:.6;border-radius:2px}</style></head><body><header><div class="brand">${mark}Shouldertap</div>${s.note ? `<div class="note">${s.note}</div>` : ""}</header><h1>${s.title}</h1><p>${s.sub}</p>${s.art}</body></html>`;
+  `<!doctype html><html><head><style>${css}body{width:660px;height:1434px;background:${s.bg};color:${s.ink};padding:46px 46px 0;position:relative;overflow:hidden}header{display:flex;justify-content:space-between;align-items:center}.brand{font-size:23px}.note{font-size:13.5px}h1{margin-top:44px;font-size:68px}p{margin-top:18px;font-size:22px;line-height:1.32;max-width:520px}.hold{position:absolute;left:0;right:0;text-align:center;font-size:17px;font-weight:600;opacity:.85}.hold:after{content:"";display:block;width:2px;height:22px;margin:8px auto 0;background:currentColor;opacity:.6;border-radius:2px}</style></head><body><header><div class="brand">${mark}Shouldertap</div></header><h1>${s.title}</h1><p>${s.sub}</p>${s.art}</body></html>`;
 
 const heroPhone = placePhone(lock, { left: 1548, top: 236, width: 300 });
 const wide = `<!doctype html><html><head><style>${css}body{width:1920px;height:1080px;background:#f6f5f1;color:#161616;padding:84px 90px;position:relative;overflow:hidden}.brand{font-size:30px}h1{font-size:96px;margin-top:150px}p{font-size:27px;line-height:1.35;margin-top:26px;color:#3d3c39}.note{position:absolute;left:90px;bottom:60px;font-size:18px;color:#6f6e69;opacity:1}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>A little tap.<br>Across your<br>screens.</h1><p>Send a tap. Get an answer.<br>Across your screens.</p>${at(736, 92, monitor(mac, 760))}${at(690, 640, pcLaptop(pc, 430), 2)}${at(1182, 520, browserFrame(web, { width: 340, crop: webCrop, source: webSource }), 3)}${heroPhone.html.replace("position:absolute", "position:absolute;z-index:4")}${zoom(heroPhone, lock, regions.lockActivity, { width: 380, radius: 17, dx: -24 })}</body></html>`;

@@ -16,7 +16,7 @@ Revised October 21, 2026 (v3). Draft for review; nothing uploaded or published.
 
 The shared `devices.mjs` renderer supplies phone hardware (6.3" Pro proportions: screen corners, island size, side keys), display/laptop surrounds, browser chrome and `loupe()`. Phone captures always go through its `phone()` wrapper. Dynamic Island captures retain the system-rendered island; other captures get the hardware island cutout. Enlarged details ("loupes") are CSS crops of the same capture pixels at about 1.0–1.3× capture resolution; no UI is redrawn. Capture regions are named in `render.mjs` (`regions`). The browser window shows the whole 700 × 900 capture, taken at that window width so the page lays itself out as it would there. Original captures remain in `captures/`.
 
-Header notes replace the old bottom footers so devices can bleed off the bottom: "Free on iPhone · Mac optional", or "Live Activities on supported iPhone" on the two system-surface slides.
+Slides carry no header notes or footers, so devices can bleed off the bottom.
 
 The widescreen image tells the cross-device story. It is marketing artwork, not an App Store screenshot size.
 
