@@ -48,7 +48,7 @@ const invite = capture("iphone-invite");
 // Regions of the captures, in capture pixels (1206 × 2622 for iPhone).
 const regions = {
   compactIsland: [327, 37, 595, 120],
-  lockActivity: [49, 1773, 1108, 461],
+  lockActivity: [44, 1775, 1118, 460],
   replyAnswer: [40, 1630, 1126, 356],
 };
 // The web capture is a 700 × 900 window at 2×, shown whole.
@@ -91,7 +91,6 @@ const at = (left, top, html, z = 1) =>
 
 const css = `@font-face{font-family:B;src:url(data:font/woff2;base64,${font});font-weight:200 800}*{box-sizing:border-box}body{margin:0;font-family:B,sans-serif;font-variation-settings:"opsz" 96}h1{margin:0;font-weight:800;letter-spacing:-.04em;line-height:.98}p{margin:0;font-weight:500;font-variation-settings:"opsz" 24}.brand{display:flex;align-items:center;gap:.32em;font-weight:800;letter-spacing:-.035em}.mark{width:1.05em;height:1.05em}.note{font-weight:500;font-variation-settings:"opsz" 14;opacity:.78}${deviceCss}`;
 
-const graphite = { bg: "#2b2c30", ink: "#f1f1ee" };
 const sky = { bg: "#9cc9ec", ink: "#0d2233" };
 const slides = [
   (() => {
@@ -128,9 +127,9 @@ const slides = [
       name: "03-lock-screen",
       title: "Right on your<br>Lock Screen.",
       sub: "Answer with one tap,<br>right from the Lock Screen.",
-      bg: "#6d2657",
-      ink: "#f8eef3",
-      art: `${p.html}${zoom(p, lock, regions.lockActivity, { width: 580, radius: 25, dy: -10 })}`,
+      bg: "#f2c4bd",
+      ink: "#3b1219",
+      art: `${p.html}${zoom(p, lock, regions.lockActivity, { width: 580, radius: 33, dy: -10 })}`,
     };
   })(),
   {
@@ -147,8 +146,8 @@ const slides = [
       name: "05-reply",
       title: "Get an answer.<br>Carry on.",
       sub: "They answer with a tap or a few words, and you see where they saw it.",
-      bg: "#f2c4bd",
-      ink: "#3b1219",
+      bg: "#2b2c30",
+      ink: "#f1f1ee",
       art: `${p.html}${zoom(p, reply, regions.replyAnswer, { width: 580, radius: 22 })}`,
     };
   })(),
@@ -167,7 +166,8 @@ const slides = [
     name: "07-browser",
     title: "A browser.<br>A little tap.",
     sub: "Invited people can send from the web. It reaches every linked screen.",
-    ...graphite,
+    bg: "#6d2657",
+    ink: "#f8eef3",
     art: `${at(28, 392, browserFrame(web, { width: 560, crop: webCrop, source: webSource }))}${placePhone(takeover, { left: 392, top: 856, width: 240 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
   },
 ];
@@ -175,7 +175,7 @@ const portrait = (s) =>
   `<!doctype html><html><head><style>${css}body{width:660px;height:1434px;background:${s.bg};color:${s.ink};padding:46px 46px 0;position:relative;overflow:hidden}header{display:flex;justify-content:space-between;align-items:center}.brand{font-size:23px}.note{font-size:13.5px}h1{margin-top:44px;font-size:68px}p{margin-top:18px;font-size:22px;line-height:1.32;max-width:520px}.hold{position:absolute;left:0;right:0;text-align:center;font-size:17px;font-weight:600;opacity:.85}.hold:after{content:"";display:block;width:2px;height:22px;margin:8px auto 0;background:currentColor;opacity:.6;border-radius:2px}</style></head><body><header><div class="brand">${mark}Shouldertap</div></header><h1>${s.title}</h1><p>${s.sub}</p>${s.art}</body></html>`;
 
 const heroPhone = placePhone(lock, { left: 1548, top: 236, width: 300 });
-const wide = `<!doctype html><html><head><style>${css}body{width:1920px;height:1080px;background:#f6f5f1;color:#161616;padding:84px 90px;position:relative;overflow:hidden}.brand{font-size:30px}h1{font-size:96px;margin-top:150px}p{font-size:27px;line-height:1.35;margin-top:26px;color:#3d3c39}.note{position:absolute;left:90px;bottom:60px;font-size:18px;color:#6f6e69;opacity:1}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>A little tap.<br>Across your<br>screens.</h1><p>Send a tap. Get an answer.<br>Across your screens.</p>${at(736, 92, monitor(mac, 760))}${at(690, 640, pcLaptop(pc, 430), 2)}${at(1182, 520, browserFrame(web, { width: 340, crop: webCrop, source: webSource }), 3)}${heroPhone.html.replace("position:absolute", "position:absolute;z-index:4")}${zoom(heroPhone, lock, regions.lockActivity, { width: 380, radius: 17, dx: -24 })}</body></html>`;
+const wide = `<!doctype html><html><head><style>${css}body{width:1920px;height:1080px;background:#f6f5f1;color:#161616;padding:84px 90px;position:relative;overflow:hidden}.brand{font-size:30px}h1{font-size:96px;margin-top:150px}p{font-size:27px;line-height:1.35;margin-top:26px;color:#3d3c39}.note{position:absolute;left:90px;bottom:60px;font-size:18px;color:#6f6e69;opacity:1}</style></head><body><div class="brand">${mark}Shouldertap</div><h1>A little tap.<br>Across your<br>screens.</h1><p>Send a tap. Get an answer.<br>Across your screens.</p>${at(736, 92, monitor(mac, 760))}${at(690, 640, pcLaptop(pc, 430), 2)}${at(1182, 520, browserFrame(web, { width: 340, crop: webCrop, source: webSource }), 3)}${heroPhone.html.replace("position:absolute", "position:absolute;z-index:4")}${zoom(heroPhone, lock, regions.lockActivity, { width: 380, radius: 22, dx: -24 })}</body></html>`;
 
 const browser = await chromium.launch({ headless: true, channel: "chrome" });
 const exportsPath = path.join(here, "exports");
