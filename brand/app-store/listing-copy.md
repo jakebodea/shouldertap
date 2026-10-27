@@ -8,7 +8,7 @@ A little tap. A clear answer.
 
 ## Promotional text
 
-Send a little tap to someone you know. See it reach their screen, then get an answer. On iPhone and across their connected Mac displays.
+Send a little tap to someone you know. See it reach their screen, then get an answer. On iPhone and across every display on their Mac or PC.
 
 ## Description
 
@@ -16,7 +16,7 @@ A little tap. A clear answer.
 
 Shouldertap helps you reach the people you know and get a reply. Create an inbox on your iPhone, invite someone, and let them send you a short message.
 
-HARD TO MISS Receive taps in the app, on your Lock Screen and in the Dynamic Island on supported iPhones. Add Shouldertap for Mac to show taps across your connected displays, even over full-screen apps.
+HARD TO MISS Receive taps in the app, on your Lock Screen and in the Dynamic Island on supported iPhones. Add Shouldertap for Mac or Windows to show taps across your connected displays, even over full-screen apps.
 
 CLOSE THE LOOP Answer “On it,” “In 10 min,” or with a few words. The sender sees your reply, and answering clears the tap from your linked devices.
 
@@ -38,7 +38,7 @@ Support: https://shouldertap.app/support Marketing: https://shouldertap.app
 
 ## Screenshots
 
-Upload the seven numbered portrait exports in order, using the matching size for each slot. The widescreen artwork is not an iPhone screenshot.
+Upload the seven numbered portrait exports in order, using the matching size for each slot: Actions → Submit iOS for review with "screenshots" on does this (large → 6.9", medium → 6.3"), and with "submit" off it only prepares the version so you can check it first. The widescreen artwork is not an iPhone screenshot.
 
 ## Verified App Store Connect state
 

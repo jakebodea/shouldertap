@@ -1,8 +1,9 @@
 # Submits an uploaded iOS build for App Review (Actions > Submit iOS for
 # review > Run workflow). The build must already be in TestFlight, uploaded
 # by release.yml. scripts/submit-ios.ts makes or reuses the App Store version,
-# attaches the build, sets What's New and submits; the App Store screenshots
-# and description stay as they are in App Store Connect.
+# attaches the build, sets What's New and submits. With "screenshots" it first
+# replaces the iPhone screenshots with brand/app-store's exports (see its
+# README); otherwise they and the description stay as they are.
 name: Submit iOS for review
 
 on:
@@ -22,6 +23,14 @@ on:
         type: choice
         options: [after-approval, manual]
         default: after-approval
+      screenshots:
+        description: "Replace the iPhone screenshots with brand/app-store/exports"
+        type: boolean
+        default: false
+      submit:
+        description: "Submit for review (off: prepare the version only, to check it in App Store Connect)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -29,7 +38,7 @@ permissions:
 jobs:
   submit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     # ci-prod only trusts jobs in this environment, which only main may use.
     environment: production
     concurrency: { group: submit-ios, cancel-in-progress: false }
@@ -50,10 +59,16 @@ jobs:
           project-slug: shouldertap-qp-dq
           env-slug: prod
 
-      - name: Submit for App Review
-        run: bun scripts/submit-ios.ts --version "$VERSION" --build "$BUILD" --whats-new "$WHATS_NEW" --release "$RELEASE"
+      - name: Prepare and submit for App Review
+        run: |
+          args=(--version "$VERSION" --build "$BUILD" --whats-new "$WHATS_NEW" --release "$RELEASE")
+          if [ "$SCREENSHOTS" = true ]; then args+=(--screenshots brand/app-store); fi
+          if [ "$SUBMIT" != true ]; then args+=(--no-submit); fi
+          bun scripts/submit-ios.ts "${args[@]}"
         env:
           VERSION: ${{ inputs.version }}
           BUILD: ${{ inputs.build }}
           WHATS_NEW: ${{ inputs.whats_new }}
           RELEASE: ${{ inputs.release }}
+          SCREENSHOTS: ${{ inputs.screenshots }}
+          SUBMIT: ${{ inputs.submit }}
