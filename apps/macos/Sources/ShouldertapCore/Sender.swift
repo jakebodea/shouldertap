@@ -460,6 +460,13 @@ public final class SenderStore {
     }
   }
 
+  /// The next person to ask how they see you (they accepted your invite,
+  /// `chooseSeenAs`), oldest first, one at a time; `skipping` holds those
+  /// already asked whose answer hasn't reached the account yet.
+  public func nextToAskSeenAs(skipping: Set<String> = []) -> SenderSession? {
+    sessions.first { $0.pairing.chooseSeenAs && !skipping.contains($0.id) }
+  }
+
   /// The account says these connections are gone (`removed`): forget them
   /// here without revoking anything.
   public func drop(tokens: Set<String>) {

@@ -7,11 +7,18 @@ import SwiftUI
 enum Stores {
   static let senders: SenderStore = {
     let store = SenderStore(server: Config.server, persistence: KeychainPersistence())
+    // A patron's taps carry their theme and this iPhone's patron key.
+    store.style = { patron.style }
     store.start()
     return store
   }()
 
   static let account = AccountStore(server: Config.server, vault: KeychainVault(service: "app.shouldertap.iphone.account"))
+
+  /// The account's patron membership, with this iPhone's own key (named
+  /// like the Mac's, `<bundle>.patron`).
+  static let patron = PatronStore(
+    account: account, vault: KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.iphone") + ".patron"))
 
   static let inbox: ReceiverStore = {
     let inbox = ReceiverStore(
@@ -71,7 +78,13 @@ struct RootView: View {
   /// A sign-in QR link (shouldertap://qr#…) opened while signed out.
   @State private var signInLink = ""
   @State private var cover: RootCover?
-  @State private var showAccount = false
+  @State private var showSettings = false
+  @State private var settingsPath: [SettingsPage] = []
+  /// A cover to open once Settings has closed (Add someone).
+  @State private var afterSettings: RootCover?
+  /// People asked how they see you this run, whose answer may not have
+  /// reached the account yet.
+  @State private var askedSeenAs: Set<String> = []
   @State private var receiver = Receiver.shared
   @Environment(\.scenePhase) private var scenePhase
   @State private var wasBackground = false
@@ -96,13 +109,19 @@ struct RootView: View {
         home.transition(.opacity)
       }
     }
-    .sheet(isPresented: $showAccount) {
-      NavigationStack {
-        AccountView(account: account)
-          .navigationTitle("Account")
-          .toolbar { Button("Done") { showAccount = false } }
+    .sheet(
+      isPresented: $showSettings,
+      onDismiss: {
+        if let next = afterSettings {
+          afterSettings = nil
+          cover = next
+        }
       }
-      .sheetOnPaper()
+    ) {
+      SettingsView(account: account, senders: store, inbox: inbox, path: $settingsPath) {
+        afterSettings = .add
+        showSettings = false
+      }
     }
     .environment(\.inboxActions, actions)
     .environment(inbox)
@@ -118,7 +137,7 @@ struct RootView: View {
         case .add:
           Frame(color: myColor) {
             AddPeople(
-              inbox: inbox, senders: store, color: myColor, onInvite: { open(scanned: $0) },
+              inbox: inbox, color: myColor, onInvite: { open(scanned: $0) },
               onClose: { self.cover = nil })
           }
         case .computer(let scanned):
@@ -159,7 +178,7 @@ struct RootView: View {
     // (made elsewhere and reset): back to the You step.
     .onChange(of: account.signedIn) { _, signedIn in
       if !signedIn {
-        showAccount = false
+        showSettings = false
         onboarded = false
       }
     }
@@ -182,7 +201,10 @@ struct RootView: View {
         store.nudge()
         inbox.nudge()
         inbox.refresh()
-        Task { await Stores.sync() }
+        Task {
+          await Stores.sync()
+          await Stores.patron.refresh()
+        }
       default: break
       }
     }
@@ -190,7 +212,9 @@ struct RootView: View {
       receiver.sync()
       await account.refresh()
       await Stores.sync()
+      await Stores.patron.refresh()
     }
+    .task { await USStorefront.shared.watch() }
   }
 
   private var home: some View {
@@ -204,6 +228,41 @@ struct RootView: View {
         .badge(waiting)
     }
     .tint(Paper.ink)
+    .sheet(item: Binding(get: { askingSeenAs }, set: { _ in })) { person in
+      seenAsQuestion(person)
+    }
+  }
+
+  /// Someone who accepted your invite, to ask once how they see you, when
+  /// nothing else is in the way.
+  private var askingSeenAs: SenderSession? {
+    guard cover == nil, !showSettings, inbox.activeTap == nil else { return nil }
+    return store.nextToAskSeenAs(skipping: askedSeenAs)
+  }
+
+  /// "You're now connected with {name}": how they see you, prefilled with
+  /// what they see now. Saving or skipping answers it on the account.
+  private func seenAsQuestion(_ person: SenderSession) -> some View {
+    let name = person.pairing.recipientName
+    let theme = Stores.patron.theme(for: person.pairing)
+    let initial = Profile(name: person.pairing.senderName, color: person.color)
+    return SeenAsEditor(
+      title: "You're now connected with \(name)", note: "Choose how \(name) sees you.", saveLabel: "Save",
+      cancelLabel: "Skip", initial: initial, theme: theme,
+      onCancel: {
+        askedSeenAs.insert(person.id)
+        // Saved unchanged, which answers the ask on every device.
+        Task {
+          try? await account.updateSendProfile(person.id, name: initial.name, color: initial.color, senders: store)
+        }
+      },
+      onSave: { profile, chosen in
+        try await account.updateSendProfile(
+          person.id, name: profile.name, color: profile.color, theme: chosen == theme ? nil : chosen, senders: store)
+        askedSeenAs.insert(person.id)
+      }
+    )
+    .interactiveDismissDisabled()
   }
 
   @ViewBuilder private var tapHome: some View {
@@ -216,7 +275,7 @@ struct RootView: View {
       }
     } else {
       Frame(color: myColor) {
-        AddPeople(inbox: inbox, senders: store, color: myColor, onInvite: { open(scanned: $0) })
+        AddPeople(inbox: inbox, color: myColor, onInvite: { open(scanned: $0) })
       }
     }
   }
@@ -224,10 +283,10 @@ struct RootView: View {
   @ViewBuilder private var inboxHome: some View {
     if inbox.phase == .ready {
       Frame(color: inboxColor) {
-        InboxScreen(inbox: inbox, senders: store)
+        InboxScreen(inbox: inbox)
       }
     } else {
-      InboxWaiting(account: account, senders: store) { Task { await Stores.sync() } }
+      InboxWaiting(account: account) { Task { await Stores.sync() } }
     }
   }
 
@@ -259,7 +318,10 @@ struct RootView: View {
   private var actions: InboxActions {
     InboxActions(
       open: { tab = .inbox },
-      account: { showAccount = true })
+      settings: { page in
+        settingsPath = page.map { [$0] } ?? []
+        showSettings = true
+      })
   }
 
   /// A link pasted or scanned in Add your people: a computer's sign-in code

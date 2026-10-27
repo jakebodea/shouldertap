@@ -378,6 +378,28 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     token: "inboxDAD.key22222.secret444", credentialId: "dad11111", recipientName: "Dad", senderName: "Jake",
     color: .moss, pairedAt: 2)
 
+  @Test func peopleWhoAcceptedYourInvitesAreAskedOneAtATimeOldestFirst() async throws {
+    let account = try await signedIn { request in
+      request.url!.path == "/account/send-profile"
+        ? (200, #"{"id":"inboxMOM:mom11111","name":"Jake","color":"moss","theme":null}"#) : (200, jakeMe)
+    }
+    var askMom = mom
+    askMom.chooseSeenAs = true
+    var askDad = dad
+    askDad.chooseSeenAs = true
+    let senders = SenderStore(
+      server: api, persistence: MemorySenderPersistence(pairings: [askDad, askMom]),
+      session: StubProtocol.session { _ in (503, "{}") })
+    senders.start()
+    var asked = [senders.nextToAskSeenAs()?.pairing.recipientName]
+    // Skip: saved unchanged, which answers the ask.
+    try await account.updateSendProfile("mom11111", name: "Jake", color: .moss, senders: senders)
+    asked.append(senders.nextToAskSeenAs()?.pairing.recipientName)
+    // Dad's answer is on its way.
+    asked.append(senders.nextToAskSeenAs(skipping: ["dad11111"])?.pairing.recipientName)
+    #expect(asked == ["Mom", "Dad", nil])
+  }
+
   /// A patron on this Mac whose own theme is Note; `sendProfile` answers
   /// `/account/send-profile`.
   private func patronWithNote(

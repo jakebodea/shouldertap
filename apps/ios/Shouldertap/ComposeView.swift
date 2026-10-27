@@ -2,19 +2,19 @@ import ShouldertapCore
 import SwiftUI
 
 /// The paired screen: everyone you can tap as avatars on the frame (tap one
-/// to switch, and the frame floods to their color), and the composer for the
-/// selected person on the page, which rises into place when it appears.
+/// to switch, and the frame floods to their color; long-press for their page
+/// in Settings), and the composer for the selected person on the page, which
+/// rises into place when it appears.
 struct ComposeView: View {
   let session: SenderSession
   let store: SenderStore
   let onSelect: (String) -> Void
   let onAdd: () -> Void
 
-  @State private var unpairing: SenderSession?
-  /// Whose "How they see you" sheet is open.
-  @State private var seenBy: SenderSession?
   @State private var risen = false
+  @State private var pressed = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.inboxActions) private var actions
 
   var body: some View {
     VStack(spacing: 0) {
@@ -24,7 +24,7 @@ struct ComposeView: View {
       } trailing: {
         HStack(spacing: 6) {
           people
-          HelpButton(store: store)
+          SettingsButton()
         }
       }
       ZStack {
@@ -39,73 +39,26 @@ struct ComposeView: View {
     .onAppear {
       withAnimation(.outExpo(0.8)) { risen = true }
     }
-    .sheet(item: $seenBy) { person in
-      SeenAsEditor(
-        note: "Only \(person.pairing.recipientName) sees this. It changes your taps they already have too.",
-        saveLabel: "Save", initial: Profile(name: person.pairing.senderName, color: person.color),
-        onCancel: { seenBy = nil },
-        onSave: { profile in
-          try await Stores.account.updateSendProfile(
-            person.id, name: profile.name, color: profile.color, senders: store)
-          seenBy = nil
-        })
-    }
-    .confirmationDialog(
-      unpairing.map { "Stop tapping \($0.pairing.recipientName)?" } ?? "",
-      isPresented: Binding(get: { unpairing != nil }, set: { if !$0 { unpairing = nil } }),
-      titleVisibility: .visible,
-      presenting: unpairing
-    ) { person in
-      Button("Remove", role: .destructive) { remove(person) }
-    } message: { person in
-      Text(
-        "Your taps stop reaching \(person.pairing.recipientName), from all your devices. To tap them again, you'll need a new invite.")
-    }
-  }
-
-  /// Ends the connection on the account, so another sync doesn't bring it back.
-  private func remove(_ person: SenderSession) {
-    Task {
-      do {
-        try await Stores.account.remove(person.id, senders: store)
-      } catch {
-        store.notice = error.localizedDescription
-      }
-    }
   }
 
   private var people: some View {
     HStack(spacing: 6) {
       ForEach(store.sessions) { person in
         let selected = person.id == session.id
-        Group {
-          if selected {
-            // The selected person: details and unpair.
-            Menu {
-              Section("You're \(person.pairing.senderName) on \(person.pairing.recipientName)'s devices") {
-                Button("How they see you", systemImage: "person.crop.circle") {
-                  seenBy = person
-                }
-                Button("Remove \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
-                  unpairing = person
-                }
-              }
-            } label: {
-              PersonChip(person: person, selected: true)
-            }
-          } else {
-            Button { onSelect(person.id) } label: { PersonChip(person: person, selected: false) }
-              .buttonStyle(.plain)
-              .contextMenu {
-                Button("Remove \(person.pairing.recipientName)", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
-                  unpairing = person
-                }
-              }
+        PersonChip(person: person, selected: selected)
+          .onTapGesture { onSelect(person.id) }
+          .onLongPressGesture(minimumDuration: 0.4) {
+            pressed += 1
+            actions.settings(.person(person.id))
           }
-        }
-        .accessibilityLabel(person.pairing.recipientName)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityIdentifier("person-\(person.pairing.recipientName)")
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(person.pairing.recipientName)
+          .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+          .accessibilityAction { onSelect(person.id) }
+          .accessibilityAction(named: "How \(person.pairing.recipientName) sees you") {
+            actions.settings(.person(person.id))
+          }
+          .accessibilityIdentifier("person-\(person.pairing.recipientName)")
       }
       Button(action: onAdd) { IconView(icon: .invite, size: 19) }
         .buttonStyle(FrameButtonStyle(iconOnly: true))
@@ -113,6 +66,7 @@ struct ComposeView: View {
         .accessibilityIdentifier("add-person")
     }
     .sensoryFeedback(.selection, trigger: session.id)
+    .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
   }
 }
 
