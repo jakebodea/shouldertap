@@ -363,6 +363,9 @@ public final class ReceiverStore {
   public func createSenderInvite() async throws -> SenderInvite {
     let invite = try await api.createInvite(kind: .sender)
     var components = URLComponents(url: endpoints.web.appending(path: "join"), resolvingAgainstBaseURL: false)
+    if let inviter = invite.inviter {
+      components?.queryItems = [URLQueryItem(name: "from", value: inviter.name), URLQueryItem(name: "color", value: inviter.color.rawValue)]
+    }
     // The code travels in the fragment so it never reaches a server log.
     components?.fragment = invite.code
     guard let url = components?.url else { throw URLError(.badURL) }

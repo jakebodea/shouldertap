@@ -31,7 +31,8 @@ const INVITE_SWAPS = [
  * Invite links (`/join#<code>`) are shared over iMessage and Slack, whose
  * previews read static HTML. Emit `join.html` with the invite card so the
  * asset server answers `/join` with it; the app itself is the same bundle.
- * The code stays in the fragment, so the card can't name who sent it.
+ * A web Worker personalizes the card from public name/color query data.
+ * The pairing secret stays in the fragment.
  */
 const inviteHtml = (): Plugin => ({
   name: "shouldertap:invite-html",
@@ -39,6 +40,9 @@ const inviteHtml = (): Plugin => ({
   // After Vite emits index.html.
   enforce: "post",
   generateBundle(_, bundle) {
+    if (this.environment.name !== "client") {
+      return;
+    }
     const index = bundle["index.html"];
     if (index?.type !== "asset" || typeof index.source !== "string") {
       throw new Error("invite-html: index.html is missing from the bundle");

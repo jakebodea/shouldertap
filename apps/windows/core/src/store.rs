@@ -291,6 +291,12 @@ impl ReceiverStore {
         let path = format!("{}/join", url.path().trim_end_matches('/'));
         url.set_path(&path);
         // The code travels in the fragment so it never reaches a server log.
+        if let Some(inviter) = &invite.inviter {
+            url.query_pairs_mut().append_pair("from", &inviter.name);
+            if let Some(color) = &inviter.color {
+                url.query_pairs_mut().append_pair("color", &color.swatch().label.to_lowercase());
+            }
+        }
         url.set_fragment(Some(&invite.code));
         Ok(SenderInvite {
             url: url.into(),

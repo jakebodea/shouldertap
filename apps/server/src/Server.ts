@@ -2,6 +2,7 @@ import {
   Authorization,
   Caller,
   Conflict,
+  fallbackColor,
   NotFound,
   parsePatronKey,
   parseToken,
@@ -339,7 +340,23 @@ export default class Server extends Cloudflare.Worker<Server>()(
         .handle("createInvite", ({ payload }) =>
           forCaller.pipe(
             Effect.flatMap(({ token, stub }) =>
-              stub.createInvite(token, payload)
+              Effect.gen(function* createShareableInvite() {
+                const invite = yield* stub.createInvite(token, payload);
+                if (invite.kind !== "sender") {
+                  return invite;
+                }
+                const person = yield* invitePreview(
+                  { db: accountEnv.ACCOUNT_DB, inboxes },
+                  invite.code
+                ).pipe(Effect.orDie);
+                return {
+                  ...invite,
+                  inviter: {
+                    name: person.name,
+                    color: person.color ?? fallbackColor(person.name),
+                  },
+                };
+              })
             )
           )
         )

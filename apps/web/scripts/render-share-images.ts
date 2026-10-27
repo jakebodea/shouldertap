@@ -6,8 +6,9 @@
  *   bun run render:share-images
  *
  * The site card is the landing hero frozen on one tap, so a shared link looks
- * like the page it opens. The invite card can't name the inviter: the code
- * rides in the URL fragment, which link previews never see.
+ * like the page it opens. The static invite card is the fallback for older
+ * links; worker/index.ts renders personalized cards from public name/color
+ * query data. Pairing secrets stay in the URL fragment.
  */
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";

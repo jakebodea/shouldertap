@@ -372,6 +372,8 @@ pub struct CredentialGrant {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Invite {
+    #[serde(default)]
+    pub inviter: Option<InvitePerson>,
     pub kind: CredentialKind,
     pub code: String,
     pub expires_at: Timestamp,

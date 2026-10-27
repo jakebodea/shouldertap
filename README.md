@@ -106,6 +106,10 @@ Dev builds (`cargo build`/`run`) talk to `localhost` (override with `SHOULDERTAP
 cd apps/windows && scripts/build.sh            # dev build, prints the .exe path
 ```
 
+## Invite link previews
+
+New invites include the inviter's public name and color in `/join?from=…&color=…#<code>`. The web Worker serves personalized Open Graph HTML and a 1200 × 630 PNG; the pairing secret stays in the fragment. These details only decorate the preview: accepting an invite still verifies its owner with the API. Older links keep the generic card. Native clients need the updated app to share personalized links.
+
 ## Deploy
 
 Production is the `prod` stage: the site at `https://shouldertap.app` (`www` redirects), the API at `https://api.shouldertap.app`, and Mac downloads at `https://download.shouldertap.app`. Hostnames live in `domains.ts`; other stages stay on `workers.dev`. The domain is registered with Cloudflare Registrar on the same account (auto-renew off, renews 2027-09-30).
