@@ -760,7 +760,7 @@ impl MenuView {
         let appearance = self.appearance_row(s, &state, cx);
         let replies = self.quick_replies_section(s, cx);
         let account = self.account_section(s, cx);
-        let app = vec![self.launch_at_login(s, cx), self.check_updates(s, cx)];
+        let app = vec![self.launch_at_login(s, cx)];
         let support = self.support(s, state.patron.as_ref(), cx);
         div()
             .flex()
@@ -796,7 +796,7 @@ impl MenuView {
             .into_any_element()
     }
 
-    /// Settings, an update when there is one, and Quit.
+    /// Settings, update checks or an available update, and Quit.
     fn bottom_bar(&mut self, s: Surface, cx: &mut Context<Self>) -> AnyElement {
         let updates = self.model.read(cx).updates.clone();
         let update_label = match (&updates.available, updates.installing) {
@@ -804,6 +804,7 @@ impl MenuView {
             (Some(version), false) => Some(format!("Update to {version}")),
             (None, false) => None,
         };
+        let check_updates = update_label.is_none().then(|| self.check_updates(s, cx));
         div()
             .flex_none()
             .flex()
@@ -839,6 +840,7 @@ impl MenuView {
                                 el.child(muted(s, &message).truncate())
                             }),
                     )
+                    .when_some(check_updates, |el, button| el.child(button))
                     .when_some(update_label, |el, label| {
                         el.child(
                             menu_button(s, "update", &label, None, Kind::Secondary, false, updates.installing)
@@ -1542,7 +1544,7 @@ impl MenuView {
             .into_any_element()
     }
 
-    /// The footer on the setup screens; once signed in these live in Settings.
+    /// The setup footer; home keeps update checks and Quit in its bottom bar.
     fn footer(&mut self, s: Surface, cx: &mut Context<Self>) -> impl IntoElement {
         let updates = self.model.read(cx).updates.clone();
         let update_row = updates.available.clone().map(|version| {
