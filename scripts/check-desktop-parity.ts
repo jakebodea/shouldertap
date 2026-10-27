@@ -40,6 +40,7 @@ export const desktopLabels = {
     "Taps you receive show up here.",
     "Settings",
     "Done",
+    "Check for Updates…",
     "Quit",
   ],
   send: [
@@ -71,7 +72,6 @@ export const desktopLabels = {
     "Sign in to become a patron.",
     "App",
     "Open at login",
-    "Check for Updates…",
   ],
 } as const;
 

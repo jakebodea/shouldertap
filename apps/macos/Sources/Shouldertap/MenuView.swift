@@ -145,7 +145,7 @@ private struct HomeView: View {
       #endif
       if settings {
         SettingsView(
-          store: store, updates: updates, account: account, patron: patron, openAppearance: openAppearance,
+          store: store, account: account, patron: patron, openAppearance: openAppearance,
           openStyle: openStyle
         ) {
           settings = false
@@ -296,7 +296,6 @@ private struct ReceivedPane: View {
 /// Everything you set once: who can tap you, devices, motion, account, app.
 private struct SettingsView: View {
   let store: ReceiverStore
-  let updates: Updates
   let account: AccountStore
   let patron: PatronStore
   let openAppearance: () -> Void
@@ -347,8 +346,6 @@ private struct SettingsView: View {
           AccountSection(account: account)
           Section(title: "App") {
             LaunchAtLogin()
-            MenuButton(title: "Check for Updates…", kind: .plain, action: updates.checkForUpdates)
-              .padding(.leading, -4)
           }
           PatronView(store: store, account: account, patron: patron, openStyle: openStyle)
         }
@@ -365,7 +362,7 @@ private struct SettingsView: View {
   }
 }
 
-/// Settings, an update when there is one, and Quit.
+/// Settings, update checks or an available update, and Quit.
 private struct BottomBar: View {
   let updates: Updates
   @Binding var settings: Bool
@@ -378,6 +375,8 @@ private struct BottomBar: View {
         Spacer(minLength: 0)
         if let version = updates.available {
           MenuButton(title: "Update to \(version)", kind: .secondary, action: updates.checkForUpdates)
+        } else {
+          MenuButton(title: "Check for Updates…", kind: .plain, action: updates.checkForUpdates)
         }
         MenuButton(title: "Quit", kind: .plain) { NSApp.terminate(nil) }
       }
@@ -781,7 +780,7 @@ private struct TapRow: View {
   }
 }
 
-/// The footer on the setup screens; home moves these into Settings.
+/// The setup footer; home keeps update checks and Quit in its bottom bar.
 private struct Footer: View {
   let updates: Updates
 
