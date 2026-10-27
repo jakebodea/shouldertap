@@ -167,8 +167,7 @@ const slides = [
     name: "07-browser",
     title: "A browser.<br>A little tap.",
     sub: "Invited people can send from the web. It reaches every linked screen.",
-    bg: "#2b2c30",
-    ink: "#f1f1ee",
+    ...graphite,
     art: `${at(28, 392, browserFrame(web, { width: 560, crop: webCrop, source: webSource }))}${placePhone(takeover, { left: 392, top: 856, width: 240 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
   },
 ];
