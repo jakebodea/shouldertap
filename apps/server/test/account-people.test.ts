@@ -778,8 +778,13 @@ describe("account people", () => {
         ["Sam the Great", "plum"],
       ]);
       await expect(seenBy("jo")).resolves.toStrictEqual([["Sam", "tomato"]]);
+      // Sync promises no order between people.
       expect(
-        samMac.senders.map((s) => [s.grant.recipientName, s.name, s.color])
+        samMac.senders
+          .toSorted((a, b) =>
+            a.grant.recipientName.localeCompare(b.grant.recipientName)
+          )
+          .map((s) => [s.grant.recipientName, s.name, s.color])
       ).toStrictEqual([
         ["Ari", "Sam the Great", "plum"],
         ["Jo", "Sam", "tomato"],

@@ -704,7 +704,8 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
         },
         push
       )
-      .pipe(Effect.tapError(() => undoReverse));
+      // Any failure, defects included: the inviter already holds this half.
+      .pipe(Effect.onError(() => undoReverse));
     const id = `${code.inboxId}:${grant.credentialId}`;
     yield* claimAccountResource(db, userId, {
       kind: "sender",
