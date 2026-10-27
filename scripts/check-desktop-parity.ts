@@ -2,6 +2,7 @@
  * Fail when the Mac and Windows apps stop offering the same features. Each
  * desktop feature is listed by the label a person sees; both apps must carry
  * that label as a string literal. Add a feature to both apps, then list it here.
+ * A `{placeholder}` stands for an interpolation: Swift `\(…)`, Rust `{…}`.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -49,7 +50,10 @@ export const desktopLabels = {
     "Use for them",
     "Use these for every tap",
     "Reset",
-    "Tap style",
+    "Tap style for {name}",
+    "How your taps look on {name}'s screens. They never pay to see it.",
+    "Your taps to {name} use {theme}.",
+    "How {name} sees it",
     "Patron themes",
     "Replay",
     "Enjoying Shouldertap?",
@@ -80,8 +84,25 @@ export interface MissingLabel {
   missingFrom: "Mac" | "Windows" | "Mac and Windows";
 }
 
-const hasLiteral = (source: string, label: string) =>
-  source.includes(JSON.stringify(label));
+const PLACEHOLDER = /\{[^{}]+\}/gu;
+const SWIFT_INTERPOLATION = String.raw`\\\((?:[^()]|\([^()]*\))*\)`;
+const RUST_INTERPOLATION = String.raw`\{[^{}"]*\}`;
+
+const escapeRegExp = (text: string) =>
+  text.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
+
+/** The label as one whole string literal, its placeholders written as
+ * `interpolation` (Swift `\(…)`, Rust `{…}`). */
+const hasLiteral = (source: string, label: string, interpolation: string) => {
+  if (label.split(PLACEHOLDER).length === 1) {
+    return source.includes(JSON.stringify(label));
+  }
+  const pattern = label
+    .split(PLACEHOLDER)
+    .map((part) => escapeRegExp(JSON.stringify(part).slice(1, -1)))
+    .join(interpolation);
+  return new RegExp(`"${pattern}"`, "u").test(source);
+};
 
 /** Every label one of the apps doesn't carry, in list order. */
 export const missingLabels = (
@@ -89,8 +110,8 @@ export const missingLabels = (
   sources: { mac: string; windows: string }
 ): MissingLabel[] =>
   labels.flatMap((label): MissingLabel[] => {
-    const mac = hasLiteral(sources.mac, label);
-    const windows = hasLiteral(sources.windows, label);
+    const mac = hasLiteral(sources.mac, label, SWIFT_INTERPOLATION);
+    const windows = hasLiteral(sources.windows, label, RUST_INTERPOLATION);
     if (mac && windows) {
       return [];
     }

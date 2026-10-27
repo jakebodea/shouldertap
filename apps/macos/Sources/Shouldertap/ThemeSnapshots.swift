@@ -142,19 +142,22 @@
     private static func patronSurfaces(into directory: String) async {
       let account = AccountStore(server: URL(string: "http://127.0.0.1:9")!, vault: NoVault())
       let patron = PatronStore(account: account, vault: NoVault(), defaults: UserDefaults(suiteName: "snapshots")!)
+      let mom = SenderPairing(
+        token: "inboxMOM.key11111.secret222", credentialId: "mom11111", recipientName: "Mom", senderName: "Jake",
+        color: .moss, pairedAt: 1)
       let views: [(String, NSSize, AnyView)] = [
         (
           "composer", NSSize(width: 472, height: 230),
           AnyView(
             VStack(spacing: 18) {
-              StyleRow(patron: patron, name: "Jake", color: .moss, message: "Dinner's ready.") {}
+              StyleRow(patron: patron, pairing: mom, message: "Dinner's ready.") {}
               PatronNudgeCard(patron: patron, color: .moss)
             }.padding(20).frame(width: 472).background(Color(nsColor: .windowBackgroundColor)))
         ),
         (
           "style", NSSize(width: 520, height: 640),
           AnyView(
-            StyleSheet(patron: patron, name: "Jake", color: .moss, message: "Dinner's ready.") {}
+            StyleSheet(patron: patron, pairing: mom, message: "Dinner's ready.", choose: { _ in }) {}
               .background(Color(nsColor: .windowBackgroundColor)))
         ),
       ]

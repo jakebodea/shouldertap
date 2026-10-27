@@ -145,11 +145,11 @@ export const removePairing = (credentialId: string) => {
 };
 
 /** The connection's id on the account (`${inboxId}:${credentialId}`). */
-const connectionId = (pairing: Pairing) =>
+export const connectionId = (pairing: Pairing) =>
   `${inboxOf(pairing.token)}:${pairing.credentialId}`;
 
 /** How the account says this person sees you, onto the pairing. */
-const withConnection = (
+export const withConnection = (
   pairing: Pairing,
   connection: AccountConnection
 ): Pairing => {

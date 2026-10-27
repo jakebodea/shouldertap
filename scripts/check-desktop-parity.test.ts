@@ -37,4 +37,20 @@ describe("check-desktop-parity", () => {
       })
     ).toStrictEqual([{ label: "Send", missingFrom: "Mac and Windows" }]);
   });
+
+  it("matches a placeholder to each app's own interpolation", () => {
+    expect(
+      missingLabels(
+        ["Tap style for {name}", "Your taps to {name} use {theme}."],
+        {
+          mac: String.raw`Text("Tap style for \(recipient)")
+            Text("Your taps to \(recipient) use \(selected.label).")`,
+          windows: `page_heading(&format!("Tap style for {recipient}"), "")
+            .child(format!("Your taps use {label}."))`,
+        }
+      )
+    ).toStrictEqual([
+      { label: "Your taps to {name} use {theme}.", missingFrom: "Windows" },
+    ]);
+  });
 });

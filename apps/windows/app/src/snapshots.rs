@@ -374,8 +374,23 @@ async fn patron_shots(directory: &str, cx: &mut gpui::AsyncApp) {
             "patron-style-sheet-patron",
             520.,
             1180.,
-            patron,
+            patron.clone(),
             Some((false, Some(TapTheme::Note))),
+        ),
+        // Jamie has Terminal chosen for them; this PC's own theme is Note.
+        (
+            "patron-send-row-person",
+            520.,
+            760.,
+            patron.clone(),
+            Some((false, None)),
+        ),
+        (
+            "patron-style-sheet-person",
+            520.,
+            1180.,
+            patron,
+            Some((false, Some(TapTheme::Terminal))),
         ),
     ];
     for (name, width, height, patron_state, send) in shots {
@@ -413,7 +428,8 @@ async fn patron_shots(directory: &str, cx: &mut gpui::AsyncApp) {
     }
 }
 
-/// Signed in as Rosa, who can tap Jamie, with no server behind it.
+/// Signed in as Rosa, who can tap Jamie, with no server behind it. Shots
+/// named `…-person` have Terminal chosen for Jamie on the account.
 fn snapshot_model(
     name: &str,
     patron_state: shouldertap_core::PatronState,
@@ -433,7 +449,7 @@ fn snapshot_model(
         color: Some(PersonColor::Tomato),
         paired_at: 1.0,
         account_id: None,
-        theme: None,
+        theme: name.ends_with("-person").then_some(TapTheme::Terminal),
         choose_seen_as: false,
     });
     let store = ReceiverStore::new(StoreConfig {

@@ -80,9 +80,16 @@ fn fixture(
         theme: None,
         choose_seen_as: false,
     };
+    let kai = SenderPairing {
+        token: "inbox456.s2s2s2s2.secret9012".into(),
+        credential_id: "s2s2s2s2".into(),
+        recipient_name: "Kai".into(),
+        paired_at: 2.0,
+        ..pairing.clone()
+    };
     let senders = SenderStore::new(SenderConfig {
         server: "https://api.test".into(),
-        persistence: Box::new(MemorySenderPersistence::with(vec![pairing])),
+        persistence: Box::new(MemorySenderPersistence::with(vec![pairing, kai])),
         transport: stub.clone(),
     });
     let account = AccountStore::new(AccountConfig {
@@ -152,6 +159,62 @@ fn an_active_membership_gives_this_pc_its_own_key_and_themed_taps() {
     let body = f.stub.body_for("/v1/taps").unwrap();
     assert_eq!(body["theme"], "note");
     assert_eq!(body["patronKey"], PATRON_KEY);
+}
+
+/// Each person's theme as this PC would send it, by recipient.
+fn sending_themes(f: &Fixture) -> Vec<(String, TapTheme)> {
+    let state = f.patron.state();
+    f.senders
+        .state()
+        .sessions
+        .iter()
+        .map(|session| {
+            (
+                session.pairing.recipient_name.clone(),
+                state.sending_theme_for(&session.pairing),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_theme_chosen_for_one_person_leaves_the_others_on_this_pcs_own() {
+    let f = fixture(MemoryVault::with(PATRON_KEY), note(), |seen| match seen.path.as_str() {
+        "/account/patron/status" => (200, ACTIVE.into()),
+        "/account/send-profile" => (
+            200,
+            r#"{"id":"inbox123:s1s1s1s1","name":"Rosa","color":"rose","theme":"terminal"}"#.into(),
+        ),
+        _ => (503, String::new()),
+    });
+    f.patron.refresh().unwrap();
+    f.patron.choose_theme("s1s1s1s1", TapTheme::Terminal).unwrap();
+    assert_eq!(
+        f.stub.body_for("/account/send-profile").unwrap(),
+        serde_json::json!({"id": "inbox123:s1s1s1s1", "name": "Rosa", "color": "rose", "theme": "terminal"})
+    );
+    assert_eq!(
+        sending_themes(&f),
+        vec![("Jamie".into(), TapTheme::Terminal), ("Kai".into(), TapTheme::Note)]
+    );
+}
+
+#[test]
+fn a_person_the_account_doesnt_hold_changes_this_pcs_own_theme() {
+    let f = fixture(MemoryVault::with(PATRON_KEY), note(), |seen| match seen.path.as_str() {
+        "/account/patron/status" => (200, ACTIVE.into()),
+        "/account/send-profile" => (404, r#"{"error":"No such person"}"#.into()),
+        _ => (503, String::new()),
+    });
+    f.patron.refresh().unwrap();
+    f.patron.choose_theme("s1s1s1s1", TapTheme::Billboard).unwrap();
+    assert_eq!(
+        sending_themes(&f),
+        vec![
+            ("Jamie".into(), TapTheme::Billboard),
+            ("Kai".into(), TapTheme::Billboard)
+        ]
+    );
 }
 
 #[test]

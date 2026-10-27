@@ -1375,8 +1375,12 @@ impl SendView {
 
 impl SendView {
     fn open_style(&mut self, cx: &mut Context<Self>) {
+        let model = self.model.read(cx);
+        let in_use = self.current(&model.sender_state).map_or(TapTheme::Default, |session| {
+            model.patron_state.sending_theme_for(&session.pairing)
+        });
         self.style_open = true;
-        self.style_selected = self.model.read(cx).patron_state.sending_theme();
+        self.style_selected = in_use;
         self.style_started = Instant::now();
         self.patron_error = None;
         self.model.read(cx).refresh_patron();
@@ -1392,6 +1396,29 @@ impl SendView {
             self.style_open = true;
             self.style_selected = theme;
         }
+    }
+
+    /// Saves the theme taps to this person go in (`PatronStore::choose_theme`).
+    fn choose_theme(&mut self, id: String, theme: TapTheme, cx: &mut Context<Self>) {
+        if self.patron_busy {
+            return;
+        }
+        self.patron_busy = true;
+        self.patron_error = None;
+        let patrons = self.patron(cx);
+        let task = cx
+            .background_executor()
+            .spawn(async move { patrons.choose_theme(&id, theme) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.patron_busy = false;
+                this.patron_error = result.err().map(|error| error.to_string());
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     /// Checkout in the browser; coming back refreshes the membership.
@@ -1441,8 +1468,8 @@ impl SendView {
         cx.notify();
     }
 
-    /// The Style row: a live thumbnail of the draft in the theme it goes in,
-    /// or the patron themes cycling while it goes in Default.
+    /// The Style row: a live thumbnail of the draft in the theme taps to
+    /// this person go in, or the patron themes cycling while it's Default.
     fn style_row(
         &mut self,
         session: &SenderSession,
@@ -1451,18 +1478,23 @@ impl SendView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let model = self.model.read(cx);
-        let chosen = model.patron_state.sending_theme();
+        let chosen = model.patron_state.sending_theme_for(&session.pairing);
         let reduce = patron::reduces_motion(model);
         let (shown, elapsed, title, subtitle) = if chosen.is_paid() {
             (
                 chosen,
                 SETTLED,
                 format!("Style: {}", chosen.label()),
-                "How everyone you tap sees it",
+                format!("How {} sees it", session.pairing.recipient_name),
             )
         } else {
             let (shown, elapsed) = patron::cycle_at(self.cycle_started, reduce);
-            (shown, elapsed, format!("Send it as {}", shown.label()), "Patron themes")
+            (
+                shown,
+                elapsed,
+                format!("Send it as {}", shown.label()),
+                "Patron themes".to_string(),
+            )
         };
         let body = if draft.trim().is_empty() {
             patron::SAMPLE
@@ -1501,7 +1533,7 @@ impl SendView {
                     .flex_col()
                     .gap(px(2.))
                     .child(div().font_weight(FontWeight::BOLD).text_size(px(15.)).child(title))
-                    .child(tone_text(subtitle).text_size(px(13.))),
+                    .child(tone_text(&subtitle).text_size(px(13.))),
             )
             .child(
                 div()
@@ -1580,7 +1612,8 @@ impl SendView {
         )
     }
 
-    /// Tap style: how your taps look on everyone's screens, chosen here.
+    /// Tap style for one person: how your taps look on their screens,
+    /// chosen here.
     fn style_page(&mut self, session: &SenderSession, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let model = self.model.read(cx);
         let state = model.patron_state.clone();
@@ -1588,8 +1621,9 @@ impl SendView {
         let reduce = patron::reduces_motion(model);
         let color = session.color();
         let name = session.pairing.sender_name.clone();
+        let recipient = session.pairing.recipient_name.clone();
         let selected = self.style_selected;
-        let in_use = state.sending_theme();
+        let in_use = state.sending_theme_for(&session.pairing);
 
         let width = (f32::from(window.viewport_size().width) - 20. - 48.).max(240.);
         let preview = patron::preview(
@@ -1606,8 +1640,8 @@ impl SendView {
         );
         let mut page: Vec<AnyElement> = vec![
             page_heading(
-                "Tap style",
-                "How your taps look on the screens of everyone you tap. They never pay to see it.",
+                &format!("Tap style for {recipient}"),
+                &format!("How your taps look on {recipient}'s screens. They never pay to see it."),
             ),
             div()
                 .flex()
@@ -1692,15 +1726,17 @@ impl SendView {
         let action: AnyElement = if selected == in_use {
             div()
                 .font_weight(FontWeight::BOLD)
-                .child(format!("Your taps use {label}."))
+                .child(format!("Your taps to {recipient} use {label}."))
                 .into_any_element()
         } else if state.can_use(selected) {
-            pill("style-use", &format!("Use {label}"), None, Some(color), false)
+            let id = session.id().to_string();
+            pill("style-use", &format!("Use {label}"), None, Some(color), busy)
                 .w_full()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.patron(cx).set_theme(selected);
-                    cx.notify();
-                }))
+                .when(!busy, |pill| {
+                    pill.on_click(cx.listener(move |this, _, _, cx| {
+                        this.choose_theme(id.clone(), selected, cx);
+                    }))
+                })
                 .into_any_element()
         } else if state.checkout_enabled && signed_in {
             div()

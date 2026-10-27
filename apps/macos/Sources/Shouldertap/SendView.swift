@@ -435,9 +435,7 @@ private struct Composer: View {
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(trimmed.isEmpty || tidyQuickReplies(shownReplies) == nil)
           }
-          StyleRow(
-            patron: patron, name: session.pairing.senderName, color: session.color, message: previewMessage
-          ) { selection.styling = true }
+          StyleRow(patron: patron, pairing: session.pairing, message: previewMessage) { selection.styling = true }
         }
 
         if patron.nudgeDue {
@@ -453,7 +451,8 @@ private struct Composer: View {
     .onAppear { focused = true }
     .sheet(isPresented: $selection.styling) {
       StyleSheet(
-        patron: patron, name: session.pairing.senderName, color: session.color, message: previewMessage
+        patron: patron, pairing: session.pairing, message: previewMessage,
+        choose: { try await patron.choose($0, for: session.id, senders: store) }
       ) { selection.styling = false }
     }
     .sheet(isPresented: $editingSelf) {

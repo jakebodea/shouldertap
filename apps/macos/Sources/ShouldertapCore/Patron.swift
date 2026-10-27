@@ -42,7 +42,9 @@ public enum PatronNudge {
 @MainActor @Observable
 public final class PatronStore {
   public private(set) var status: AccountPatrons?
-  /// The theme picked for new taps. It only goes out while `active`.
+  /// This device's own theme for new taps, to everyone with no theme chosen
+  /// for them on the account (`choose(_:for:senders:)`). It only goes out
+  /// while `active`.
   public var theme: TapTheme {
     didSet { defaults.set(theme.rawValue, forKey: Self.themeKey) }
   }
@@ -58,6 +60,27 @@ public final class PatronStore {
   }
   /// What the next tap carries.
   public var style: SendStyle { active ? SendStyle(theme: theme, patronKey: key) : SendStyle() }
+
+  /// What taps to this person go in from here: the theme chosen for them on
+  /// the account, else this device's own; Default while not a patron.
+  public func theme(for pairing: SenderPairing) -> TapTheme {
+    active ? (pairing.theme ?? theme) : .default
+  }
+
+  /// Chooses the theme new taps to one person go in, on every device on the
+  /// account, keeping how they see you. Signed out, or for a person the
+  /// account doesn't hold (an old pairing it never had), this device's own
+  /// theme changes instead, as before themes were per person.
+  public func choose(_ theme: TapTheme, for id: String, senders: SenderStore) async throws {
+    guard let pairing = senders.session(id: id)?.pairing else { return }
+    guard account.signedIn else { self.theme = theme; return }
+    do {
+      try await account.updateSendProfile(
+        id, name: pairing.senderName, color: pairing.swatchColor, theme: theme, senders: senders)
+    } catch let failure as AccountError where failure.status == 404 {
+      self.theme = theme
+    }
+  }
 
   @ObservationIgnored private let account: AccountStore
   @ObservationIgnored private let vault: any CredentialVault

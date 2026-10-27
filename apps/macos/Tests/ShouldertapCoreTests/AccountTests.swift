@@ -373,6 +373,66 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     #expect(saved.theme == .billboard)
     #expect(saved.chooseSeenAs == false)
   }
+
+  private let dad = SenderPairing(
+    token: "inboxDAD.key22222.secret444", credentialId: "dad11111", recipientName: "Dad", senderName: "Jake",
+    color: .moss, pairedAt: 2)
+
+  /// A patron on this Mac whose own theme is Note; `sendProfile` answers
+  /// `/account/send-profile`.
+  private func patronWithNote(
+    _ sendProfile: (Int, String), bodies: Bodies
+  ) async throws -> (PatronStore, SenderStore) {
+    let account = try await signedIn { request in
+      bodies.record(request)
+      switch request.url!.path {
+      case "/account/send-profile": return sendProfile
+      case "/account/patron/status":
+        return (
+          200,
+          #"{"memberships":[{"id":"patron01","status":{"patron":{"active":true,"status":"active","paidUntil":1824135813255}}}],"checkoutEnabled":true}"#
+        )
+      case "/account/restore": return (200, #"{"key":"stp1.patron01.key00002.secret"}"#)
+      default: return (200, jakeMe)
+      }
+    }
+    let patron = PatronStore(
+      account: account, vault: MemoryVault(), defaults: UserDefaults(suiteName: "patron-\(UUID().uuidString)")!)
+    patron.theme = .note
+    await patron.refresh()
+    let senders = SenderStore(
+      server: api, persistence: MemorySenderPersistence(pairings: [mom, dad]),
+      session: StubProtocol.session { _ in (503, "{}") })
+    senders.start()
+    return (patron, senders)
+  }
+
+  @Test func choosingATapStyleForOnePersonLeavesTheOthersOnThisMacsStyle() async throws {
+    let bodies = Bodies()
+    let (patron, senders) = try await patronWithNote(
+      (200, #"{"id":"inboxMOM:mom11111","name":"Jake","color":"moss","theme":"terminal"}"#), bodies: bodies)
+    try await patron.choose(.terminal, for: "mom11111", senders: senders)
+    #expect(bodies["/account/send-profile"] == ["id": "inboxMOM:mom11111", "name": "Jake", "color": "moss", "theme": "terminal"])
+    let looks = senders.sessions.map { [$0.pairing.recipientName, patron.theme(for: $0.pairing).rawValue] }
+    #expect(looks == [["Mom", "terminal"], ["Dad", "note"]])
+  }
+
+  @Test func aPersonTheAccountDoesntHoldChangesThisMacsStyle() async throws {
+    let (patron, senders) = try await patronWithNote((404, #"{"error":"No such person"}"#), bodies: Bodies())
+    try await patron.choose(.billboard, for: "mom11111", senders: senders)
+    let looks = senders.sessions.map { [$0.pairing.recipientName, patron.theme(for: $0.pairing).rawValue] }
+    #expect(looks == [["Mom", "billboard"], ["Dad", "billboard"]])
+  }
+
+  @Test func withoutAMembershipEveryoneGetsDefault() async throws {
+    let account = try await signedIn { _ in (200, jakeMe) }
+    let patron = PatronStore(
+      account: account, vault: MemoryVault(), defaults: UserDefaults(suiteName: "patron-\(UUID().uuidString)")!)
+    patron.theme = .note
+    var themed = mom
+    themed.theme = .terminal
+    #expect([patron.theme(for: themed), patron.theme(for: dad)] == [.default, .default])
+  }
 }
 
 @Suite(.serialized) @MainActor struct AccountRemove {
