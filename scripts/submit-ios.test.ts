@@ -264,6 +264,18 @@ describe("submitting an iPhone build for App Review", () => {
     ]);
   });
 
+  it("can prepare the version without submitting it", async () => {
+    const { asc, versions, submissions } = fakeAsc();
+    const result = await submitForReview(asc, { ...options, submit: false });
+    expect(result.state).toBe("NOT_SUBMITTED");
+    const version = versions.find(
+      (v) => v.attributes.versionString === "0.2.1"
+    );
+    expect(version?.build).toBe("b11");
+    expect(version?.attributes.appStoreState).toBe("PREPARE_FOR_SUBMISSION");
+    expect(submissions).toStrictEqual([]);
+  });
+
   it("won't submit a version that's already waiting for review", async () => {
     const { asc } = fakeAsc();
     await submitForReview(asc, options);

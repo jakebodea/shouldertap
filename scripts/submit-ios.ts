@@ -1,15 +1,24 @@
 /**
  * Submit an uploaded iOS build for App Review through the App Store Connect
  * API: make (or reuse) the App Store version, attach the build, set What's
- * New, then submit. `.github/workflows/submit-ios.yml` runs it on demand.
+ * New, optionally replace the screenshots with brand/app-store's exports,
+ * then submit. `.github/workflows/submit-ios.yml` runs it on demand.
  *
  *   ASC_KEY_ID=… ASC_ISSUER_ID=… ASC_KEY_P8="$(cat AuthKey.p8)" \
  *     bun scripts/submit-ios.ts --version 0.2.1 --build 11 \
- *       --whats-new "…" [--release after-approval|manual]
+ *       --whats-new "…" [--release after-approval|manual] \
+ *       [--screenshots brand/app-store] [--no-submit]
  *
  * Safe to rerun: each step finds what an earlier run made before making it.
  */
 import { parseArgs } from "node:util";
+
+import {
+  exportedScreenshots,
+  replaceScreenshots,
+  uploadPart,
+} from "./ios-screenshots";
+import type { ScreenshotSets, Upload } from "./ios-screenshots";
 
 const API = "https://api.appstoreconnect.apple.com";
 export const BUNDLE_ID = "app.shouldertap.iphone";
@@ -20,12 +29,16 @@ export interface SubmitOptions {
   readonly whatsNew: string;
   /** After approval it goes live by itself; manual waits for a click. */
   readonly release: "after-approval" | "manual";
+  /** Replaces every localization's iPhone screenshots when set. */
+  readonly screenshots?: ScreenshotSets;
+  /** False prepares the version without submitting it. */
+  readonly submit?: boolean;
 }
 
 /** A JSON:API resource as App Store Connect returns it. */
 export interface AscResource {
   readonly id: string;
-  readonly attributes?: Record<string, string | boolean | null>;
+  readonly attributes?: Record<string, unknown>;
   readonly relationships?: Record<
     string,
     { readonly data?: { readonly id: string } | null }
@@ -38,7 +51,7 @@ export interface AscDocument {
 
 /** The API, authenticated. A test passes a fake. */
 export type Asc = (
-  method: "GET" | "POST" | "PATCH",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   body?: unknown
 ) => Promise<AscDocument>;
@@ -61,7 +74,11 @@ const resources = (document: AscDocument): readonly AscResource[] => {
   return Array.isArray(document.data) ? document.data : [document.data];
 };
 
-export const submitForReview = async (asc: Asc, options: SubmitOptions) => {
+export const submitForReview = async (
+  asc: Asc,
+  options: SubmitOptions,
+  upload: Upload = uploadPart
+) => {
   const list = async (path: string) => resources(await asc("GET", path));
   const create = async (path: string, body: unknown) => {
     const [made] = resources(await asc("POST", path, body));
@@ -151,6 +168,20 @@ export const submitForReview = async (asc: Asc, options: SubmitOptions) => {
       })
     )
   );
+
+  const { screenshots } = options;
+  if (screenshots) {
+    log(`Replacing screenshots (${localizations.length} languages)`);
+    await Promise.all(
+      localizations.map((localization) =>
+        replaceScreenshots(asc, upload, localization.id, screenshots)
+      )
+    );
+  }
+  if (options.submit === false) {
+    log(`Prepared ${options.version}; not submitting`);
+    return { version: versionId, submission: null, state: "NOT_SUBMITTED" };
+  }
 
   // One submission per app collects what goes to review; reuse a draft.
   const [draft] = await list(
@@ -272,6 +303,8 @@ if (import.meta.main) {
       build: { type: "string" },
       "whats-new": { type: "string" },
       release: { type: "string", default: "after-approval" },
+      screenshots: { type: "string" },
+      "no-submit": { type: "boolean", default: false },
     },
   });
   const { ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 } = process.env;
@@ -294,8 +327,10 @@ if (import.meta.main) {
     build: values.build,
     whatsNew: values["whats-new"],
     release: values.release,
+    screenshots: values.screenshots
+      ? exportedScreenshots(values.screenshots)
+      : undefined,
+    submit: !values["no-submit"],
   });
-  log(
-    `Submitted ${values.version} (${values.build}) for App Review: ${result.state}`
-  );
+  log(`${values.version} (${values.build}): ${result.state}`);
 }
