@@ -92,6 +92,7 @@ const at = (left, top, html, z = 1) =>
 const css = `@font-face{font-family:B;src:url(data:font/woff2;base64,${font});font-weight:200 800}*{box-sizing:border-box}body{margin:0;font-family:B,sans-serif;font-variation-settings:"opsz" 96}h1{margin:0;font-weight:800;letter-spacing:-.04em;line-height:.98}p{margin:0;font-weight:500;font-variation-settings:"opsz" 24}.brand{display:flex;align-items:center;gap:.32em;font-weight:800;letter-spacing:-.035em}.mark{width:1.05em;height:1.05em}.note{font-weight:500;font-variation-settings:"opsz" 14;opacity:.78}${deviceCss}`;
 
 const graphite = { bg: "#2b2c30", ink: "#f1f1ee" };
+const sky = { bg: "#9cc9ec", ink: "#0d2233" };
 const slides = [
   (() => {
     const p = placePhone(takeover, { left: 92, top: 372, width: 476 });
@@ -99,8 +100,8 @@ const slides = [
       name: "01-hard-to-miss",
       title: "A tap that’s<br>hard to miss.",
       sub: "From someone you know.<br>With answers they picked.",
-      ...graphite,
-      art: `${p.html}${knock(540, 350, 50, "#f1f1ee")}`,
+      ...sky,
+      art: `${p.html}${knock(540, 350, 50, "#0d2233")}`,
     };
   })(),
   (() => {
@@ -166,8 +167,8 @@ const slides = [
     name: "07-browser",
     title: "A browser.<br>A little tap.",
     sub: "Invited people can send from the web. It reaches every linked screen.",
-    bg: "#9cc9ec",
-    ink: "#0d2233",
+    bg: "#2b2c30",
+    ink: "#f1f1ee",
     art: `${at(28, 392, browserFrame(web, { width: 560, crop: webCrop, source: webSource }))}${placePhone(takeover, { left: 392, top: 856, width: 240 }).html.replace("position:absolute", "position:absolute;z-index:3")}`,
   },
 ];

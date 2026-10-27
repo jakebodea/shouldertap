@@ -14,7 +14,7 @@ export const recipient = "Nina";
 export const senders = {
   dinner: { name: "Maya", color: "moss" },
   come: { name: "Marcus", color: "tomato" },
-  call: { name: "Theo", color: "cobalt" },
+  call: { name: "Theo", color: "ochre" },
   trash: { name: "Rosa", color: "plum" },
 };
 // The sender's own two quick replies; taps without them offer On it and In 10 min.

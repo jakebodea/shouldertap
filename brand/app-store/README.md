@@ -6,7 +6,7 @@ Revised October 21, 2026 (v3). Draft for review; nothing uploaded or published.
 
 `exports/` contains seven App Store compositions, each at 1206 × 2622 and 1320 × 2868, plus `marketing-screen-story-1920x1080.png` for web/social use. `index.html` is the review gallery; `manifest.json` lists the current outputs. Review the individual images inline; the original `output/shouldertap-screen-marketing-v3.zip` is retained as historical artwork and is not refreshed by the renderer.
 
-1. **A tap that’s hard to miss** — the native iPhone full-screen receiving view, on Graphite so Maya's Moss frame reads as the loud thing on the slide. Her own quick replies ("Coming!", "Save me a plate") are the buttons. The mark's three knock marks land on the phone's shoulder.
+1. **A tap that’s hard to miss** — the native iPhone full-screen receiving view, on Sky so Maya's Moss frame pops. Her own quick replies ("Coming!", "Save me a plate") are the buttons. The mark's three knock marks land on the phone's shoulder.
 2. **A familiar face. In your Island** — the compact Dynamic Island, enlarged, then "Press and hold" into the expanded island with native answer buttons. The phone bleeds off the bottom; the home screen below is not the story.
 3. **Right on your Lock Screen** — the actual Live Activity card, enlarged over the phone where it sits.
 4. **One tap. Every linked screen** — a Mac display and a Windows laptop, each showing its native overlay, plus the linked iPhone.
