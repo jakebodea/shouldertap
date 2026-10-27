@@ -270,7 +270,8 @@ const signToken = async (key: { id: string; issuer: string; p8: string }) => {
   return `${input}.${base64url(new Uint8Array(signature))}`;
 };
 
-const connect = async (key: {
+/** Signs in with an API key; `ios-promo-text.ts` uses it too. */
+export const connect = async (key: {
   id: string;
   issuer: string;
   p8: string;
