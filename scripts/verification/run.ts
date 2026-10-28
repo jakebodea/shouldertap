@@ -131,7 +131,7 @@ if (args[0] === "cleanup") {
     process.stdout.write(`PASS ${name}\n`);
   }
   process.stdout.write(
-    `Source ${git("rev-parse", "HEAD")}\nLocal runs require the Alchemy Cloudflare profile; hosted runs require a test-account token.\nCore additionally requires a shared simulator and SHOULDERTAP_DEVICE_COMMAND/SHOULDERTAP_DEVICE_ARGS from device_open.\n`
+    `Source ${git("rev-parse", "HEAD")}\nLocal runs require the Alchemy Cloudflare profile; hosted runs require explicit test credentials (the existing account is supported).\nCore additionally requires a shared simulator and SHOULDERTAP_DEVICE_COMMAND/SHOULDERTAP_DEVICE_ARGS from device_open.\n`
   );
 } else {
   const scenario = args.includes("--scenario") ? value("--scenario") : "core";

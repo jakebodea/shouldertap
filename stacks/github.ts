@@ -108,6 +108,38 @@ export default Alchemy.Stack(
       value: Redacted.make(accountId),
     });
 
+    // Verification uses the existing account with a separate token. It needs
+    // Worker/D1/state access, never production DNS, routes or email permissions.
+    const verificationToken = yield* Cloudflare.ApiToken.AccountApiToken(
+      "VerificationCIToken",
+      {
+        accountId,
+        policies: [
+          {
+            effect: "allow",
+            permissionGroups: [
+              "Workers Scripts Write",
+              "Workers R2 Storage Write",
+              "D1 Write",
+              "Workers Tail Read",
+              "Secrets Store Write",
+            ],
+            resources: { [account]: "*" },
+          },
+        ],
+      }
+    );
+    yield* GitHub.Secret("cf-test-api-token", {
+      ...repo,
+      name: "CLOUDFLARE_TEST_API_TOKEN",
+      value: verificationToken.value,
+    });
+    yield* GitHub.Secret("cf-test-account-id", {
+      ...repo,
+      name: "CLOUDFLARE_TEST_ACCOUNT_ID",
+      value: Redacted.make(accountId),
+    });
+
     const environment = yield* GitHub.Environment(
       "production",
       productionEnvironment(repo)

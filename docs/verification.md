@@ -41,7 +41,7 @@ The run namespaces native credentials/defaults, records the built executable's S
 bun run verify -- --hosted --scenario browser
 ```
 
-Supply `CLOUDFLARE_TEST_API_TOKEN` and `CLOUDFLARE_TEST_ACCOUNT_ID` through the approved secret-delivery mechanism. The runner requires these explicit test credentials and never falls back to generic/production Cloudflare credentials. The test account needs Workers, Durable Objects, D1 and Alchemy's state storage configured before this command can pass. These resources/credentials are an operator provisioning prerequisite, not something this implementation creates.
+Supply `CLOUDFLARE_TEST_API_TOKEN` and `CLOUDFLARE_TEST_ACCOUNT_ID` through the approved secret-delivery mechanism. The account ID may be the existing production account: a second account is optional. Use a dedicated test token without production DNS/zone permissions. The runner requires explicit test credentials and never silently falls back to the production token. Unique stages, production-stage rejection and ownership-checked cleanup isolate ordinary test runs within one account. Account-wide Worker permissions still give that token broader authority than a separate account would. Workers, Durable Objects, D1 and Alchemy's state storage must be available in the selected account.
 
 Each run allocates `verify-<timestamp>-<random>` resources. Hosted startup first deploys to discover API/web URLs, then deploys their exact auth origins. It verifies `/version` against the checked-out commit before the protocol and UI scenarios. A unique stage and stage-prefixed rate-limit keys separate concurrent runs.
 
@@ -72,9 +72,9 @@ Use the hosted cleanup option with the test-account credentials for hosted resou
 
 Before enabling this in GitHub:
 
-1. Provision the isolated test account/state store and dedicated test credentials.
-2. Add `CLOUDFLARE_TEST_API_TOKEN` and `CLOUDFLARE_TEST_ACCOUNT_ID` repository secrets.
-3. Handle any old preview resources in the previous account through the operator; the new cleanup credentials cannot discover resources in a different account.
+1. Review the `stacks/github.ts` operator update. It defines a dedicated verification token in the existing account and the two `CLOUDFLARE_TEST_*` repository secrets; it does not create another account.
+2. Have the operator apply that infrastructure update. This implementation does not generate credentials or change GitHub settings by itself. A separate account can instead be selected through explicitly provisioned CI test credentials.
+3. If changing accounts, handle old previews in the previous account through the operator. Keeping the existing account preserves their discovery and cleanup.
 4. Run hosted verification on the actual runner and inspect retained evidence.
 5. Apply the reviewed `stacks/github.ts` ruleset update through the operator workflow. Its configured required check is `verification`; editing the file alone does not change live branch protection.
 
