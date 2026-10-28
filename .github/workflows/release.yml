@@ -6,13 +6,15 @@
 #   release:windows   exe and update feed on download.shouldertap.app
 #   release:desktop   Mac and Windows together (they share one version)
 #
-# It runs on the push to main rather than on the PR, so it builds exactly what
-# merged. Keys come from Infisical (shouldertap-prod) through the main-only
+# It starts after Deploy verification and deployment complete, and checks
+# out the exact verified source revision. Keys come from Infisical (shouldertap-prod) through the main-only
 # `production` environment; scripts/paste-release-keys.ts puts the Mac ones there.
 name: Release
 
 on:
-  push:
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -28,17 +30,54 @@ jobs:
   # Most pushes carry no release label, so the lookup runs on Linux and the
   # platform jobs start only when there is something to release.
   find:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_run'
+        && github.event.workflow_run.event == 'push'
+        && github.event.workflow_run.head_branch == 'main'
+        && github.event.workflow_run.head_repository.full_name == github.repository
+        && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
+      actions: read
     outputs:
+      sha: ${{ steps.verified.outputs.sha }}
       ios: ${{ steps.pr.outputs.ios }}
       mac: ${{ steps.pr.outputs.mac }}
       windows: ${{ steps.pr.outputs.windows }}
       number: ${{ steps.pr.outputs.number }}
     steps:
+      - name: Require successful verification for the exact release source
+        id: verified
+        run: |
+          if [ "$EVENT" = workflow_run ]; then
+            run_id="$TRIGGER_RUN"
+          else
+            run_id=$(gh api "repos/$REPO/actions/workflows/deploy.yml/runs?head_sha=$SHA&event=push&branch=main&status=completed" --jq '[.workflow_runs[] | select(.conclusion == "success")][0].id // empty')
+          fi
+          if [ -z "$run_id" ]; then
+            echo "::error::No completed successful Deploy run for this exact main revision. Run Deploy first, then retry Release."
+            exit 1
+          fi
+          tested=$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.head_sha')
+          if [ "$tested" != "$SHA" ]; then
+            echo "::error::Verification source does not match release source."
+            exit 1
+          fi
+          passed=$(gh api "repos/$REPO/actions/runs/$run_id/jobs?filter=latest&per_page=100" --jq '[.jobs[] | select(.name == "verification" and .conclusion == "success")] | length')
+          if [ "$passed" != 1 ]; then
+            echo "::error::The exact revision has no successful aggregate verification job."
+            exit 1
+          fi
+          echo "sha=$tested" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          TRIGGER_RUN: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Find the merged pull request and its release labels
         id: pr
         run: |
@@ -59,7 +98,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           APPS: ${{ inputs.apps }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ steps.verified.outputs.sha }}
 
   ios:
     needs: find
@@ -75,6 +114,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.find.outputs.sha }}
 
       - name: Load the App Store Connect key
         uses: Infisical/secrets-action@v1.0.12
@@ -121,6 +162,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.find.outputs.sha }}
       - uses: oven-sh/setup-bun@v2
 
       - name: Load the signing, notarization and update keys
@@ -199,6 +242,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.find.outputs.sha }}
       - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -221,11 +266,12 @@ jobs:
           EXE=apps/windows/target/release/Shouldertap.exe scripts/release-windows.sh
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' apps/windows/Cargo.toml | head -1)
           gh release create "windows-v$version" "apps/windows/build/Shouldertap-Setup-$version.exe" \
-            --target "$GITHUB_SHA" --title "Shouldertap for Windows $version" \
+            --target "$RELEASE_SHA" --title "Shouldertap for Windows $version" \
             --notes "Also at https://download.shouldertap.app/windows/Shouldertap-Setup.exe. Unsigned: if Windows warns, choose More info, then Run anyway."
           echo "note=Released Windows $version: https://download.shouldertap.app/windows/Shouldertap-Setup-$version.exe. Installed PCs update within 6 hours." >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ needs.find.outputs.sha }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 

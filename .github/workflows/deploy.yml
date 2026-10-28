@@ -86,7 +86,7 @@ jobs:
   # one ci-prod trusts: Alchemy logs in to Infisical with this job's OIDC token
   # and loads shouldertap-prod (stacks/secrets.ts).
   deploy:
-    needs: [check, e2e]
+    needs: verification
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
@@ -138,21 +138,25 @@ jobs:
       - name: Deploy
         id: deploy
         run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Provision CLOUDFLARE_TEST_API_TOKEN and CLOUDFLARE_TEST_ACCOUNT_ID; production credentials are never a fallback."
+            exit 1
+          fi
           bun alchemy provider check-env --provider Cloudflare
           allowed=$(bun scripts/cloudflare/preview-gate.ts deploy)
           if [ "$allowed" != true ]; then
             echo "Preview skipped: PR is closed or this run is no longer the current head."
             exit 0
           fi
+          COMMIT_SHA="$(git rev-parse HEAD)"
+          export COMMIT_SHA
           bun alchemy deploy --stage "$STAGE" --yes
           echo "deployed=true" >> "$GITHUB_OUTPUT"
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TEST_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_TEST_ACCOUNT_ID }}
           PULL_REQUEST: ${{ github.event.number }}
-          # On PRs github.sha is the temporary merge commit, not the branch head.
-          # (Actions won't let a step override GITHUB_SHA itself.)
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          # COMMIT_SHA is set from the actual checkout, not the PR branch label.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
       # Drives the protocol against the preview just deployed. Not run on prod,
@@ -166,14 +170,90 @@ jobs:
             | sed -n '/^{/,/^}/p' | jq -re .server)
           echo "server=$STACK_URL" >> "$GITHUB_OUTPUT"
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Integration tests
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TEST_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_TEST_ACCOUNT_ID }}
+      - name: Preview protocol smoke
+        id: integration
         if: steps.deploy.outputs.deployed == 'true'
         run: |
           echo "Testing $STACK_URL"
-          cd apps/server && bun run test:integ
+          EXPECTED_REVISION="$(git rev-parse HEAD)" bun scripts/verification/preview-smoke.ts
         env:
           STACK_URL: ${{ steps.preview.outputs.server }}
     outputs:
       server: ${{ steps.preview.outputs.server }}
+      verified: ${{ steps.deploy.outputs.deployed == 'true' && steps.integration.outcome == 'success' }}
+
+  native:
+    uses: ./.github/workflows/native.yml
+    permissions:
+      contents: read
+
+  verify-browser:
+    # Fork code never receives cloud credentials. The aggregate refuses to
+    # treat that safe skip as verified; a maintainer must use a trusted branch.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    env:
+      CLOUDFLARE_TEST_API_TOKEN: ${{ secrets.CLOUDFLARE_TEST_API_TOKEN }}
+      CLOUDFLARE_TEST_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_TEST_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Require isolated test credentials
+        run: |
+          if [ -z "$CLOUDFLARE_TEST_API_TOKEN" ] || [ -z "$CLOUDFLARE_TEST_ACCOUNT_ID" ]; then
+            echo "::error::Provision CLOUDFLARE_TEST_API_TOKEN and CLOUDFLARE_TEST_ACCOUNT_ID; production credentials are never a fallback."
+            exit 1
+          fi
+      - name: Install Bun
+        run: npm install --global "bun@$(node -p 'require("./package.json").packageManager.split("@")[1]')"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Match browser image to lockfile
+        working-directory: apps/web
+        run: test "$(node -p 'require("@playwright/test/package.json").version')" = 1.63.0
+      - name: Verify real hosted browser journey
+        run: bun run verify -- --hosted --scenario browser
+      - name: Retain public verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/verification/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  verification:
+    if: always()
+    needs: [check, e2e, preview, native, verify-browser]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Require all applicable verification results
+        run: bun stacks/verification-policy.ts
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+          CHECK: ${{ needs.check.result }}
+          E2E: ${{ needs.e2e.result }}
+          NATIVE: ${{ needs.native.result }}
+          BROWSER: ${{ needs.verify-browser.result }}
+          PREVIEW: ${{ needs.preview.result }}
+          PREVIEW_VERIFIED: ${{ needs.preview.outputs.verified }}

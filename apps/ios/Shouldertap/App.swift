@@ -13,7 +13,7 @@ enum Stores {
     return store
   }()
 
-  static let account = AccountStore(server: Config.server, vault: KeychainVault(service: "app.shouldertap.iphone.account"))
+  static let account = AccountStore(server: Config.server, vault: KeychainVault(service: Config.keychainService("app.shouldertap.iphone.account")))
 
   /// The account's patron membership, with this iPhone's own key (named
   /// like the Mac's, `<bundle>.patron`).
@@ -47,6 +47,7 @@ struct ShouldertapApp: App {
   var body: some Scene {
     WindowGroup {
       RootView(account: Stores.account, store: Stores.senders, inbox: Stores.inbox)
+        .defaultAppStorage(Config.defaults)
         #if DEBUG && targetEnvironment(simulator)
           .task { await TapActivities.startMarketingCaptureIfRequested() }
         #endif

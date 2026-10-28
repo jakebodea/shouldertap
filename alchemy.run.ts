@@ -68,7 +68,11 @@ export default Alchemy.Stack(
       domain: production
         ? { name: domains.web, redirects: [`www.${domains.web}`] }
         : undefined,
-      dev: { port: 3001 },
+      dev: {
+        port: yield* Config.Number("SHOULDERTAP_WEB_PORT").pipe(
+          Config.withDefault(3001)
+        ),
+      },
     });
 
     // Mac app builds, uploaded by scripts/release-mac.sh. Only production

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  cleanupExpiredVerificationStages,
   closedPreviewNumbers,
+  expiredVerificationStages,
   previewAllowed,
   previewNumber,
   previewNumbers,
@@ -201,5 +203,88 @@ describe("provider reads fail closed", () => {
         response({ success: true, result: names.map((id) => ({ id })) })
       )
     ).resolves.toStrictEqual(names);
+  });
+});
+
+describe("verification orphan cleanup", () => {
+  // 2023-11-15T04:13:20Z, exactly six hours after loyw3v28.
+  const now = 1_700_021_600_000;
+  const first = "verify-loyw3v28-012345abcdef";
+  const second = "verify-loyw3v28-111111111111";
+
+  it("discovers expired owned stages once while preserving fresh and unrelated Workers", () => {
+    expect(
+      expiredVerificationStages(
+        [
+          `shouldertap-server-${first}-abc123`,
+          `shouldertap-web-${first}-def456`,
+          `shouldertap-web-${second}-abc123`,
+          "shouldertap-web-verify-loz6tny8-012345abcdef-hash",
+          "shouldertap-server-verify-lozb3zi8-222222222222-hash",
+          "shouldertap-server-prod-hash",
+          "shouldertap-server-dev-hash",
+          "shouldertap-server-pr-25-hash",
+          "other-server-verify-loyw3v28-012345abcdef-hash",
+          "shouldertap-inbox-verify-loyw3v28-012345abcdef-hash",
+          "shouldertap-server-verify-0loyw3v28-012345abcdef-hash",
+          "shouldertap-server-verify-loyw3v28-012345abcdef-hash-extra",
+          "shouldertap-server-verify-loyw3v28-012345abcdef-",
+          "shouldertap-server-verify-loyw3v28-012345ABCDEf-hash",
+          "shouldertap-server-verify-loyw3v28-012345abcdef-hash\n",
+        ],
+        now
+      )
+    ).toStrictEqual([first, second]);
+  });
+
+  it("starts expiry at six hours, with no early teardown", () => {
+    const workers = [`shouldertap-server-${first}-hash`];
+    expect(expiredVerificationStages(workers, now - 1)).toStrictEqual([]);
+    expect(expiredVerificationStages(workers, now)).toStrictEqual([first]);
+  });
+
+  it("destroys stages sequentially including stages with only one remaining Worker", async () => {
+    const events: string[] = [];
+    const destroyed = await cleanupExpiredVerificationStages(
+      [`shouldertap-web-${second}-hash`, `shouldertap-server-${first}-hash`],
+      () => now,
+      async (stage) => {
+        events.push(`start:${stage}`);
+        await Promise.resolve();
+        events.push(`done:${stage}`);
+      }
+    );
+    expect(destroyed).toStrictEqual([first, second]);
+    expect(events).toStrictEqual([
+      `start:${first}`,
+      `done:${first}`,
+      `start:${second}`,
+      `done:${second}`,
+    ]);
+  });
+
+  it("rechecks age before destruction when the clock changes after discovery", async () => {
+    const times = [now, now - 1, now];
+    let index = 0;
+    const destroyed = await cleanupExpiredVerificationStages(
+      [`shouldertap-server-${first}-hash`, `shouldertap-web-${second}-hash`],
+      () => {
+        const time = times[index] ?? now;
+        index += 1;
+        return time;
+      },
+      () => Promise.resolve()
+    );
+    expect(destroyed).toStrictEqual([second]);
+  });
+
+  it("fails rather than claiming cleanup succeeded when teardown fails", async () => {
+    await expect(
+      cleanupExpiredVerificationStages(
+        [`shouldertap-server-${first}-hash`],
+        () => now,
+        () => Promise.reject(new Error("State unavailable"))
+      )
+    ).rejects.toThrow("State unavailable");
   });
 });

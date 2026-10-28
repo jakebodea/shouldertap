@@ -1,5 +1,79 @@
 const physicalNameHash = /^[a-z0-9]+$/u;
 
+const verificationStagePattern =
+  /^verify-(?<created>[a-z0-9]+)-(?<nonce>[a-f0-9]{12})$/u;
+const verificationWorkerPattern =
+  /^shouldertap-(?:server|web)-(?<stage>verify-[a-z0-9]+-[a-f0-9]{12})-[a-z0-9]+$/u;
+export const verificationTTL = 6 * 60 * 60 * 1000;
+
+/** Canonical launcher stages only: no prod, PR, dev or look-alike prefixes. */
+export const verificationStageCreatedAt = (
+  stage: string
+): number | undefined => {
+  const match = verificationStagePattern.exec(stage);
+  const encoded = match?.groups?.created;
+  if (encoded === undefined || match?.[0] !== stage) {
+    return;
+  }
+  const timestamp = Number.parseInt(encoded, 36);
+  if (
+    !Number.isSafeInteger(timestamp) ||
+    timestamp < 1_700_000_000_000 ||
+    timestamp.toString(36) !== encoded
+  ) {
+    return;
+  }
+  return timestamp;
+};
+
+const verificationExpired = (stage: string, now: number): boolean => {
+  const created = verificationStageCreatedAt(stage);
+  return (
+    Number.isSafeInteger(now) &&
+    created !== undefined &&
+    now - created >= verificationTTL
+  );
+};
+
+export const expiredVerificationStages = (
+  workerNames: readonly string[],
+  now: number
+): string[] => {
+  if (!Number.isSafeInteger(now) || now < 1_700_000_000_000) {
+    throw new Error("A valid cleanup time is required");
+  }
+  return [
+    ...new Set(
+      workerNames.flatMap((name) => {
+        const match = verificationWorkerPattern.exec(name);
+        const stage = match?.[0] === name ? match.groups?.stage : undefined;
+        return stage !== undefined && verificationExpired(stage, now)
+          ? [stage]
+          : [];
+      })
+    ),
+  ].toSorted();
+};
+
+/** Destruction stays serial; recheck age immediately before each stage. */
+export const cleanupExpiredVerificationStages = async (
+  workerNames: readonly string[],
+  now: () => number,
+  destroy: (stage: string) => Promise<void>
+): Promise<string[]> => {
+  const candidates = expiredVerificationStages(workerNames, now());
+  const destroyed: string[] = [];
+  for (const stage of candidates) {
+    if (!verificationExpired(stage, now())) {
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop -- Alchemy teardown shares account-wide state; destroy one stage at a time.
+    await destroy(stage);
+    destroyed.push(stage);
+  }
+  return destroyed;
+};
+
 export const previewNumber = (stage: string): number | undefined => {
   const number = Number(stage.slice(3));
   return Number.isSafeInteger(number) && number > 0 && stage === `pr-${number}`

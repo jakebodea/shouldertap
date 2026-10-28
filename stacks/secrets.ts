@@ -6,6 +6,7 @@
  */
 import * as Infisical from "alchemy/Infisical";
 
+import { isVerificationStage } from "../apps/server/src/verification-mail.ts";
 import { isProduction } from "../domains.ts";
 import { previewNumber } from "../scripts/cloudflare/previews.ts";
 
@@ -20,13 +21,20 @@ export const infisical = {
  * `prod` reads shouldertap-prod. PR previews, and any other stage deployed
  * from GitHub Actions, read nothing: only the `production` environment's job
  * has an Infisical identity, and previews must never see prod values. Every
- * other stage (local dev) reads shouldertap-dev.
+ * other stage (local dev) reads shouldertap-dev. Verification stages never read secrets.
  */
 export const secretsSource = (stage: string, inGitHubActions: boolean) => {
+  if (stage.startsWith("verify-") && !isVerificationStage(stage)) {
+    throw new Error("Invalid verification stage; use the environment runner");
+  }
   if (isProduction(stage)) {
     return { project: infisical.prod, environment: "prod" };
   }
-  if (previewNumber(stage) !== undefined || inGitHubActions) {
+  if (
+    previewNumber(stage) !== undefined ||
+    isVerificationStage(stage) ||
+    inGitHubActions
+  ) {
     return;
   }
   return { project: infisical.dev, environment: "dev" };

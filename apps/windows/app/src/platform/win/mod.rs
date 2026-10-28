@@ -69,7 +69,7 @@ pub(crate) const WM_APP_QUIT: u32 = windows::Win32::UI::WindowsAndMessaging::WM_
 /// to quit first.
 pub fn claim_single_instance() -> bool {
     static MUTEX: OnceLock<usize> = OnceLock::new();
-    let name = HSTRING::from(format!("Local\\{}-running", config::APP_ID));
+    let name = HSTRING::from(format!("Local\\{}-running", config::instance_id()));
     let updating = std::env::args().any(|arg| arg == "--updated");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
@@ -447,7 +447,7 @@ struct CredentialManager {
 
 pub fn vault() -> Option<Box<dyn CredentialVault>> {
     Some(Box::new(CredentialManager {
-        target: HSTRING::from(format!("{}/credential", config::APP_ID)),
+        target: HSTRING::from(format!("{}/credential", config::instance_id())),
     }))
 }
 
@@ -455,14 +455,14 @@ pub fn vault() -> Option<Box<dyn CredentialVault>> {
 /// credentials: signing out never unpairs this PC.
 pub fn account_vault() -> Box<dyn CredentialVault> {
     Box::new(CredentialManager {
-        target: HSTRING::from(format!("{}/account", config::APP_ID)),
+        target: HSTRING::from(format!("{}/account", config::instance_id())),
     })
 }
 
 /// This PC's patron key: proves a patron membership on themed taps.
 pub fn patron_vault() -> Box<dyn CredentialVault> {
     Box::new(CredentialManager {
-        target: HSTRING::from(format!("{}/patron", config::APP_ID)),
+        target: HSTRING::from(format!("{}/patron", config::instance_id())),
     })
 }
 
@@ -471,7 +471,7 @@ pub fn patron_vault() -> Box<dyn CredentialVault> {
 pub fn sender_vaults() -> Option<SenderVaults> {
     Some(Box::new(|credential_id: &str| -> Box<dyn CredentialVault> {
         Box::new(CredentialManager {
-            target: HSTRING::from(format!("{}/sender/{credential_id}", config::APP_ID)),
+            target: HSTRING::from(format!("{}/sender/{credential_id}", config::instance_id())),
         })
     }))
 }

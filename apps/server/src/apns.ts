@@ -28,6 +28,8 @@ import * as Effect from "effect/Effect";
 /** The signed provider token the Inbox sends with every push. */
 export interface PushContext {
   readonly jwt: string;
+  /** Internal RPC context, supplied only by verification deployments. */
+  readonly verification?: { readonly url: string; readonly token: string };
 }
 
 const PROVIDER_TOKEN_TTL_MS = 45 * 60 * 1000;
@@ -129,7 +131,11 @@ const hosts: Record<PushEnvironment, string> = {
 const timedOut = (): ApnsResult => ({ status: 0, reason: "timeout" });
 
 /** One push. Network failures come back as status 0, never as errors. */
-export const sendPush = (context: PushContext, request: ApnsRequest) =>
+export const sendPush = (
+  context: PushContext,
+  request: ApnsRequest,
+  transport: (url: string, init: RequestInit) => Promise<Response> = fetch
+) =>
   Effect.promise(async (): Promise<ApnsResult> => {
     const headers: Record<string, string> = {
       authorization: `bearer ${context.jwt}`,
@@ -144,9 +150,15 @@ export const sendPush = (context: PushContext, request: ApnsRequest) =>
     if (request.collapseId) {
       headers["apns-collapse-id"] = request.collapseId;
     }
+    if (context.verification) {
+      headers.authorization = `Bearer ${context.verification.token}`;
+      headers["x-shouldertap-apns-token"] = request.token;
+      headers["x-shouldertap-apns-environment"] = request.environment;
+    }
     try {
-      const response = await fetch(
-        `${hosts[request.environment]}/3/device/${request.token}`,
+      const response = await transport(
+        context.verification?.url ??
+          `${hosts[request.environment]}/3/device/${request.token}`,
         { method: "POST", headers, body: JSON.stringify(request.payload) }
       );
       if (response.ok) {

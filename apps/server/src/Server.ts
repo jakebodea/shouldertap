@@ -53,6 +53,12 @@ import { DEFAULT_THEME, themeForSend } from "./presentation";
 import { RequestBackground, withRequestBackground } from "./request-api";
 import { SenderPatron, SenderPatronLive } from "./SenderPatron";
 import { TrialLedger, TrialLedgerLive } from "./TrialLedger";
+import {
+  captureAccountEmail,
+  isVerificationStage,
+  verificationResponse,
+  verificationRateLimitKey,
+} from "./verification-mail";
 
 const newInboxId = Effect.sync(() => crypto.randomUUID().replaceAll("-", ""));
 const newPatronId = newInboxId;
@@ -84,6 +90,21 @@ export default class Server extends Cloudflare.Worker<Server>()(
     // props without it, where the domain no longer matters.
     const stage = yield* Effect.serviceOption(Stage);
     const production = Option.exists(stage, isProduction);
+    const verification = Option.exists(stage, isVerificationStage);
+    const webOrigin = yield* Config.String("SHOULDERTAP_WEB_ORIGIN").pipe(
+      Config.withDefault("http://localhost:3001")
+    );
+    const apiPort = yield* Config.Number("SHOULDERTAP_API_PORT").pipe(
+      Config.withDefault(3000)
+    );
+    const verificationToken = verification
+      ? yield* Config.Redacted("SHOULDERTAP_VERIFY_TOKEN")
+      : undefined;
+    if (verificationToken && Redacted.value(verificationToken).length < 32) {
+      return yield* Effect.die(
+        new Error("Verification token must have at least 32 characters")
+      );
+    }
     const accountDatabase = yield* Cloudflare.D1.Database("Accounts", {
       migrations: "./apps/server/account-migrations",
     });
@@ -98,7 +119,25 @@ export default class Server extends Cloudflare.Worker<Server>()(
       env: {
         ACCOUNT_DB: accountDatabase,
         ACCOUNT_SECRET: accountSecret,
+        SOURCE_REVISION: process.env.COMMIT_SHA ?? "local",
+        SOURCE_DIGEST: yield* Config.String("SHOULDERTAP_SOURCE_DIGEST").pipe(
+          Config.withDefault("unrecorded")
+        ),
         ACCOUNT_PRODUCTION: production ? "true" : "false",
+        RATE_LIMIT_SCOPE: Option.getOrElse(stage, () => "local"),
+        ACCOUNT_WEB_ORIGIN: production ? `https://${domains.web}` : webOrigin,
+        ...(verificationToken
+          ? {
+              VERIFICATION_TOKEN: verificationToken,
+              VERIFICATION_API_ORIGIN: yield* Config.String(
+                "SHOULDERTAP_API_ORIGIN"
+              ).pipe(Config.withDefault(`http://localhost:${apiPort}`)),
+              VERIFICATION_DB: yield* Cloudflare.D1.Database(
+                "VerificationMail",
+                { migrations: "./apps/server/src/verification-migrations" }
+              ),
+            }
+          : {}),
         ...(production
           ? {
               ACCOUNT_EMAIL: yield* Cloudflare.Email.SendEmail("AccountEmail", {
@@ -107,7 +146,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
             }
           : {}),
       },
-      dev: { port: 3000 },
+      dev: { port: apiPort },
     };
   }),
   Effect.gen(function* serverMain() {
@@ -115,9 +154,23 @@ export default class Server extends Cloudflare.Worker<Server>()(
       .WorkerEnvironment) as unknown as {
       ACCOUNT_DB: D1Database;
       ACCOUNT_SECRET: string;
+      SOURCE_REVISION: string;
+      SOURCE_DIGEST: string;
       ACCOUNT_PRODUCTION: string;
+      RATE_LIMIT_SCOPE: string;
       ACCOUNT_EMAIL?: AccountEmailBinding;
+      ACCOUNT_WEB_ORIGIN: string;
+      VERIFICATION_TOKEN?: string;
+      VERIFICATION_API_ORIGIN?: string;
+      VERIFICATION_DB?: D1Database;
     };
+    const verificationMailbox =
+      accountEnv.VERIFICATION_DB && accountEnv.VERIFICATION_TOKEN
+        ? {
+            database: accountEnv.VERIFICATION_DB,
+            token: accountEnv.VERIFICATION_TOKEN,
+          }
+        : undefined;
     const inboxes = yield* Inbox;
     const versionMetadata = yield* Cloudflare.Workers.VersionMetadata();
     const patrons = yield* SenderPatron;
@@ -190,7 +243,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
       )
     );
     /** A signed provider token for the Inbox, or nothing without APNs. */
-    const pushContext = Option.match(apns, {
+    const livePushContext = Option.match(apns, {
       onNone: () => absent<PushContext>(),
       onSome: (tokens) =>
         tokens.pipe(
@@ -202,6 +255,17 @@ export default class Server extends Cloudflare.Worker<Server>()(
           )
         ),
     });
+
+    const pushContext: Effect.Effect<PushContext | undefined> =
+      verificationMailbox
+        ? Effect.succeed({
+            jwt: "verification-only",
+            verification: {
+              url: `${accountEnv.VERIFICATION_API_ORIGIN}/__verify/push`,
+              token: verificationMailbox.token,
+            },
+          })
+        : livePushContext;
 
     // Keep the binding/data for older purchases and rollback; no new fingerprints
     // are looked up or recorded now that core messaging is free.
@@ -255,7 +319,12 @@ export default class Server extends Cloudflare.Worker<Server>()(
               const request = yield* HttpServerRequest;
               const { success } = yield* inboxCreation
                 .limit({
-                  key: request.headers["cf-connecting-ip"] ?? "unknown",
+                  key: verificationRateLimitKey(
+                    accountEnv.RATE_LIMIT_SCOPE,
+                    request.headers["cf-connecting-ip"] ?? "unknown",
+                    request.headers,
+                    accountEnv.VERIFICATION_TOKEN
+                  ),
                 })
                 .pipe(
                   // Fail open: a limiter outage shouldn't block setting up a Mac.
@@ -523,7 +592,12 @@ export default class Server extends Cloudflare.Worker<Server>()(
               const request = yield* HttpServerRequest;
               const { success } = yield* patronCreation
                 .limit({
-                  key: request.headers["cf-connecting-ip"] ?? "unknown",
+                  key: verificationRateLimitKey(
+                    accountEnv.RATE_LIMIT_SCOPE,
+                    request.headers["cf-connecting-ip"] ?? "unknown",
+                    request.headers,
+                    accountEnv.VERIFICATION_TOKEN
+                  ),
                 })
                 .pipe(
                   Effect.catchTag("RateLimitError", () =>
@@ -724,6 +798,13 @@ export default class Server extends Cloudflare.Worker<Server>()(
     return {
       fetch: Effect.gen(function* fetch() {
         const request = yield* HttpServerRequest;
+        if (verificationMailbox && request.url.startsWith("/__verify/")) {
+          const webRequest = yield* toWeb(request).pipe(Effect.orDie);
+          const response = yield* Effect.promise(() =>
+            verificationResponse(webRequest, verificationMailbox)
+          );
+          return HttpServerResponse.fromWeb(response);
+        }
         if (
           request.url.startsWith("/api/auth/") ||
           request.url.startsWith("/account")
@@ -733,10 +814,7 @@ export default class Server extends Cloudflare.Worker<Server>()(
             accountEnv.ACCOUNT_PRODUCTION === "true"
               ? `https://${domains.api}`
               : new URL(webRequest.url).origin;
-          const webOrigin =
-            accountEnv.ACCOUNT_PRODUCTION === "true"
-              ? `https://${domains.web}`
-              : "http://localhost:3001";
+          const webOrigin = accountEnv.ACCOUNT_WEB_ORIGIN;
           const run = Effect.runPromiseWith(
             yield* Effect.context<RuntimeContext>()
           );
@@ -745,7 +823,9 @@ export default class Server extends Cloudflare.Worker<Server>()(
             secret: accountEnv.ACCOUNT_SECRET,
             origin,
             webOrigin,
-            email: accountEnv.ACCOUNT_EMAIL,
+            email: accountEnv.VERIFICATION_DB
+              ? captureAccountEmail(accountEnv.VERIFICATION_DB)
+              : accountEnv.ACCOUNT_EMAIL,
             onAccountCreated: (user) =>
               run(
                 track(
@@ -928,6 +1008,8 @@ export default class Server extends Cloudflare.Worker<Server>()(
             {
               versionId: version.id,
               revision: version.tag,
+              sourceRevision: accountEnv.SOURCE_REVISION,
+              sourceDigest: accountEnv.SOURCE_DIGEST,
               deployedAt: version.timestamp,
               coreMessaging: "free",
               patronCheckoutEnabled: patronCheckoutAvailable,
