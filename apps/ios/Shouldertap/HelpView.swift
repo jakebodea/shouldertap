@@ -1,8 +1,9 @@
 import ShouldertapCore
 import SwiftUI
 
+/// Help before you're signed in (onboarding's frame bar); after that it's a
+/// page in Settings.
 struct HelpButton: View {
-  let store: SenderStore
   @State private var showing = false
 
   var body: some View {
@@ -12,82 +13,80 @@ struct HelpButton: View {
     .buttonStyle(FrameButtonStyle(iconOnly: true))
     .accessibilityLabel("Help and privacy")
     .accessibilityIdentifier("help-button")
-    .sheet(isPresented: $showing) { HelpView(store: store).sheetOnPaper() }
+    .sheet(isPresented: $showing) {
+      NavigationStack {
+        HelpPage()
+          .navigationTitle("Help and privacy")
+          .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showing = false } } }
+      }
+      .sheetOnPaper()
+    }
   }
 }
 
-struct HelpView: View {
-  let store: SenderStore
-  @Environment(\.dismiss) private var dismiss
+struct HelpPage: View {
+  private var account: AccountStore { Stores.account }
+  private var senders: SenderStore { Stores.senders }
   @State private var deleting: SenderSession?
   @State private var busy = false
   @State private var error: String?
 
   var body: some View {
-    NavigationStack {
-      List {
-        Section("How Shouldertap works") {
-          Text("Tap: send a tap to anyone you're connected with. Their answer appears here when you open Shouldertap.")
-          Text("Inbox: taps for you arrive on every device you're signed in on, on the Lock Screen and in the Dynamic Island, and you can answer from any of them.")
-          NavigationLink("Try a sample tap") { SampleTapView() }
-            .accessibilityIdentifier("sample-tap")
-          Text("Sending, receiving and replies are free. Receive on iPhone, or add a computer for screen takeover. Replies do not send push notifications.")
-            .font(.footnote).foregroundStyle(.secondary)
-        }
-        Section("Account") {
-          NavigationLink("Account") {
-            AccountView(account: Stores.account)
-              .navigationTitle("Account")
-          }
-          .accessibilityIdentifier("help-account")
-        }
-        Section("Support and privacy") {
-          Link("Email support", destination: URL(string: "mailto:support@shouldertap.app")!)
-          Link("Privacy Policy", destination: URL(string: "https://shouldertap.app/privacy")!)
-          Link("Terms of Use", destination: URL(string: "https://shouldertap.app/terms")!)
-          NavigationLink("Report a problem or abuse") { ReportView() }
-        }
-        if !store.sessions.isEmpty {
-          Section {
-            ForEach(store.sessions) { person in
-              Button("Delete my data with \(person.pairing.recipientName)", role: .destructive) {
-                deleting = person
-              }
-              .disabled(busy)
-            }
-          } header: {
-            Text("Delete sender data")
-          } footer: {
-            Text("Deletes your pairing, name, messages and replies from the server and this phone. Repeat for each person you are paired with. You will need a new invite to reconnect. Recovery copies may remain for up to 30 days.")
-          }
-        }
+    List {
+      Section("How Shouldertap works") {
+        Text("Tap: send a tap to anyone you're connected with. Their answer appears here when you open Shouldertap.")
+        Text("Inbox: taps for you arrive on every device you're signed in on, on the Lock Screen and in the Dynamic Island, and you can answer from any of them.")
+        NavigationLink("Try a sample tap") { SampleTapView() }
+          .accessibilityIdentifier("sample-tap")
+        Text("Sending, receiving and replies are free. Receive on iPhone, or add a computer for screen takeover. Replies do not send push notifications.")
+          .font(.footnote).foregroundStyle(.secondary)
+      }
+      Section("Support and privacy") {
+        Link("Email support", destination: URL(string: "mailto:support@shouldertap.app")!)
+        Link("Privacy Policy", destination: URL(string: "https://shouldertap.app/privacy")!)
+        Link("Terms of Use", destination: URL(string: "https://shouldertap.app/terms")!)
+        NavigationLink("Report a problem or abuse") { ReportView() }
+      }
+      // Signed in, it's Settings → the person → Remove. Signed out (or the
+      // account deleted), pairings kept on this phone are deleted here.
+      if !account.signedIn, !senders.sessions.isEmpty {
         Section {
-          Text("Shouldertap for iPhone")
-            .foregroundStyle(.secondary)
-        }
-      }
-      .navigationTitle("Help and privacy")
-      .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-      .confirmationDialog(
-        "Delete your sender data?",
-        isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-        titleVisibility: .visible, presenting: deleting
-      ) { person in
-        Button("Delete my data", role: .destructive) {
-          busy = true
-          Task {
-            defer { busy = false }
-            do { try await store.deleteData(id: person.id) }
-            catch { self.error = error.localizedDescription }
+          ForEach(senders.sessions) { person in
+            Button("Delete my data with \(person.pairing.recipientName)", role: .destructive) {
+              deleting = person
+            }
+            .foregroundStyle(.red)
+            .disabled(busy)
           }
+        } header: {
+          Text("Delete sender data")
+        } footer: {
+          Text("Deletes your pairing, name, messages and replies from the server and this phone. Repeat for each person you are paired with. You will need a new invite to reconnect. Recovery copies may remain for up to 30 days.")
         }
-      } message: { person in
-        Text("This permanently deletes your messages and replies with \(person.pairing.recipientName), and ends the pairing. It cannot be undone.")
       }
-      .alert("Couldn't delete your data", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-        Button("OK", role: .cancel) {}
-      } message: { Text(error ?? "") }
+      Section {
+        Text("Shouldertap for iPhone")
+          .foregroundStyle(.secondary)
+      }
     }
+    .confirmationDialog(
+      "Delete your sender data?",
+      isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+      titleVisibility: .visible, presenting: deleting
+    ) { person in
+      Button("Delete my data", role: .destructive) {
+        busy = true
+        Task {
+          defer { busy = false }
+          do { try await senders.deleteData(id: person.id) } catch { self.error = error.localizedDescription }
+        }
+      }
+    } message: { person in
+      Text("This permanently deletes your messages and replies with \(person.pairing.recipientName), and ends the pairing. It cannot be undone.")
+    }
+    .alert("Couldn't delete your data", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+      Button("OK", role: .cancel) {}
+    } message: { Text(error ?? "") }
   }
 }
 
@@ -173,7 +172,7 @@ struct ReportView: View {
         Text("Choose Email report and send it from your mail app to support@shouldertap.app. If you have no mail app configured, use Share report or email that address from another device. A report is sent only when you send it.")
       }
       Section("Stop contact") {
-        Text("On iPhone, choose the person's avatar, then Unpair to stop receiving their replies. On Mac, remove a sender under Can tap you to stop their messages. They cannot reconnect without a new invite.")
+        Text("To stop tapping someone, open Settings, choose them under You tap, then Remove. To stop their taps, remove them under Can tap you, in Settings or on your Mac. They cannot reconnect without a new invite.")
       }
     }
     .navigationTitle("Report a problem")

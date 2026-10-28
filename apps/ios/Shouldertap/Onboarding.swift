@@ -111,7 +111,7 @@ struct OnboardingFlow: View {
         Wordmark(knock: knock)
       }
     } trailing: {
-      HelpButton(store: senders)
+      HelpButton()
     }
   }
 

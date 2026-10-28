@@ -222,11 +222,16 @@ struct Wordmark: View {
   var knock = 0
 
   var body: some View {
-    HStack(spacing: 7) {
+    // A bar full of people keeps just the mark.
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 7) {
+        MarkView(size: 26, knock: knock)
+        Text("Shouldertap")
+          .font(Bricolage.extraBold(19))
+          .tracking(-0.65)
+          .lineLimit(1)
+      }
       MarkView(size: 26, knock: knock)
-      Text("Shouldertap")
-        .font(Bricolage.extraBold(19))
-        .tracking(-0.65)
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Shouldertap")

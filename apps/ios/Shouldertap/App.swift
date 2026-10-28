@@ -7,11 +7,18 @@ import SwiftUI
 enum Stores {
   static let senders: SenderStore = {
     let store = SenderStore(server: Config.server, persistence: KeychainPersistence())
+    // A patron's taps carry their theme and this iPhone's patron key.
+    store.style = { patron.style }
     store.start()
     return store
   }()
 
   static let account = AccountStore(server: Config.server, vault: KeychainVault(service: "app.shouldertap.iphone.account"))
+
+  /// The account's patron membership, with this iPhone's own key (named
+  /// like the Mac's, `<bundle>.patron`).
+  static let patron = PatronStore(
+    account: account, vault: KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.iphone") + ".patron"))
 
   static let inbox: ReceiverStore = {
     let inbox = ReceiverStore(
@@ -26,7 +33,9 @@ enum Stores {
   /// Brings this iPhone's inbox credential and sender keys in step with the
   /// account. Safe to call often: on launch, foreground, after signing in or
   /// saving the profile, and on the inbox's `credentials` event.
-  static func sync() async {
+  /// Returns whether it reached the account.
+  @discardableResult
+  static func sync() async -> Bool {
     await account.sync(platform: .iphone, deviceName: UIDevice.current.name, inbox: inbox, senders: senders)
   }
 }
@@ -71,7 +80,15 @@ struct RootView: View {
   /// A sign-in QR link (shouldertap://qr#…) opened while signed out.
   @State private var signInLink = ""
   @State private var cover: RootCover?
-  @State private var showAccount = false
+  @State private var showSettings = false
+  @State private var settingsPath: [SettingsPage] = []
+  /// A cover to open once Settings has closed (Add someone).
+  @State private var afterSettings: RootCover?
+  /// Who "You're now connected" is asking about; the next waits for its
+  /// sheet to close.
+  @State private var askingSeenAs: SenderSession?
+  /// People answered this run, until a sync confirms the account has it.
+  @State private var askedSeenAs: Set<String> = []
   @State private var receiver = Receiver.shared
   @Environment(\.scenePhase) private var scenePhase
   @State private var wasBackground = false
@@ -82,7 +99,7 @@ struct RootView: View {
         Frame(color: flowColor) {
           OnboardingFlow(
             account: account, senders: store, invite: $firstInvite, signInLink: $signInLink, color: $flowColor,
-            sync: Stores.sync
+            sync: { await Stores.sync() }
           ) { id in
             if let id {
               selectedId = id
@@ -96,13 +113,19 @@ struct RootView: View {
         home.transition(.opacity)
       }
     }
-    .sheet(isPresented: $showAccount) {
-      NavigationStack {
-        AccountView(account: account)
-          .navigationTitle("Account")
-          .toolbar { Button("Done") { showAccount = false } }
+    .sheet(
+      isPresented: $showSettings,
+      onDismiss: {
+        if let next = afterSettings {
+          afterSettings = nil
+          cover = next
+        }
       }
-      .sheetOnPaper()
+    ) {
+      SettingsView(account: account, senders: store, inbox: inbox, path: $settingsPath) {
+        afterSettings = .add
+        showSettings = false
+      }
     }
     .environment(\.inboxActions, actions)
     .environment(inbox)
@@ -118,7 +141,7 @@ struct RootView: View {
         case .add:
           Frame(color: myColor) {
             AddPeople(
-              inbox: inbox, senders: store, color: myColor, onInvite: { open(scanned: $0) },
+              inbox: inbox, color: myColor, onInvite: { open(scanned: $0) },
               onClose: { self.cover = nil })
           }
         case .computer(let scanned):
@@ -159,9 +182,17 @@ struct RootView: View {
     // (made elsewhere and reset): back to the You step.
     .onChange(of: account.signedIn) { _, signedIn in
       if !signedIn {
-        showAccount = false
+        showSettings = false
         onboarded = false
       }
+      Task { await Stores.patron.refresh() }
+    }
+    // A tap arriving closes the sheets over it (full-screen covers stay, as
+    // before). Whoever was being asked how they see you is asked again after.
+    .onChange(of: inbox.activeTap != nil) { _, arrived in
+      guard arrived else { return }
+      showSettings = false
+      askingSeenAs = nil
     }
     .onChange(of: account.me.map { $0.profile == nil }) { _, missing in
       if missing == true { onboarded = false }
@@ -182,15 +213,20 @@ struct RootView: View {
         store.nudge()
         inbox.nudge()
         inbox.refresh()
-        Task { await Stores.sync() }
+        Task {
+          await syncAndAskAgain()
+          await Stores.patron.refresh()
+        }
       default: break
       }
     }
     .task {
       receiver.sync()
       await account.refresh()
-      await Stores.sync()
+      await syncAndAskAgain()
+      await Stores.patron.refresh()
     }
+    .task { await USStorefront.shared.watch() }
   }
 
   private var home: some View {
@@ -204,6 +240,60 @@ struct RootView: View {
         .badge(waiting)
     }
     .tint(Paper.ink)
+    .sheet(item: $askingSeenAs, onDismiss: askNextSeenAs) { person in
+      seenAsQuestion(person).id(person.id)
+    }
+    .onChange(of: seenAsBlocked, initial: true) { askNextSeenAs() }
+    .onChange(of: store.sessions.filter(\.pairing.chooseSeenAs).map(\.id)) { askNextSeenAs() }
+  }
+
+  /// Something else is up, or about to be, that "You're now connected"
+  /// mustn't cover or jump ahead of.
+  private var seenAsBlocked: Bool {
+    showsOnboarding || cover != nil || showSettings || afterSettings != nil || inbox.activeTap != nil
+  }
+
+  /// Asks the next person who accepted your invite how they see you, once
+  /// nothing is in the way and no one else is being asked.
+  private func askNextSeenAs() {
+    guard askingSeenAs == nil, !seenAsBlocked else { return }
+    askingSeenAs = store.nextToAskSeenAs(skipping: askedSeenAs)
+  }
+
+  /// Syncs; once the account has answered, anyone still waiting to be asked
+  /// (an answer that never reached it) can be asked again.
+  private func syncAndAskAgain() async {
+    // Only answers from before this sync: one given while it ran may have
+    // reached the account after it read the connections.
+    let answered = askedSeenAs
+    guard await Stores.sync() else { return }
+    askedSeenAs.subtract(answered)
+    askNextSeenAs()
+  }
+
+  /// "You're now connected with {name}": how they see you, prefilled with
+  /// what they see now. Saving or skipping answers it on the account.
+  private func seenAsQuestion(_ person: SenderSession) -> some View {
+    let name = person.pairing.recipientName
+    let theme = Stores.patron.theme(for: person.pairing)
+    let initial = Profile(name: person.pairing.senderName, color: person.color)
+    return SeenAsEditor(
+      title: "You're now connected with \(name)", note: "Choose how \(name) sees you.", saveLabel: "Save",
+      cancelLabel: "Skip", initial: initial, theme: theme,
+      onCancel: {
+        // Saved unchanged, which answers the ask on every device.
+        try await account.updateSendProfile(person.id, name: initial.name, color: initial.color, senders: store)
+        askedSeenAs.insert(person.id)
+        askingSeenAs = nil
+      },
+      onSave: { profile, chosen in
+        try await account.updateSendProfile(
+          person.id, name: profile.name, color: profile.color, theme: chosen, senders: store)
+        askedSeenAs.insert(person.id)
+        askingSeenAs = nil
+      }
+    )
+    .interactiveDismissDisabled()
   }
 
   @ViewBuilder private var tapHome: some View {
@@ -216,7 +306,7 @@ struct RootView: View {
       }
     } else {
       Frame(color: myColor) {
-        AddPeople(inbox: inbox, senders: store, color: myColor, onInvite: { open(scanned: $0) })
+        AddPeople(inbox: inbox, color: myColor, onInvite: { open(scanned: $0) })
       }
     }
   }
@@ -224,10 +314,10 @@ struct RootView: View {
   @ViewBuilder private var inboxHome: some View {
     if inbox.phase == .ready {
       Frame(color: inboxColor) {
-        InboxScreen(inbox: inbox, senders: store)
+        InboxScreen(inbox: inbox)
       }
     } else {
-      InboxWaiting(account: account, senders: store) { Task { await Stores.sync() } }
+      InboxWaiting(account: account) { Task { await Stores.sync() } }
     }
   }
 
@@ -259,7 +349,10 @@ struct RootView: View {
   private var actions: InboxActions {
     InboxActions(
       open: { tab = .inbox },
-      account: { showAccount = true })
+      settings: { page in
+        settingsPath = page.map { [$0] } ?? []
+        showSettings = true
+      })
   }
 
   /// A link pasted or scanned in Add your people: a computer's sign-in code

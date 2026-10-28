@@ -141,6 +141,12 @@ public struct APIClient: Sendable {
     try await send("POST", "/v1/patron/manage")
   }
 
+  /// With a patron key as the token: revokes that key on the server, so it
+  /// stops counting toward the membership's devices.
+  public func forgetPatronKey() async throws {
+    let _: [String: Bool] = try await send("DELETE", "/v1/patrons/me/key")
+  }
+
   /// Devices only, free. Servers older than appearance settings answer `notFound`.
   public func updateAppearance(
     motion: MotionPreference?, senderThemes: SenderThemePreference?

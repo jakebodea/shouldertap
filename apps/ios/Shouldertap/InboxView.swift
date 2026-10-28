@@ -4,13 +4,14 @@ import SwiftUI
 
 // Your own Shouldertap, on this iPhone: the Inbox tab. Signing in gives the
 // phone a credential for your inbox (`AccountStore.sync`), so it gets your
-// taps too (Receiving.swift) and manages the inbox like the Mac menu does:
-// invite people, remove them, see your devices and what has come in.
+// taps too (Receiving.swift). The tab shows what has come in and invites
+// people; who can tap you and your devices are in Settings.
 
-/// What screens elsewhere can ask the root for: open your inbox, or open Account.
+/// What screens elsewhere can ask the root for: open your inbox, or open
+/// Settings (at a page, or its top when nil).
 struct InboxActions {
   var open: () -> Void = {}
-  var account: () -> Void = {}
+  var settings: (SettingsPage?) -> Void = { _ in }
 }
 
 extension EnvironmentValues {
@@ -22,26 +23,19 @@ let inboxColor = PersonColor.graphite
 
 // MARK: The inbox
 
-/// The Mac menu's ready view, on a page: plan, invite, people, devices,
-/// recent taps.
+/// Your inbox on a page: the taps you got, and inviting someone.
 struct InboxScreen: View {
   let inbox: ReceiverStore
-  let senders: SenderStore
 
-  @State private var removing: Credential?
   @State private var deleting: Tap?
   @State private var error: String?
-  @Environment(\.inboxActions) private var actions
 
   var body: some View {
     VStack(spacing: 0) {
       FrameBar {
         Wordmark()
       } trailing: {
-        HStack(spacing: 6) {
-          AccountButton()
-          HelpButton(store: senders)
-        }
+        SettingsButton()
       }
       Page {
         header
@@ -54,24 +48,10 @@ struct InboxScreen: View {
             .buttonStyle(PillStyle(small: true))
           }
         }
-        InviteCard(inbox: inbox, color: inboxColor)
         recent
-        people
-        devices
-        accountRow
-        patronSupport
+        InviteCard(inbox: inbox, color: inboxColor)
       }
       .onPaper()
-    }
-    .confirmationDialog(
-      removing.map(removeTitle) ?? "",
-      isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-      titleVisibility: .visible,
-      presenting: removing
-    ) { credential in
-      Button("Remove", role: .destructive) { remove(credential) }
-    } message: { credential in
-      Text(removeMessage(credential))
     }
     .confirmationDialog(
       "Delete this tap?",
@@ -113,54 +93,6 @@ struct InboxScreen: View {
 
   private var planText: String? { "Free" }
 
-  /// Support bought for this inbox before patron support moved to senders.
-  @ViewBuilder private var patronSupport: some View {
-    if let patron = inbox.patron, patron.active {
-      InboxSection(title: "Support Shouldertap") {
-        VStack(alignment: .leading, spacing: 12) {
-          Text(patron.status == "ending" ? "Thank you. Your support ends after the paid period." : "Thank you for your support.")
-          if let until = patron.paidUntil {
-            Text("Paid through \(Date(timeIntervalSince1970: until / 1000).formatted(date: .abbreviated, time: .omitted))")
-              .foregroundStyle(Paper.tone)
-          }
-        }
-      }
-    }
-  }
-
-  private var accountRow: some View {
-    InboxSection(title: "Account") {
-      VStack(alignment: .leading, spacing: 8) {
-        Muted(Stores.account.email.map { "Signed in as \($0)." } ?? "Signed in.")
-        Button("Manage account", action: actions.account)
-          .buttonStyle(PillStyle(small: true))
-      }
-      .padding(.top, 4)
-    }
-  }
-
-  private var people: some View {
-    let senders = inbox.credentials.filter { $0.kind == .sender }
-    return InboxSection(title: "Can tap you") {
-      if senders.isEmpty {
-        Muted("No one yet. Invite someone above.")
-      } else {
-        ForEach(senders) { credential in
-          CredentialRow(credential: credential, isSelf: false) { removing = credential }
-        }
-      }
-    }
-  }
-
-  private var devices: some View {
-    InboxSection(title: "Your devices") {
-      ForEach(inbox.credentials.filter { $0.kind == .device }) { credential in
-        CredentialRow(credential: credential, isSelf: isSelf(credential)) { removing = credential }
-      }
-      Muted("Sign in on another iPhone, Mac or PC to get your taps there too.")
-    }
-  }
-
   private var recent: some View {
     InboxSection(title: "Recent") {
       if inbox.taps.isEmpty {
@@ -184,29 +116,6 @@ struct InboxScreen: View {
     Task {
       do {
         try await inbox.delete(tapId: tap.id)
-      } catch {
-        self.error = (error as? APIError)?.message ?? error.localizedDescription
-      }
-    }
-  }
-
-  private func isSelf(_ credential: Credential) -> Bool { credential.id == inbox.credentialId }
-
-  private func removeTitle(_ credential: Credential) -> String {
-    "Remove \(credential.name)?"
-  }
-
-  private func removeMessage(_ credential: Credential) -> String {
-    if credential.kind == .sender {
-      return "Their taps stop reaching you. To tap you again, they'll need a new invite."
-    }
-    return "Taps stop reaching it until you sign in on it again."
-  }
-
-  private func remove(_ credential: Credential) {
-    Task {
-      do {
-        try await inbox.revoke(credentialId: credential.id)
       } catch {
         self.error = (error as? APIError)?.message ?? error.localizedDescription
       }
@@ -333,7 +242,7 @@ private struct Muted: View {
 
 /// A sender (their initial in their color) or a device (its glyph), with a
 /// menu to remove it.
-private struct CredentialRow: View {
+struct CredentialRow: View {
   let credential: Credential
   let isSelf: Bool
   let onRemove: () -> Void
@@ -425,18 +334,12 @@ private func qrImage(_ text: String) -> UIImage? {
 /// account (the first sync after signing in).
 struct InboxWaiting: View {
   let account: AccountStore
-  let senders: SenderStore
   let onRetry: () -> Void
 
   var body: some View {
     Frame(color: inboxColor) {
       VStack(spacing: 0) {
-        FrameBar { Wordmark() } trailing: {
-          HStack(spacing: 6) {
-            AccountButton()
-            HelpButton(store: senders)
-          }
-        }
+        FrameBar { Wordmark() } trailing: { SettingsButton() }
         Page {
           StepHeader(title: "Setting up your inbox", text: "Taps for you will arrive here and on your Lock Screen.")
           if let error = account.error {

@@ -24,11 +24,14 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
   override func startLoading() {
     let id = request.value(forHTTPHeaderField: "X-Stub") ?? ""
     guard let handler = Self.lock.withLock({ Self.handlers[id] }) else { return }
-    let (status, body) = handler(request)
-    let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: Data(body.utf8))
-    client?.urlProtocolDidFinishLoading(self)
+    // Off the loading thread, so a handler that waits doesn't hold up others.
+    DispatchQueue.global().async { [self] in
+      let (status, body) = handler(request)
+      let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+      client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+      client?.urlProtocol(self, didLoad: Data(body.utf8))
+      client?.urlProtocolDidFinishLoading(self)
+    }
   }
 
   override func stopLoading() {}
