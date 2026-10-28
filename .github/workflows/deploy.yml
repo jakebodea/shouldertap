@@ -222,6 +222,10 @@ jobs:
       - name: Match browser image to lockfile
         working-directory: apps/web
         run: test "$(node -p 'require("@playwright/test/package.json").version')" = 1.63.0
+      # checkout's temporary HOME differs from the container runtime HOME.
+      # Trust only this mounted checkout before the runner inspects its revision.
+      - name: Trust the mounted checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Verify real hosted browser journey
         run: bun run verify -- --hosted --scenario browser
       - name: Retain public verification evidence
