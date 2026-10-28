@@ -44,7 +44,7 @@ jobs:
         run: |
           if [ "$EVENT" = pull_request ]; then
             gh api --paginate "repos/$REPO/pulls/$PULL_REQUEST/files?per_page=100" \
-              --jq '.[].filename' > "$RUNNER_TEMP/files.txt"
+              --jq '.[] | [.filename, (.previous_filename // empty)] | join("\t")' > "$RUNNER_TEMP/files.txt"
           else
             : > "$RUNNER_TEMP/files.txt"
           fi

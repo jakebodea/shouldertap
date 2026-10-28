@@ -25,6 +25,10 @@ const isNative = (file: string) =>
 // GitHub's PR files API stops listing at 3000 files.
 const FILE_LIST_LIMIT = 3000;
 
+/**
+ * `files` has one entry per PR file record: its path, or for a rename
+ * "<new path>\t<old path>" so moving a file out of an area still counts.
+ */
 export const affectedAreas = (
   event: string,
   files: readonly string[]
@@ -37,7 +41,7 @@ export const affectedAreas = (
     return everything;
   }
   const affected = { native: false, web: false };
-  for (const file of files) {
+  for (const file of files.flatMap((record) => record.split("\t"))) {
     if (file.startsWith(".github/")) {
       return everything;
     }

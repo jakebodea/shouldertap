@@ -41,6 +41,14 @@ describe(affectedAreas, () => {
     ).toStrictEqual({ native: true, web: true });
   });
 
+  it("counts both paths of a rename across areas", () => {
+    expect(
+      affectedAreas("pull_request", [
+        "apps/macos/Sources/Shouldertap/Moved.swift\tapps/web/src/moved.ts",
+      ])
+    ).toStrictEqual({ native: true, web: true });
+  });
+
   it("runs everything when a workflow changes", () => {
     expect(
       affectedAreas("pull_request", [".github/workflows/native.yml"])
