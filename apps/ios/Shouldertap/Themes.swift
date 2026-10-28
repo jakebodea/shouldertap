@@ -7,31 +7,6 @@ import SwiftUI
 // only while the account has an active patron membership (`PatronStore`);
 // the server still checks the key on every send.
 
-/// The bundled faces, by PostScript name (apps/macos/Resources/Fonts,
-/// registered with UIAppFonts). Fixed sizes: the cards are drawings.
-private enum ThemeFont {
-  static let frame = "BricolageGrotesque-ExtraBold"
-  static let frameName = "BricolageGrotesque-Bold"
-  static let serif = "InstrumentSerif-Regular"
-  static let serifItalic = "InstrumentSerif-Italic"
-  static let poster = "BigShouldersDisplay-Black"
-  static let posterBold = "BigShouldersDisplay-Bold"
-  static let terminal = "VT323-Regular"
-  static let mono = "GeistMono-Bold"
-  static let hand = "CaveatRoman-Bold"
-
-  static func font(_ name: String, _ size: CGFloat) -> Font { .custom(name, fixedSize: size) }
-}
-
-extension Color {
-  /// `share` of `a` into `b`, per channel, as the Mac themes mix them.
-  fileprivate static func mix(_ a: UInt32, _ share: Double, _ b: UInt32) -> Color {
-    func channel(_ hex: UInt32, _ shift: UInt32) -> Double { Double((hex >> shift) & 0xff) / 255 }
-    let mixed = { (shift: UInt32) in channel(a, shift) * share + channel(b, shift) * (1 - share) }
-    return Color(.sRGB, red: mixed(16), green: mixed(8), blue: mixed(0))
-  }
-}
-
 /// One tap theme, small and still, on a phone-sized card (docs/design.md,
 /// "Tap themes"): enough of each composition to tell them apart. Nothing
 /// moves; the Mac draws the real thing.
