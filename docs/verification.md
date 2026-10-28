@@ -53,7 +53,7 @@ Verification APNs delivery uses a recorder at `/__verify/push`, under the same p
 
 ## Evidence and cleanup
 
-- `.artifacts/verification/<stage>/`: public receipt, backend identity, controlled composer/takeover screenshots and native binary/result metadata when exercised.
+- `.artifacts/verification/<stage>/`: public receipt, backend identity, protocol case outcomes/source locations, controlled composer/takeover screenshots and native binary/result metadata when exercised.
 - `.verification/<stage>/`: private command logs, ownership/exchange files, sign-in details, browser JSON report, Playwright output/error-context files and build output. Do not upload this tree.
 
 `SHOULDERTAP_VERIFY_OUTPUT` keeps Playwright output private; only explicit composer screenshots are also written to `SHOULDERTAP_VERIFY_ARTIFACTS`. Traces, video and automatic browser failure screenshots are disabled: auth bodies, cookies and invite fragments can contain credentials. The runner retains detailed failure logs privately and publishes exit status plus log digests. Review explicit screenshots before sharing. A receipt records the source revision, working-tree digest, merge base, scenario, backend URLs, executed steps, cleanup and limitations. If source changes during the run, the result fails. A dirty-tree runtime receipt is diagnostic evidence, not committed revision-bound proof.

@@ -19,6 +19,7 @@ import {
   freePort,
   verificationStage,
 } from "./environment";
+import { protocolDiagnostics } from "./protocol-diagnostics";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const args = process.argv.slice(2).filter((arg: string) => arg !== "--");
@@ -30,7 +31,7 @@ const pause = (ms: number) =>
     setTimeout(resolve, ms);
   });
 const privateRoot = path.join(root, ".verification");
-const safeEnv = {
+const safeEnv: Record<string, string | undefined> = {
   ...process.env,
   PULL_REQUEST: undefined,
   CREEM_API_KEY: undefined,
@@ -272,6 +273,18 @@ if (args[0] === "cleanup") {
       sha256: digest(log),
     });
     process.stdout.write(`${code === 0 ? "PASS" : "FAIL"} ${name}\n`);
+    if (name === "protocol") {
+      const reportFile = path.join(directory, "protocol-report.json");
+      if (existsSync(reportFile)) {
+        const diagnostics = JSON.stringify(
+          protocolDiagnostics(JSON.parse(readFileSync(reportFile, "utf-8"))),
+          null,
+          2
+        );
+        writeFileSync(path.join(evidence, "protocol.json"), diagnostics);
+        process.stdout.write(`${diagnostics}\n`);
+      }
+    }
     if (code !== 0 || timedOut) {
       throw new Error(
         `${name} ${timedOut ? "timed out" : "failed"}; private log: ${path.join(directory, `${name}.log`)}`
@@ -401,7 +414,17 @@ if (args[0] === "cleanup") {
     );
     await run(
       "protocol",
-      ["bun", "run", "--cwd", "apps/server", "test:integ"],
+      [
+        "bun",
+        "run",
+        "--cwd",
+        "apps/server",
+        "test:integ",
+        "--reporter=default",
+        "--reporter=json",
+        `--outputFile=${path.join(directory, "protocol-report.json")}`,
+        "--includeTaskLocation",
+      ],
       { STACK_URL: server }
     );
     await run(
