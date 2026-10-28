@@ -171,6 +171,9 @@ const activityAttributes = (tap: Tap) => ({
   senderName: tap.senderName,
   senderColor: tap.senderColor,
   createdAt: tap.createdAt,
+  // The Lock Screen and Dynamic Island draw it in its sender's theme; apps
+  // older than that ignore the key, and Default needs none.
+  ...(tap.theme && tap.theme !== "default" ? { theme: tap.theme } : {}),
 });
 
 const alert = (tap: Tap) => ({ title: tap.senderName, body: tap.body });

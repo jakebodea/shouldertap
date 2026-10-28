@@ -77,6 +77,8 @@ A sender chooses how the taps they send look (`TapTheme`), per person they tap, 
 
 No theme adds branding, watermarks, badges or advertising to a received tap. Motion: every arrival settles in about a second and nothing loops. Broadsheet's rules draw and its headline words rise from their line masks; Billboard wipes in its color and punches each word; Terminal powers on and prints, its cursor blinks three times and stops; Note settles the sheet and writes the words. Reduced motion (the system's, or the recipient's "Always reduce") is a 160ms fade into the settled screen for every theme. On Windows, GPUI can't rotate or scale, so the Mac's tilted sheet, sideways name and scale punches become level sheets, stacked letters and rises.
 
+On iPhone the takeover (app open) and the Live Activity (Lock Screen and the expanded Dynamic Island) are phone-sized takes on the same compositions (`ThemedTakeover.swift`, `TapLiveActivity.swift`, shared faces and colors in `TapThemeStyle.swift`): the same type, palette and answer controls, laid out for portrait, with the takeover's usual rise and no theme-specific arrival. Billboard keeps its blocks, Terminal its bracketed menu and scanlines, Note its tick boxes and tilted sheet; the island draws the message in the theme's type on its black. The tap's notification banner (Live Activities off) is the system's and stays plain.
+
 ## Surfaces
 
 - **Overlay (Mac, every display):** Frame in sender color; top band: sender name (700, 36px) + time + "N more waiting". Page: message 800 at 156→80px by length, left-aligned, then reply pills (On it filled in sender color, In 10 min, Reply) with key hints 1/2/3. Reply mode: pill field + Send + Back.

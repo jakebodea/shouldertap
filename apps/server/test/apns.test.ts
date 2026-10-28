@@ -96,6 +96,19 @@ describe("payloads", () => {
     });
   });
 
+  it("a themed tap's Live Activity says which theme to draw", () => {
+    const themed: Tap = { ...tap, theme: "terminal" };
+    expect(
+      startActivityPayload(themed, 1_790_790_005_000).aps.attributes
+    ).toStrictEqual({
+      tapId: "tap123456",
+      senderName: "Maya",
+      senderColor: "tomato",
+      createdAt: 1_790_790_000_000,
+      theme: "terminal",
+    });
+  });
+
   it("the notification is Time Sensitive with the tap's actions", () => {
     const payload = notificationPayload(tap);
     expect(payload.aps.category).toBe("tap");

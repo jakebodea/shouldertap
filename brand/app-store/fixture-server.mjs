@@ -47,6 +47,8 @@ const newTap = (body) => {
     senderColor: sender.color,
     body: body.body,
     replies: body.replies ?? repliesFor(body.body),
+    // A sender theme, as a patron's tap carries (no key checked here).
+    ...(body.theme ? { theme: body.theme } : {}),
     createdAt: Date.now(),
     state: "pending",
     displayedAt: null,

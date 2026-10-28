@@ -13,6 +13,14 @@
 		<string>Fonts/BricolageGrotesque-Medium.ttf</string>
 		<string>Fonts/BricolageGrotesque-Bold.ttf</string>
 		<string>Fonts/BricolageGrotesque-ExtraBold.ttf</string>
+		<!-- The tap themes' faces (TapThemeStyle.swift). -->
+		<string>Fonts/InstrumentSerif-Regular.ttf</string>
+		<string>Fonts/InstrumentSerif-Italic.ttf</string>
+		<string>Fonts/BigShouldersDisplay-Black.ttf</string>
+		<string>Fonts/BigShouldersDisplay-Bold.ttf</string>
+		<string>Fonts/VT323-Regular.ttf</string>
+		<string>Fonts/GeistMono-Bold.ttf</string>
+		<string>Fonts/Caveat-Bold.ttf</string>
 	</array>
 </dict>
 </plist>

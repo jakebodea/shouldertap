@@ -312,8 +312,9 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
 
 // MARK: - Takeover
 
-/// The Mac overlay on a phone: the sender's color fills the screen and holds
-/// a paper page with the message and the answers. Shown for the oldest
+/// The Mac overlay on a phone, in the tap's theme: for Default the sender's
+/// color fills the screen and holds a paper page with the message and the
+/// answers (the others are in ThemedTakeover.swift). Shown for the oldest
 /// waiting tap while the app is open.
 struct TapTakeover: View {
   let active: ActiveTap
@@ -326,6 +327,31 @@ struct TapTakeover: View {
   private var tap: Tap { active.tap }
 
   var body: some View {
+    let controls = TakeoverControls(
+      active: active, replying: $replying, reply: $reply, focused: $focused, reduceMotion: reduceMotion, answer: answer)
+    // Each tap in the theme its sender sent it with, as on the Mac.
+    Group {
+      switch tap.senderTheme {
+      case .default: frame
+      case .broadsheet: BroadsheetTakeover(c: controls)
+      case .billboard: BillboardTakeover(c: controls)
+      case .terminal: TerminalTakeover(c: controls)
+      case .note: NoteTakeover(c: controls)
+      }
+    }
+    // The message already starts large; past this the answers no longer
+    // fit under it on a small phone.
+    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+    .sensoryFeedback(.impact(weight: .heavy), trigger: tap.id)
+    .onAppear { replying = receiver.replyingTapId == tap.id }
+    .onChange(of: tap.id) { _, id in
+      reply = ""
+      replying = receiver.replyingTapId == id
+    }
+  }
+
+  /// Default: the sender's color as the frame, the message on paper.
+  private var frame: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .firstTextBaseline, spacing: 12) {
         Text(tap.senderName)
@@ -367,16 +393,7 @@ struct TapTakeover: View {
       .padding(.horizontal, 9)
       .padding(.bottom, 9)
     }
-    // The message already starts at 64pt; past this the answers no longer
-    // fit under it on a small phone.
-    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     .background(tap.senderColor.base.ignoresSafeArea())
-    .sensoryFeedback(.impact(weight: .heavy), trigger: tap.id)
-    .onAppear { replying = receiver.replyingTapId == tap.id }
-    .onChange(of: tap.id) { _, id in
-      reply = ""
-      replying = receiver.replyingTapId == id
-    }
   }
 
   private var answerRows: some View {

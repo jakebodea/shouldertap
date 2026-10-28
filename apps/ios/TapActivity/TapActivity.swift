@@ -31,6 +31,10 @@ nonisolated struct TapActivityAttributes: ActivityAttributes {
   var senderColor: PersonColor
   /// Epoch milliseconds, as the server sends them.
   var createdAt: Timestamp
+  /// The theme its sender sent it with; missing from older servers.
+  var theme: TapTheme?
+
+  var senderTheme: TapTheme { theme ?? .default }
 
   var createdDate: Date { Date(timeIntervalSince1970: createdAt / 1000) }
 }
@@ -96,7 +100,8 @@ enum TapActivities {
           attributes: TapActivityAttributes(
             tapId: "marketing-tap-01", senderName: environment["SHOULDERTAP_CAPTURE_SENDER"] ?? "Marcus",
             senderColor: PersonColor(rawValue: environment["SHOULDERTAP_CAPTURE_COLOR"] ?? "") ?? .tomato,
-            createdAt: Date.now.timeIntervalSince1970 * 1000),
+            createdAt: Date.now.timeIntervalSince1970 * 1000,
+            theme: TapTheme(rawValue: environment["SHOULDERTAP_CAPTURE_THEME"] ?? "")),
           content: ActivityContent(
             state: .init(
               body: environment["SHOULDERTAP_CAPTURE_BODY"] ?? "Can you come here?", answer: nil,
