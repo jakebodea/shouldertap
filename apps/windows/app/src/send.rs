@@ -15,9 +15,9 @@ use gpui::{
 };
 use shouldertap_core::{
     AccountStore, ApiError, InvitePreview, LiveStatus, MAX_NAME_LENGTH, MAX_QUICK_REPLY_LENGTH, MAX_TAP_LENGTH, Me,
-    OutgoingTap, PatronStore, PersonColor, Profile, ResponseKind, SenderSession, SenderState, SenderStore, Tap, TapState,
-    TapTheme, Timestamp, default_quick_replies, invite_code, normalize_quick_replies, now_ms, tidy_quick_replies,
-    token_inbox_id,
+    OutgoingTap, PatronStore, PersonColor, Profile, ResponseKind, SenderSession, SenderState, SenderStore, Tap,
+    TapState, TapTheme, Timestamp, default_quick_replies, invite_code, normalize_quick_replies, now_ms,
+    tidy_quick_replies, token_inbox_id,
 };
 
 use crate::assets::{Icon, MARK_PATH};
@@ -602,7 +602,14 @@ impl SendView {
     }
 
     /// "{lead} ● {name} · Change".
-    fn seen_as_row(&mut self, lead: &str, profile: Profile, edit: SeenAsEdit, cx: &mut Context<Self>) -> AnyElement {
+    fn seen_as_row(
+        &mut self,
+        lead: &str,
+        profile: Profile,
+        edit: SeenAsEdit,
+        action_label: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let initial = profile.clone();
         div()
             .flex()
@@ -611,14 +618,14 @@ impl SendView {
             .text_size(px(13.))
             .text_color(paper::tone())
             .child(div().size(px(10.)).rounded_full().bg(theme::base(profile.color)))
-            .child(format!("{lead} {}", profile.name))
+            .child(div().flex_1().min_w_0().text_ellipsis().child(format!("{lead} {}", profile.name)))
             .child(
                 div()
                     .id("seen-as-change")
                     .text_color(paper::ink())
                     .underline()
                     .cursor_pointer()
-                    .child("Change")
+                    .child(action_label.to_string())
                     .on_click(cx.listener(move |this, _, _, cx| this.open_seen_as(edit.clone(), initial.clone(), cx))),
             )
             .into_any_element()
@@ -1034,6 +1041,25 @@ impl SendView {
             .when(!unsendable, |pill| {
                 pill.on_click(cx.listener(|this, _, _, cx| this.send(cx)))
             });
+        let profile = Profile {
+            name: session.pairing.sender_name.clone(),
+            color,
+        };
+        let identity = if self.seen_edit == Some(SeenAsEdit::Person(session.id().to_string())) {
+            self.seen_as_editor(
+                format!("Only {recipient} sees this. It changes your taps they already have too."),
+                "Save",
+                cx,
+            )
+        } else {
+            self.seen_as_row(
+                "You're",
+                profile,
+                SeenAsEdit::Person(session.id().to_string()),
+                "Name and color",
+                cx,
+            )
+        };
         page.push(
             div()
                 .flex()
@@ -1051,6 +1077,7 @@ impl SendView {
                         .child("Ctrl+Enter sends"),
                 )
                 .when_some(self.send_error.clone(), |el, error| el.child(danger_text(error)))
+                .child(identity)
                 .child(self.style_row(session, &draft, window, cx))
                 .into_any_element(),
         );
@@ -1269,14 +1296,6 @@ impl SendView {
             name: session.pairing.sender_name.clone(),
             color: session.color(),
         };
-        let editing = self.seen_edit == Some(SeenAsEdit::Person(id.clone()));
-        let editor = editing.then(|| {
-            self.seen_as_editor(
-                format!("Only {recipient} sees this. It changes your taps they already have too."),
-                "Save",
-                cx,
-            )
-        });
         let edit_id = id.clone();
         let buttons = div()
             .flex()
@@ -1330,7 +1349,6 @@ impl SendView {
                 session.pairing.sender_name
             )))
             .child(buttons)
-            .children(editor)
             .children(confirmation)
             .into_any_element()
     }
@@ -1889,7 +1907,7 @@ impl SendView {
                     );
                     page.push(self.seen_as_editor(note, "Use for them", cx));
                 } else if let Some(profile) = self.seen_as.clone().or_else(|| self.send_default(cx)) {
-                    page.push(self.seen_as_row("They'll see you as", profile, SeenAsEdit::Invite, cx));
+                    page.push(self.seen_as_row("They'll see you as", profile, SeenAsEdit::Invite, "Change", cx));
                 }
             }
             Some((_, None)) => page.push(tone_text("Looking up the invite…").into_any_element()),

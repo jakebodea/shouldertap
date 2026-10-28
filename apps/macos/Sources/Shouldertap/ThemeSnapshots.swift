@@ -147,9 +147,13 @@
         color: .moss, pairedAt: 1)
       let views: [(String, NSSize, AnyView)] = [
         (
-          "composer", NSSize(width: 472, height: 230),
+          "composer", NSSize(width: 472, height: 270),
           AnyView(
             VStack(spacing: 18) {
+              SeenAsRow(
+                lead: "You're", profile: Profile(name: mom.senderName, color: mom.swatchColor),
+                actionLabel: "Name and color"
+              ) {}
               StyleRow(patron: patron, pairing: mom, message: "Dinner's ready.") {}
               PatronNudgeCard(patron: patron, color: .moss)
             }.padding(20).frame(width: 472).background(Color(nsColor: .windowBackgroundColor)))
