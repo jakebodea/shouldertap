@@ -57,13 +57,22 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --ipc=host
     env:
+      BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
       PLAYWRIGHT_VERSION: 1.63.0
     steps:
       - uses: actions/checkout@v5
       # The image has Node but not unzip, which setup-bun needs, so Bun comes from npm.
       - name: Install Bun
         run: npm install --global "bun@$(node -p 'require("./package.json").packageManager.split("@")[1]')"
-      - run: bun install --frozen-lockfile
+      - name: Cache Bun downloads
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.BUN_INSTALL_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-bun-
+      - name: Install dependencies
+        timeout-minutes: 5
+        run: bun install --frozen-lockfile
       - name: Match the image to the installed Playwright
         working-directory: apps/web
         run: |
@@ -201,6 +210,7 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --ipc=host
     env:
+      BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
       CLOUDFLARE_TEST_API_TOKEN: ${{ secrets.CLOUDFLARE_TEST_API_TOKEN }}
       CLOUDFLARE_TEST_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_TEST_ACCOUNT_ID }}
     steps:
@@ -218,7 +228,15 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-      - run: bun install --frozen-lockfile
+      - name: Cache Bun downloads
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.BUN_INSTALL_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-bun-
+      - name: Install dependencies
+        timeout-minutes: 5
+        run: bun install --frozen-lockfile
       - name: Match browser image to lockfile
         working-directory: apps/web
         run: test "$(node -p 'require("@playwright/test/package.json").version')" = 1.63.0
