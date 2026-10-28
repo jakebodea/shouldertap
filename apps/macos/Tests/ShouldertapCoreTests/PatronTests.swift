@@ -73,7 +73,7 @@ private let api = URL(string: "https://api.test")!
   @Test func signingOutForgetsThisDevicesPatronKeyAndRevokesIt() async throws {
     let accountVault = MemoryVault()
     try accountVault.write("account-session")
-    let revoked = Revocations()
+    let revoked = Arrivals()
     let session = StubProtocol.session { request in
       switch (request.httpMethod, request.url!.path) {
       case ("POST", "/api/auth/sign-out"): return (200, #"{"success":true}"#)
@@ -99,7 +99,7 @@ private let api = URL(string: "https://api.test")!
     try accountVault.write("account-session")
     let minting = DispatchSemaphore(value: 0)
     let release = DispatchSemaphore(value: 0)
-    let revoked = Revocations()
+    let revoked = Arrivals()
     let session = StubProtocol.session { request in
       switch request.url!.path {
       case "/account/patron/status":
@@ -144,7 +144,7 @@ private let api = URL(string: "https://api.test")!
     try accountVault.write("account-session")
     let reading = DispatchSemaphore(value: 0)
     let release = DispatchSemaphore(value: 0)
-    let reads = Revocations()
+    let reads = Arrivals()
     let session = StubProtocol.session { request in
       guard request.url!.path == "/account/patron/status" else { return (404, "{}") }
       reads.record(request.url!.path)
@@ -192,8 +192,8 @@ private let api = URL(string: "https://api.test")!
   }
 }
 
-/// What the server was asked for (revoked keys, read paths), in order.
-private final class Revocations: @unchecked Sendable {
+/// What reached the server (revoked keys, status reads), in order.
+private final class Arrivals: @unchecked Sendable {
   private let lock = NSLock()
   private let arrived = DispatchSemaphore(value: 0)
   private var keys: [String?] = []

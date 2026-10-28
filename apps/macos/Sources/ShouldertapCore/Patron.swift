@@ -134,15 +134,17 @@ public final class PatronStore {
       again = true
       return await refreshing.value
     }
+    // Cleared inside the task, right after its last check of `again`, so a
+    // call arriving after that starts a new one.
     let task = Task {
       repeat {
         again = false
         await load()
       } while again
+      refreshing = nil
     }
     refreshing = task
     await task.value
-    refreshing = nil
   }
 
   private func load() async {

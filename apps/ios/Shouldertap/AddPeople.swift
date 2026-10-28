@@ -317,11 +317,12 @@ struct SeenAsEditor: View {
   /// The theme is nil when left as it opened, so saving never rewrites a
   /// theme that changed underneath (patron status loading, say).
   let onSave: (Profile, TapTheme?) async throws -> Void
-  private let openedTheme: TapTheme
 
   @State private var name: String
   @State private var color: PersonColor
   @State private var theme: TapTheme
+  /// The theme it opened with; state, so a rebuilt sheet keeps it.
+  @State private var openedTheme: TapTheme
   @State private var pending = false
   @State private var error: String?
   @FocusState private var nameFocused: Bool
@@ -340,7 +341,7 @@ struct SeenAsEditor: View {
     _name = State(initialValue: initial.name)
     _color = State(initialValue: initial.color)
     _theme = State(initialValue: theme)
-    openedTheme = theme
+    _openedTheme = State(initialValue: theme)
   }
 
   private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }

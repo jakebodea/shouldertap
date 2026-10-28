@@ -489,14 +489,14 @@ public final class AccountStore {
 
   // MARK: Patron membership
 
-  /// `GET /account/patron/status`: the account's memberships and whether new
-  /// ones can start.
   /// Revokes a patron key this device is letting go of. Best effort: a key
   /// that's already gone, or no connection, leaves nothing to do.
   public func forgetPatronKey(_ key: String) async {
     try? await APIClient(baseURL: server, token: key, session: session).forgetPatronKey()
   }
 
+  /// `GET /account/patron/status`: the account's memberships and whether new
+  /// ones can start.
   public func patronStatus() async throws -> AccountPatrons {
     try await request("GET", "/account/patron/status")
   }
