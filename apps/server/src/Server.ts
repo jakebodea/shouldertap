@@ -835,9 +835,17 @@ export default class Server extends Cloudflare.Worker<Server>()(
             onAccountCreated: (user) =>
               run(
                 track(
-                  { name: "account_created", userId: user.id },
+                  {
+                    name: "account_created",
+                    userId: user.id,
+                    email: user.email,
+                  },
                   user.createdAt.getTime()
                 )
+              ),
+            onAccountDeleted: (user) =>
+              run(
+                track({ name: "account_deleted", userId: user.id }, Date.now())
               ),
           });
           const response = yield* Effect.promise(() =>

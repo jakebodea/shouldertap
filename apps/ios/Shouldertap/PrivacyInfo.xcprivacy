@@ -56,9 +56,11 @@
 			<true/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>
 			<false/>
+			<!-- The account email is also set on its PostHog person (sign-up alerts). -->
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
 		<dict>

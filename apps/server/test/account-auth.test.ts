@@ -154,6 +154,39 @@ describe("email account HTTP flow", () => {
     });
   });
 
+  it("reports a new account with its email, and its deletion, for analytics", async () => {
+    const created: { id: string; email: string; createdAt: Date }[] = [];
+    const deleted: string[] = [];
+    auth = createAccountAuth({
+      database: db,
+      secret: "local-test-only-secret-with-at-least-32-characters",
+      origin,
+      webOrigin,
+      email: {
+        send: (message) => {
+          sent.push(message.text);
+          return Promise.resolve({ messageId: "example" });
+        },
+      },
+      onAccountCreated: (user) => {
+        created.push(user);
+        return Promise.resolve();
+      },
+      onAccountDeleted: (user) => {
+        deleted.push(user.id);
+        return Promise.resolve();
+      },
+    });
+    const { cookie } = await signin();
+    const removed = await request("/api/auth/delete-user", {}, cookie);
+    expect(removed.status).toBe(200);
+    expect(
+      created.map(({ email, createdAt }) => [email, createdAt.toISOString()])
+    ).toStrictEqual([["reader@example.com", "2026-10-21T12:00:00.000Z"]]);
+    expect(deleted).toStrictEqual([created[0]?.id]);
+    expect(deleted[0]).toMatch(/^\w{32}$/u);
+  });
+
   it("revokes the cookie session on sign out", async () => {
     const { cookie } = await signin();
     const signedOut = await request("/api/auth/sign-out", {}, cookie);

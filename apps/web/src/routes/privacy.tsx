@@ -9,7 +9,7 @@ import { DocPage, DocSection, EmailLink } from "@/components/document";
 // apps/server/src/analytics.ts (what goes to PostHog), and the Mac app.
 const PrivacyComponent = () => (
   <DocPage
-    effective="October 23, 2026"
+    effective="October 28, 2026"
     intro="Shouldertap is run by Jake Bodea, an individual. This page explains what Shouldertap stores, why, and who can see it. It describes how the service works today; if that changes, this page changes first."
     title="Privacy Policy"
   >
@@ -23,8 +23,9 @@ const PrivacyComponent = () => (
         </li>
         <li>
           No advertising or tracking scripts. Our servers count product events,
-          like a tap being sent, in PostHog using random IDs only: never your
-          name, email address, or messages.
+          like a tap being sent, in PostHog using random IDs: never your name or
+          messages. If you create an account, its email address is attached so
+          we can see who signed up.
         </li>
         <li>
           We store what the service needs to work: names, colors, the taps you
@@ -239,10 +240,13 @@ const PrivacyComponent = () => (
           accepted, a tap is sent or answered (and which quick reply or a text
           reply was used, but not its text), and patron subscription changes.
           Each event carries only random IDs (account, inbox, sender, device,
-          tap), whether a tap used a theme, the device type, and the time.
-          Names, email addresses, tap text and replies are never sent, nor is
-          your IP address. We use these events to understand how Shouldertap is
-          used and to notify ourselves of sign-ups and subscriptions.
+          tap), whether a tap used a theme, the device type, and the time. When
+          you create an email account, its email address is added to that
+          account&apos;s PostHog profile. Deleting the account removes it from
+          that profile; past sign-up events keep it until you ask us to erase
+          them. Names, tap text and replies are never sent, nor is your IP
+          address. We use these events to understand how Shouldertap is used and
+          to notify ourselves of sign-ups and subscriptions.
         </li>
         <li>
           Support mail is routed through Cloudflare and forwarded to Gmail,
@@ -309,10 +313,12 @@ const PrivacyComponent = () => (
       <p>
         In Account on iPhone or Mac, or the web account portal, choose “Delete
         account” and confirm. This deletes the email account, its sessions and
-        recovery references. It does not delete existing messaging connections,
-        inboxes or messages, or automatically cancel billing. An active
-        subscription or unresolved checkout must be managed before account
-        deletion; contact support if needed. You may need to sign in again.
+        recovery references, and removes its email address from its PostHog
+        profile (email us to erase it from past analytics events too). It does
+        not delete existing messaging connections, inboxes or messages, or
+        automatically cancel billing. An active subscription or unresolved
+        checkout must be managed before account deletion; contact support if
+        needed. You may need to sign in again.
       </p>
       <p>
         In the iPhone app, open Help and privacy and choose “Delete my data” for
