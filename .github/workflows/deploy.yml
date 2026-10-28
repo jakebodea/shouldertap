@@ -17,6 +17,44 @@ env:
       || (github.ref == 'refs/heads/main' && 'prod' || github.ref_name) }}
 
 jobs:
+  # Which gates this PR's changed files can affect (stacks/affected.ts): docs
+  # skip everything but `check`, web-only skips native, native-only skips the
+  # browser, e2e and preview gates. Pushes to main always run every gate.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      native: ${{ steps.affected.outputs.native }}
+      web: ${{ steps.affected.outputs.web }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            stacks/affected.ts
+            package.json
+          sparse-checkout-cone-mode: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Classify changed files
+        id: affected
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            gh api --paginate "repos/$REPO/pulls/$PULL_REQUEST/files?per_page=100" \
+              --jq '.[].filename' > "$RUNNER_TEMP/files.txt"
+          else
+            : > "$RUNNER_TEMP/files.txt"
+          fi
+          bun stacks/affected.ts < "$RUNNER_TEMP/files.txt" | tee -a "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PULL_REQUEST: ${{ github.event.number }}
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -45,6 +83,8 @@ jobs:
   # libraries. `playwright install --with-deps` fetched those from Ubuntu's mirror on every run:
   # under a minute usually, but up to 36 minutes when the mirror crawled.
   e2e:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
@@ -196,6 +236,8 @@ jobs:
       verified: ${{ steps.deploy.outputs.deployed == 'true' && steps.integration.outcome == 'success' }}
 
   native:
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     uses: ./.github/workflows/native.yml
     permissions:
       contents: read
@@ -203,7 +245,10 @@ jobs:
   verify-browser:
     # Fork code never receives cloud credentials. The aggregate refuses to
     # treat that safe skip as verified; a maintainer must use a trusted branch.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: changes
+    if: >-
+      needs.changes.outputs.web == 'true'
+        && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -260,12 +305,17 @@ jobs:
 
   verification:
     if: always()
-    needs: [check, e2e, preview, native, verify-browser]
+    needs: [changes, check, e2e, preview, native, verify-browser]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            stacks/verification-policy.ts
+            package.json
+          sparse-checkout-cone-mode: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
@@ -275,6 +325,9 @@ jobs:
           EVENT: ${{ github.event_name }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           REPO: ${{ github.repository }}
+          CHANGES: ${{ needs.changes.result }}
+          NATIVE_AFFECTED: ${{ needs.changes.outputs.native }}
+          WEB_AFFECTED: ${{ needs.changes.outputs.web }}
           CHECK: ${{ needs.check.result }}
           E2E: ${{ needs.e2e.result }}
           NATIVE: ${{ needs.native.result }}
