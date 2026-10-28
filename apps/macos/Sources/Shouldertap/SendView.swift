@@ -559,7 +559,6 @@ private struct Composer: View {
       Text("You're \(session.pairing.senderName) on \(recipient)'s devices.")
       Spacer(minLength: 8)
       Menu("Options") {
-        Button("How they see you") { editingSelf = true }
         Button("Remove \(recipient)…") { confirmUnpair = true }
         Button("Delete my data with \(recipient)…") { confirmDelete = true }
       }

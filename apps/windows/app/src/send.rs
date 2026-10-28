@@ -1292,20 +1292,10 @@ impl SendView {
     fn options(&mut self, session: &SenderSession, cx: &mut Context<Self>) -> AnyElement {
         let recipient = session.pairing.recipient_name.clone();
         let id = session.id().to_string();
-        let seen = Profile {
-            name: session.pairing.sender_name.clone(),
-            color: session.color(),
-        };
-        let edit_id = id.clone();
         let buttons = div()
             .flex()
             .flex_wrap()
             .gap(px(8.))
-            .child(
-                pill("seen-as", "How they see you", None, None, false).on_click(cx.listener(move |this, _, _, cx| {
-                    this.open_seen_as(SeenAsEdit::Person(edit_id.clone()), seen.clone(), cx)
-                })),
-            )
             .child(
                 pill("remove", &format!("Remove {recipient}"), None, None, false).on_click(cx.listener(
                     |this, _, _, cx| {
