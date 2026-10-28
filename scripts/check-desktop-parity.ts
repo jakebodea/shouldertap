@@ -46,6 +46,7 @@ export const desktopLabels = {
   ],
   send: [
     "How they see you",
+    "Name and color",
     "They'll see you as",
     "Use for them",
     "Use these for every tap",

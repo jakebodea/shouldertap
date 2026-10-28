@@ -435,6 +435,10 @@ private struct Composer: View {
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(trimmed.isEmpty || tidyQuickReplies(shownReplies) == nil)
           }
+          SeenAsRow(
+            lead: "You're", profile: Profile(name: session.pairing.senderName, color: session.color),
+            actionLabel: "Name and color"
+          ) { editingSelf = true }
           StyleRow(patron: patron, pairing: session.pairing, message: previewMessage) { selection.styling = true }
         }
 
@@ -555,7 +559,6 @@ private struct Composer: View {
       Text("You're \(session.pairing.senderName) on \(recipient)'s devices.")
       Spacer(minLength: 8)
       Menu("Options") {
-        Button("How they see you") { editingSelf = true }
         Button("Remove \(recipient)…") { confirmUnpair = true }
         Button("Delete my data with \(recipient)…") { confirmDelete = true }
       }
@@ -802,17 +805,18 @@ private struct SenderPill: ButtonStyle {
 
 // MARK: How they see you
 
-/// "{lead} ● {name} · Change": how one person will see you, before accepting.
-private struct SeenAsRow: View {
+/// The profile one person sees, with an explicit way to edit it.
+struct SeenAsRow: View {
   let lead: String
   let profile: Profile
+  var actionLabel = "Change"
   let onChange: () -> Void
 
   var body: some View {
     HStack(spacing: 6) {
       Circle().fill(profile.color.base).frame(width: 10, height: 10)
-      Text("\(lead) \(Text(profile.name).bold())")
-      Button("Change", action: onChange).buttonStyle(.link)
+      Text("\(lead) \(Text(profile.name).bold())").lineLimit(1)
+      Button(actionLabel, action: onChange).buttonStyle(.link).fixedSize()
     }
     .font(.system(size: 13))
     .foregroundStyle(.secondary)
