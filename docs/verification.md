@@ -14,7 +14,7 @@ bun run verify -- --local --scenario browser
 
 `verify:doctor` checks Bun/Git and prints prerequisites; it does not establish Cloudflare access, installed browsers or a working app. Install Playwright WebKit once if it is missing: `cd apps/web && bunx playwright install webkit`.
 
-Local runs need the Alchemy Cloudflare profile/state setup. They run the actual Worker, Durable Objects, D1 migrations and web app through local workerd, on allocated ports. They do not read Infisical app secrets. The runner ignores the repository `.env` for Alchemy startup and removes billing, APNs and analytics credentials from child environments. Do not edit the production state setup to make a local test work.
+Local runs need Alchemy Cloudflare authentication/state setup. Explicit shell credentials take precedence over the selected profile. They run the actual Worker, Durable Objects, D1 migrations and web app through local workerd, on allocated ports. They do not read Infisical app secrets. The runner ignores the repository `.env` for Alchemy startup and removes billing, APNs and analytics credentials from child environments. Do not edit the production state setup to make a local test work.
 
 The browser scenario uses two fresh browser contexts and real email-code sign-in, profile, invite, acceptance and composer UI. A protocol client receives the tap, reports display and replies; the browser must show the result and retain it after reload. The suite also rejects an incorrect OTP and an unrelated account origin. Its receipt explicitly records that native UI was not exercised.
 

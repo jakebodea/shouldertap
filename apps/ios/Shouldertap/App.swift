@@ -18,7 +18,7 @@ enum Stores {
   /// The account's patron membership, with this iPhone's own key (named
   /// like the Mac's, `<bundle>.patron`).
   static let patron = PatronStore(
-    account: account, vault: KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.iphone") + ".patron"))
+    account: account, vault: KeychainVault(service: Config.patronService), defaults: Config.defaults)
 
   static let inbox: ReceiverStore = {
     let inbox = ReceiverStore(

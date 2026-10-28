@@ -166,7 +166,7 @@ if (args[0] === "cleanup") {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   chmodSync(directory, 0o700);
   mkdirSync(evidence, { recursive: true });
-  const token = randomBytes(32).toString("hex");
+  const token = `st-verify-${randomBytes(32).toString("hex")}`;
   const head = git("rev-parse", "HEAD");
   const patch = git("diff", "HEAD", "--binary");
   const untracked = git("ls-files", "--others", "--exclude-standard")

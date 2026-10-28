@@ -243,6 +243,7 @@ try {
     "ShouldertapIOS",
     "-configuration",
     "Debug",
+    "-onlyUsePackageVersionsFromResolvedFile",
     "-destination",
     `platform=iOS Simulator,id=${udid}`,
     "-derivedDataPath",

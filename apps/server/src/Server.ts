@@ -100,9 +100,15 @@ export default class Server extends Cloudflare.Worker<Server>()(
     const verificationToken = verification
       ? yield* Config.Redacted("SHOULDERTAP_VERIFY_TOKEN")
       : undefined;
-    if (verificationToken && Redacted.value(verificationToken).length < 32) {
+    if (
+      verificationToken &&
+      (!Redacted.value(verificationToken).startsWith("st-verify-") ||
+        Redacted.value(verificationToken).length < 32)
+    ) {
       return yield* Effect.die(
-        new Error("Verification token must have at least 32 characters")
+        new Error(
+          "Verification token must be runner-generated (st-verify-) and have at least 32 characters"
+        )
       );
     }
     const accountDatabase = yield* Cloudflare.D1.Database("Accounts", {

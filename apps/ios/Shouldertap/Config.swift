@@ -6,6 +6,8 @@ import ShouldertapCore
 /// Simulator OS relaunches retain that complete configuration until cleanup.
 enum Config {
   private static let bootstrapKey = "verificationActiveRun"
+  private static let patronServiceBase = (Bundle.main.bundleIdentifier ?? "app.shouldertap.iphone") + ".patron"
+  static var patronService: String { keychainService(patronServiceBase) }
   private static let launchEnvironment: [String: String] = {
     var env = ProcessInfo.processInfo.environment
     #if DEBUG
@@ -41,7 +43,7 @@ enum Config {
       #if targetEnvironment(simulator)
         if env["SHOULDERTAP_VERIFY_CLEAR"] == "1" {
           UserDefaults.standard.removePersistentDomain(forName: scope.namespace("app.shouldertap.iphone"))
-          for base in ["app.shouldertap.iphone.account", "app.shouldertap.iphone.inbox", "app.shouldertap.sender.pairing"] {
+          for base in ["app.shouldertap.iphone.account", "app.shouldertap.iphone.inbox", "app.shouldertap.sender.pairing", patronServiceBase] {
             SecItemDelete([kSecClass as String: kSecClassGenericPassword,
               kSecAttrService as String: scope.namespace(base)] as CFDictionary)
           }
