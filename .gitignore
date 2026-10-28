@@ -62,3 +62,7 @@ temp
 
 # Scratch output from image and other generators
 output/
+
+# Private verification state and shareable proof
+.verification/
+.artifacts/

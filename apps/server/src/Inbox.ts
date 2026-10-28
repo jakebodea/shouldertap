@@ -31,9 +31,9 @@ import type {
   Tap,
   UpdateAppearanceRequest,
 } from "@shouldertap/domain";
-import type { RuntimeContext } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Drizzle from "alchemy/Drizzle/Cloudflare";
+import { RuntimeContext } from "alchemy/RuntimeContext";
 import { and, count, eq, isNull, lt, or, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { HttpServerRequest } from "effect/http/HttpServerRequest";
@@ -87,6 +87,7 @@ import {
 import { hashSecret, randomId } from "./secrets";
 import { readTaps, storeTap } from "./tap-storage";
 import type { TapMessage } from "./tap-storage";
+import { verificationPushResponse } from "./verification-push";
 
 const SENDER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEVICE_INVITE_TTL_MS = 15 * 60 * 1000;
@@ -391,6 +392,17 @@ export const InboxLive = Inbox.make(
 
     return Effect.gen(function* inboxMethods() {
       const db = yield* Drizzle.DurableObject({ migrations });
+      const runtime = yield* RuntimeContext;
+      const database = yield* runtime.get<D1Database>("VERIFICATION_DB");
+      const captureToken = yield* runtime.get<string>("VERIFICATION_TOKEN");
+      const capture =
+        database && captureToken
+          ? { database, token: captureToken }
+          : undefined;
+      const pushTransport = capture
+        ? (url: string, init: RequestInit) =>
+            verificationPushResponse(new Request(url, init), capture)
+        : undefined;
       // Keep-alive pings are answered without waking the object.
       yield* state.setWebSocketAutoResponse(
         // oxlint-disable-next-line no-undef -- Workers runtime global
@@ -591,7 +603,16 @@ export const InboxLive = Inbox.make(
         request: ApnsRequest,
         forget: Effect.Effect<unknown, unknown>
       ) {
-        const result = yield* sendPush(push, request);
+        if (push.verification && !pushTransport) {
+          return yield* Effect.die(
+            new Error("Verification push transport binding is missing")
+          );
+        }
+        const result = yield* sendPush(
+          push,
+          request,
+          push.verification ? pushTransport : undefined
+        );
         if (result.status !== 200) {
           yield* Effect.logWarning("APNs refused a push", {
             type: request.pushType,

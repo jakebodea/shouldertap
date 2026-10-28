@@ -24,6 +24,17 @@ describe(secretsSource, () => {
     expect(secretsSource("pr-0", false)).toStrictEqual(dev);
   });
 
+  it("keeps verification stages credential-free while ordinary development still uses dev", () => {
+    expect(secretsSource("dev", false)).toStrictEqual(dev);
+    expect(
+      secretsSource("verify-loyw3v28-012345abcdef", false)
+    ).toBeUndefined();
+    expect(secretsSource("verify-loyw3v28-012345abcdef", true)).toBeUndefined();
+    expect(() => secretsSource("verify-../prod", false)).toThrow(
+      "Invalid verification stage"
+    );
+  });
+
   it("gives other CI stages nothing, and local stages shouldertap-dev", () => {
     expect(secretsSource("dev", true)).toBeUndefined();
     expect(secretsSource("dev", false)).toStrictEqual(dev);

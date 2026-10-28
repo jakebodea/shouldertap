@@ -7,14 +7,20 @@ import ShouldertapCore
 /// future push handler can use them in the background, and never synced or
 /// restored to another device. Outboxes are not secret: UserDefaults.
 struct KeychainPersistence: SenderPersistence {
-  private static let service = "app.shouldertap.sender.pairing"
+  private let service: String
+  private let defaultsSuite: String?
 
-  private var defaults: UserDefaults { .standard }
+  @MainActor init() {
+    service = Config.keychainService("app.shouldertap.sender.pairing")
+    defaultsSuite = Config.defaultsSuite
+  }
+
+  private var defaults: UserDefaults { defaultsSuite.flatMap(UserDefaults.init(suiteName:)) ?? .standard }
 
   func loadPairings() -> [SenderPairing] {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: Self.service,
+      kSecAttrService as String: service,
       kSecMatchLimit as String: kSecMatchLimitAll,
       kSecReturnData as String: true,
       kSecReturnAttributes as String: true,
@@ -32,7 +38,7 @@ struct KeychainPersistence: SenderPersistence {
     let data = try JSONEncoder().encode(pairing)
     let match: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: Self.service,
+      kSecAttrService as String: service,
       kSecAttrAccount as String: pairing.credentialId,
     ]
     let update: [String: Any] = [
@@ -54,7 +60,7 @@ struct KeychainPersistence: SenderPersistence {
     SecItemDelete(
       [
         kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: Self.service,
+        kSecAttrService as String: service,
         kSecAttrAccount as String: credentialId,
       ] as CFDictionary)
   }

@@ -38,12 +38,12 @@ final class Receiver {
   /// can take a while to hand them over again, and a change (Live
   /// Activities turned off) must reach the server before the next tap.
   private var deviceToken: String? {
-    get { UserDefaults.standard.string(forKey: "push.deviceToken") }
-    set { UserDefaults.standard.set(newValue, forKey: "push.deviceToken") }
+    get { Config.defaults.string(forKey: "push.deviceToken") }
+    set { Config.defaults.set(newValue, forKey: "push.deviceToken") }
   }
   private var startToken: String? {
-    get { UserDefaults.standard.string(forKey: "push.startToken") }
-    set { UserDefaults.standard.set(newValue, forKey: "push.startToken") }
+    get { Config.defaults.string(forKey: "push.startToken") }
+    set { Config.defaults.set(newValue, forKey: "push.startToken") }
   }
   @ObservationIgnored private var liveActivities = ActivityAuthorizationInfo().areActivitiesEnabled
   /// What the server last accepted (or is being sent), per credential, so
@@ -384,6 +384,8 @@ struct TapTakeover: View {
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
           .textSelection(.enabled)
           .id(tap.id)
+          .accessibilityIdentifier("takeover-message")
+          .accessibilityValue(Config.verification != nil ? tap.id : "")
           .transition(reduceMotion ? .opacity : .rise)
         if replying { replyRow } else { answerRows }
       }
@@ -406,8 +408,10 @@ struct TapTakeover: View {
         .accessibilityIdentifier("takeover-on-it")
       Button { answer(options[1].response) } label: { label(custom ? nil : .in10, options[1].label) }
         .buttonStyle(PillStyle())
+        .accessibilityIdentifier("takeover-in-10")
       Button { withAnimation(reduceMotion ? nil : .outExpo(0.4)) { replying = true } } label: { label(.reply, "Reply") }
         .buttonStyle(PillStyle())
+        .accessibilityIdentifier("takeover-reply")
     }
   }
 
@@ -417,6 +421,7 @@ struct TapTakeover: View {
         .lineLimit(1...4)
         .field()
         .focused($focused)
+        .accessibilityIdentifier("takeover-reply-field")
         .onAppear { focused = true }
         .onChange(of: reply) { _, text in
           if text.count > maxReplyLength { reply = String(text.prefix(maxReplyLength)) }
@@ -427,6 +432,7 @@ struct TapTakeover: View {
         answer(TapResponse(kind: .text, text: text))
       } label: { label(.send, "Send") }
         .buttonStyle(PillStyle(color: tap.senderColor))
+        .accessibilityIdentifier("takeover-reply-send")
         .disabled(reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       Button("Back") { withAnimation(reduceMotion ? nil : .outExpo(0.4)) { replying = false } }
         .buttonStyle(QuietStyle())

@@ -38,7 +38,12 @@
     "release:ios": "bun scripts/with-release-secrets.ts scripts/release-ios.sh",
     "setup:infisical": "alchemy profile edit --add Infisical --method universal-auth --set clientId=env:INFISICAL_CLIENT_ID --set clientSecret=env:INFISICAL_CLIENT_SECRET --no-input",
     "test": "turbo run test //#test:root",
-    "test:root": "vitest run"
+    "test:root": "vitest run",
+    "ci": "bun run check && bun run check-types && bun run test",
+    "proof": "bun scripts/verification/proof.ts",
+    "verify": "bun scripts/verification/run.ts",
+    "verify:doctor": "bun scripts/verification/run.ts doctor",
+    "verify:cleanup": "bun scripts/verification/run.ts cleanup"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",

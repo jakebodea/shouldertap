@@ -27,6 +27,8 @@ Native apps are outside the Bun workspace: run `swift test` / `cargo test` when 
 
 ## Tests
 
+- For runtime evidence use [verification environments](docs/verification.md); for revision-bound proof use [proofed delivery](docs/proofed-delivery.md). Browser/protocol success does not establish native UI or physical push delivery.
+
 - Test behavior, not implementation. Call the code the way its users do and assert a literal expected value from an independent source (a worked example or the spec), never one recomputed the way the code computes it. Keep a test only if it would fail when every function it imports returned `undefined`: rewrite or delete tests whose only assertions are calls made (`toHaveBeenCalled*`), absence (`toBeUndefined`, `toEqual([])`), a restated constant, or data the test built itself.
 - Fake only real system boundaries (external APIs, time, randomness, platform APIs) and pass them in; never mock the project's own modules. Freeze the clock in any test whose result depends on today's date.
 - `lint/oxlint-plugin-test-quality.mjs` catches the common shapes in `bun run check`: tests whose only assertions are weak, expected values computed by the module under test, and tests that run no code. Disable a rule only with a written reason.
@@ -35,7 +37,7 @@ Native apps are outside the Bun workspace: run `swift test` / `cargo test` when 
 
 ## Agent secrets (Infisical)
 
-- Secrets come from Infisical through Alchemy (`Infisical.Secrets` in each stack). `stacks/secrets.ts` holds the project ids and maps stage → source: `prod` reads `shouldertap-prod`, `pr-*`/CI previews read nothing from Infisical, everything else reads `shouldertap-dev`.
+- Secrets come from Infisical through Alchemy (`Infisical.Secrets` in each stack). `stacks/secrets.ts` holds the project ids and maps stage → source: `prod` reads `shouldertap-prod`, `pr-*`/CI previews and `verify-*` runs read nothing from Infisical, everything else reads `shouldertap-dev`.
 - Who can read what: Alchemy `default` profile = `agent-dev` (`*-dev` only); `admin` profile = `operator` (all; the owner's Mac only, pass `--profile admin`); CI = `ci-prod` via GitHub OIDC, only in jobs using the `production` environment (main only).
 - Agent setup, once per machine: export `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`, then `bun run setup:infisical`.
 - Never add prod values to `shouldertap-dev`, never give a PR job the `production` environment, and never read secrets via `process.env` in stacks (use `Config`).

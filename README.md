@@ -34,6 +34,10 @@ packages/client             HttpApiClient-based client + live WebSocket (tickets
 
 `apps/macos` is outside the Bun workspace. `ShouldertapCore` mirrors `packages/domain` and `packages/client` in Swift (contracts, API client, live socket, store); its tests decode fixtures in the server's JSON shapes. `apps/windows/core` (`shouldertap-core`) is the same in Rust, and its tests decode the same fixtures from `apps/macos/Tests/ShouldertapCoreTests/Fixtures`. Change the protocol in all three places. [Mac client research](docs/research/mac-client-efficiency.md) explains the move from React Native.
 
+## Verification
+
+Use [verification environments](docs/verification.md) for isolated browser/native journeys and [proofed delivery](docs/proofed-delivery.md) for revision-bound checks, evidence and independent review. `bun run verify:doctor` lists prerequisites; `bun run verify -- --local --scenario browser` runs the browser/protocol journey. Native UI verification uses `--scenario core` with a shared simulator acquired through the device tools.
+
 ## Develop
 
 ```bash

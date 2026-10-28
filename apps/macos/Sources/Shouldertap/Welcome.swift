@@ -17,7 +17,7 @@ final class WelcomeController: NSObject, NSWindowDelegate {
     #if DEBUG
       if ProcessInfo.processInfo.environment["SHOULDERTAP_WELCOME"] != nil { return true }
     #endif
-    return !UserDefaults.standard.bool(forKey: seenKey)
+    return !Config.defaults.bool(forKey: seenKey)
   }
 
   private var window: NSWindow?
@@ -92,7 +92,7 @@ final class WelcomeController: NSObject, NSWindowDelegate {
     guard let window else { return }
     self.window = nil
     model = nil
-    UserDefaults.standard.set(true, forKey: Self.seenKey)
+    Config.defaults.set(true, forKey: Self.seenKey)
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.42
       context.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0, 0.2, 1)

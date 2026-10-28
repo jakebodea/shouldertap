@@ -29,9 +29,31 @@ enum Main {
 /// release builds production (domains.ts at the repo root). Debug builds can
 /// point elsewhere with SHOULDERTAP_SERVER_URL and SHOULDERTAP_WEB_URL.
 enum Config {
+  static let verification: VerificationScope? = {
+    #if DEBUG
+      guard let runID = ProcessInfo.processInfo.environment["SHOULDERTAP_VERIFY_RUN"] else { return nil }
+      guard let scope = try? VerificationScope(runID: runID) else { preconditionFailure("Invalid SHOULDERTAP_VERIFY_RUN") }
+      return scope
+    #else
+      return nil
+    #endif
+  }()
+
+  static var defaultsSuite: String? { verification?.namespace(Bundle.main.bundleIdentifier ?? "app.shouldertap.mac.debug") }
+  static var defaults: UserDefaults { defaultsSuite.flatMap(UserDefaults.init(suiteName:)) ?? .standard }
+  static func keychainService(_ base: String) -> String { verification?.namespace(base) ?? base }
+  static var debugDirectory: URL {
+    let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appending(path: "Shouldertap Debug", directoryHint: .isDirectory)
+    return verification?.directory(in: base) ?? base
+  }
   static var endpoints: Endpoints {
     #if DEBUG
       let env = ProcessInfo.processInfo.environment
+      if verification != nil {
+        precondition(env["SHOULDERTAP_SERVER_URL"] != nil && env["SHOULDERTAP_WEB_URL"] != nil,
+          "Verification requires both server and web URLs")
+      }
       return Endpoints(
         server: URL(string: env["SHOULDERTAP_SERVER_URL"] ?? "http://localhost:3000")!,
         web: URL(string: env["SHOULDERTAP_WEB_URL"] ?? "http://localhost:3001")!)
@@ -45,17 +67,18 @@ enum Config {
   /// they keep the file.
   static var vault: (any CredentialVault)? {
     guard CodeSignature.teamIdentifier != nil else { return nil }
-    return KeychainVault(service: Bundle.main.bundleIdentifier ?? "app.shouldertap.mac")
+    return KeychainVault(service: keychainService(Bundle.main.bundleIdentifier ?? "app.shouldertap.mac"))
   }
 
   /// This Mac's patron key: the Keychain for Developer ID builds, an
   /// owner-only file otherwise (see `vault`).
   static var patronVault: any CredentialVault {
     if vault != nil {
-      return KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".patron")
+      return KeychainVault(service: keychainService((Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".patron"))
     }
     #if DEBUG
       let folder = "Shouldertap Debug"
+      if verification != nil { return FileVault(url: debugDirectory.appending(path: "patron")) }
     #else
       let folder = "Shouldertap"
     #endif
@@ -69,8 +92,8 @@ enum Config {
   static var persistence: LocalPersistence {
     #if DEBUG
       LocalPersistence(
-        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-          .appending(path: "Shouldertap Debug", directoryHint: .isDirectory),
+        directory: debugDirectory,
+        defaultsSuite: defaultsSuite,
         vault: vault)
     #else
       LocalPersistence(vault: vault)
@@ -80,12 +103,12 @@ enum Config {
   /// People this Mac can tap, kept beside its own pairing.
   static var senderPersistence: LocalSenderPersistence {
     let vault = vault.map { _ in
-      KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".senders")
+      KeychainVault(service: keychainService((Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".senders"))
     }
     #if DEBUG
       return LocalSenderPersistence(
-        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-          .appending(path: "Shouldertap Debug", directoryHint: .isDirectory),
+        directory: debugDirectory,
+        defaultsSuite: defaultsSuite,
         vault: vault)
     #else
       return LocalSenderPersistence(vault: vault)
@@ -103,13 +126,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let senders = SenderStore(server: Config.endpoints.server, persistence: Config.senderPersistence)
   private lazy var sendWindow = SendController(store: senders, account: account, patron: patron)
   /// The sender's membership: themes for the taps this Mac sends.
-  private lazy var patron = PatronStore(account: account, vault: Config.patronVault)
+  private lazy var patron = PatronStore(account: account, vault: Config.patronVault, defaults: Config.defaults)
   private lazy var overlays = OverlayController(store: store)
   private lazy var appearance = AppearanceController(store: store)
   /// Owned by the app, not the popover or the welcome: the person this Mac
   /// belongs to (docs/onboarding.md).
   private let account = AccountStore(server: Config.endpoints.server,
-    vault: KeychainVault(service: (Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".account"))
+    vault: KeychainVault(service: Config.keychainService((Bundle.main.bundleIdentifier ?? "app.shouldertap.mac") + ".account")))
   private let welcome = WelcomeController()
   private let updates = Updates()
   private let popover = NSPopover()

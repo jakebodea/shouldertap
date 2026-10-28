@@ -147,6 +147,8 @@ struct InviteCard: View {
               .padding(10)
               .background(.white, in: .rect(cornerRadius: 14, style: .continuous))
               .accessibilityLabel("QR code for the invite link")
+              .accessibilityIdentifier("invite-qr")
+              .accessibilityValue(Config.verification != nil ? invite.url.absoluteString : "")
           }
           Text("Have them scan this with their iPhone camera, or send them the link. Anyone you send it to can use it for 7 days.")
             .font(Bricolage.medium(15))
@@ -165,6 +167,7 @@ struct InviteCard: View {
               Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
             }
             .buttonStyle(PillStyle(small: true))
+            .accessibilityIdentifier("copy-invite")
             .sensoryFeedback(.success, trigger: copied)
           }
           Button("Done") {

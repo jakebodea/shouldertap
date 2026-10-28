@@ -4,6 +4,7 @@ import type { Tap } from "@shouldertap/domain";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Vitest";
 import * as Effect from "effect/Effect";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import { expect } from "vitest";
@@ -28,6 +29,23 @@ const stack = beforeAll(
   }
 );
 afterAll.skipIf(!!existing || !!process.env.NO_DESTROY)(destroy(Stack));
+
+const verificationToken = process.env.SHOULDERTAP_VERIFY_TOKEN;
+const protocolRun = crypto.randomUUID();
+const verificationHeaders = (identity: string): Record<string, string> =>
+  verificationToken
+    ? {
+        "x-shouldertap-verification-token": verificationToken,
+        "x-shouldertap-verification-client": identity,
+      }
+    : {};
+/** Each scenario retains the real 10/min limiter with an independent test network identity. */
+const withVerificationScenario = <A, E, R>(program: Effect.Effect<A, E, R>) =>
+  program.pipe(
+    Effect.provideService(FetchHttpClient.RequestInit, {
+      headers: verificationHeaders(`scenario-${crypto.randomUUID()}`),
+    })
+  );
 
 const HTTP_SCHEME = /^http/u;
 const decodeEvent = Schema.decodeUnknownSync(ServerEvent);
@@ -123,7 +141,7 @@ test(
       fetch(`${url}/v1/patrons/availability`).then((r) => r.json())
     );
     expect(availability).toStrictEqual({ checkoutEnabled: false });
-  })
+  }).pipe(withVerificationScenario)
 );
 
 test(
@@ -159,7 +177,7 @@ test(
     expect(again.name).toBe("Ari");
     expect(second.kind).toBe("sender");
     expect(second.credentialId).not.toBe(redeemed.credentialId);
-  })
+  }).pipe(withVerificationScenario)
 );
 
 test(
@@ -254,7 +272,7 @@ test(
     expect(platforms).toContainEqual(["Sam", null]);
 
     // The iPhone registers for pushes, and saves the token of the Live
-    // Activity a pending tap started (no APNs key here, so nothing is sent).
+    // Activity a pending tap started (verification stages capture provider requests without Apple keys).
     const registered = yield* phone.inbox.registerPush({
       payload: {
         environment: "sandbox",
@@ -332,7 +350,7 @@ test(
     yield* phone.inbox.revoke({ params: { id: phoneGrant.credentialId } });
     const unlinked = yield* phone.inbox.me().pipe(Effect.flip);
     expect(unlinked._tag).toBe("Unauthorized");
-  }),
+  }).pipe(withVerificationScenario),
   { timeout: 60_000 }
 );
 
@@ -447,7 +465,9 @@ test(
     expect(again._tag).toBe("NotFound");
     expect((yield* macApi.inbox.me()).taps).toHaveLength(0);
     expect((yield* senderApi.inbox.me()).taps).toHaveLength(0);
-  }).pipe(Effect.scoped),
+  })
+    .pipe(withVerificationScenario)
+    .pipe(Effect.scoped),
   { timeout: 60_000 }
 );
 
@@ -486,7 +506,9 @@ test(
       })
       .pipe(Effect.flip);
     expect(afterRevoke._tag).toBe("Unauthorized");
-  }).pipe(Effect.scoped),
+  })
+    .pipe(withVerificationScenario)
+    .pipe(Effect.scoped),
   { timeout: 60_000 }
 );
 
@@ -522,7 +544,9 @@ test(
       expect(ids).not.toContain(sender.credentialId);
       expect(ids).toContain(other.credentialId);
     }
-  }).pipe(Effect.scoped),
+  })
+    .pipe(withVerificationScenario)
+    .pipe(Effect.scoped),
   { timeout: 60_000 }
 );
 
@@ -549,7 +573,7 @@ test(
     // An idempotent retry of an accepted tap isn't a new tap.
     const retry = yield* send(requestIds[0] as string, "tap 0");
     expect(retry.id).toBe((sent[0] as Tap).id);
-  }),
+  }).pipe(withVerificationScenario),
   { timeout: 60_000 }
 );
 
@@ -593,7 +617,7 @@ test(
     expect(tooManyMacs._tag).toBe("Conflict");
     expect(tooManyMacs.message).toContain("10 devices");
     expect(fullInvite.message).toContain("Remove someone");
-  }),
+  }).pipe(withVerificationScenario),
   { timeout: 120_000 }
 );
 
@@ -638,7 +662,10 @@ test(
       const response = yield* Effect.promise(() =>
         fetch(`${url}/v1/inboxes`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...verificationHeaders(`raw-${protocolRun}`),
+          },
           body: JSON.stringify({
             recipientName: "Jake",
             deviceName: "Studio Mac",
@@ -648,11 +675,11 @@ test(
       );
       expect(response.status).toBe(400);
     }
-  }),
+  }).pipe(withVerificationScenario),
   { timeout: 60_000 }
 );
 
-// Runs last: it exhausts this IP's inbox-creation budget for the next minute.
+// Phone-only setup is independent of the flood scenario on verification stacks.
 test(
   "phone-only inbox receives and answers; sender deletion preserves other senders",
   Effect.gen(function* senderDeletion() {
@@ -746,7 +773,7 @@ test(
     const own = yield* second.inbox.me();
     expect(own.taps).toHaveLength(1);
     expect(own.taps[0]?.state).toBe("pending");
-  }),
+  }).pipe(withVerificationScenario),
   { timeout: 60_000 }
 );
 
@@ -767,7 +794,10 @@ test(
           Effect.promise(async () => {
             const response = await fetch(`${url}/v1/inboxes`, {
               method: "POST",
-              headers: { "content-type": "application/json" },
+              headers: {
+                "content-type": "application/json",
+                ...verificationHeaders(`flood-${protocolRun}`),
+              },
               body: JSON.stringify({
                 recipientName: "Flood",
                 deviceName: "Script",
@@ -799,6 +829,84 @@ test(
       results,
       `Bounded creation burst: ${results.length} responses across ${[...locations].join(",")}`
     ).toContain(429);
-  }),
+  }).pipe(withVerificationScenario),
   { timeout: 60_000 }
 );
+
+// A preview without verification bindings still runs the existing protocol suite.
+if (verificationToken) {
+  test(
+    "records a real Inbox notification through the private APNs boundary",
+    Effect.gen(function* capturedPush() {
+      const url = (yield* stack).server;
+      const { anon, macA, sender } = yield* pairedInbox(url);
+      const mac = yield* client(url, macA.token);
+      const invite = yield* mac.inbox.createInvite({
+        payload: { kind: "device" },
+      });
+      const phoneGrant = yield* anon.pairing.redeemInvite({
+        payload: {
+          code: invite.code,
+          name: "Verification iPhone",
+          platform: "iphone",
+        },
+      });
+      const phone = yield* client(url, phoneGrant.token);
+      const registered = yield* phone.inbox.registerPush({
+        payload: {
+          environment: "sandbox",
+          topic: "app.shouldertap.ios.debug",
+          deviceToken: "ba".repeat(32),
+          startToken: null,
+          liveActivities: false,
+        },
+      });
+      expect(registered.registered).toBeTruthy();
+      const senderApi = yield* client(url, sender.token);
+      const tap = yield* senderApi.inbox.sendTap({
+        payload: {
+          requestId: crypto.randomUUID(),
+          body: "Verification APNs delivery",
+        },
+      });
+      yield* Effect.promise(async () => {
+        await expect
+          .poll(
+            async () => {
+              const response = await fetch(`${url}/__verify/push`, {
+                headers: { authorization: `Bearer ${verificationToken}` },
+              });
+              if (!response.ok) {
+                throw new Error(`APNs capture returned ${response.status}`);
+              }
+              const capture = (await response.json()) as {
+                pushes: { payload: { tapId?: string } }[];
+              };
+              return capture.pushes.find(
+                (push) => push.payload.tapId === tap.id
+              );
+            },
+            { timeout: 10_000 }
+          )
+          .toMatchObject({
+            token: "ba".repeat(32),
+            environment: "sandbox",
+            status: 200,
+            headers: {
+              "apns-topic": "app.shouldertap.ios.debug",
+              "apns-push-type": "alert",
+              "apns-priority": "10",
+            },
+            payload: {
+              aps: {
+                alert: { title: "Sam", body: "Verification APNs delivery" },
+                category: "tap",
+                "interruption-level": "time-sensitive",
+              },
+            },
+          });
+      });
+    }).pipe(withVerificationScenario),
+    { timeout: 30_000 }
+  );
+}

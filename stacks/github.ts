@@ -108,6 +108,38 @@ export default Alchemy.Stack(
       value: Redacted.make(accountId),
     });
 
+    // Verification uses the existing account with a separate token. It needs
+    // Worker/D1/state access, never production DNS, routes or email permissions.
+    const verificationToken = yield* Cloudflare.ApiToken.AccountApiToken(
+      "VerificationCIToken",
+      {
+        accountId,
+        policies: [
+          {
+            effect: "allow",
+            permissionGroups: [
+              "Workers Scripts Write",
+              "Workers R2 Storage Write",
+              "D1 Write",
+              "Workers Tail Read",
+              "Secrets Store Write",
+            ],
+            resources: { [account]: "*" },
+          },
+        ],
+      }
+    );
+    yield* GitHub.Secret("cf-test-api-token", {
+      ...repo,
+      name: "CLOUDFLARE_TEST_API_TOKEN",
+      value: verificationToken.value,
+    });
+    yield* GitHub.Secret("cf-test-account-id", {
+      ...repo,
+      name: "CLOUDFLARE_TEST_ACCOUNT_ID",
+      value: Redacted.make(accountId),
+    });
+
     const environment = yield* GitHub.Environment(
       "production",
       productionEnvironment(repo)
@@ -125,8 +157,8 @@ export default Alchemy.Stack(
       });
     }
 
-    // Changes reach main only through a pull request whose `check` and `e2e`
-    // jobs (in .github/workflows/deploy.yml) passed. Nobody can bypass it, admins
+    // Changes reach main only through the aggregate verification gate, which
+    // includes hosted integration and native checks. Nobody can bypass it, admins
     // included; loosen it here if that ever has to change.
     yield* GitHub.Ruleset("protect-main", {
       ...repo,
@@ -138,10 +170,7 @@ export default Alchemy.Stack(
         pullRequest: { requiredApprovingReviewCount: 0 },
         requiredStatusChecks: {
           // 15368 is the GitHub Actions app.
-          checks: [
-            { context: "check", integrationId: 15_368 },
-            { context: "e2e", integrationId: 15_368 },
-          ],
+          checks: [{ context: "verification", integrationId: 15_368 }],
         },
       },
     });

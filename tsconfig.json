@@ -13,6 +13,7 @@
     "scripts/cloudflare/**/*.ts",
     "scripts/check-patron-sandbox.ts",
     "stacks/**/*.ts",
-    "apps/server/drizzle/**/*.d.ts"
+    "apps/server/drizzle/**/*.d.ts",
+    "scripts/verification/**/*.ts"
   ]
 }

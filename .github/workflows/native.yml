@@ -1,27 +1,11 @@
-# Swift and Rust protocol mirrors: run when native or shared contracts change.
+# Reusable native gates; Deploy includes every result in required verification.
 name: Native
 
 on:
-  pull_request:
-    paths:
-      - "packages/domain/**"
-      - "apps/server/**"
-      - "apps/macos/**"
-      - "apps/ios/**"
-      - "apps/windows/**"
-      - "scripts/check-protocol-sync.ts"
-      - "scripts/release-mac.sh"
-      - ".github/workflows/release.yml"
-      - ".github/workflows/native.yml"
-  push:
-    branches: [main]
-    paths:
-      - "packages/domain/**"
-      - "apps/server/**"
-      - "apps/macos/**"
-      - "apps/ios/**"
-      - "apps/windows/**"
-      - "scripts/check-protocol-sync.ts"
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   swift:
