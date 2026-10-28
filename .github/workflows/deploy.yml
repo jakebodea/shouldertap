@@ -57,7 +57,7 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --ipc=host
     env:
-      BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+      BUN_INSTALL_CACHE_DIR: ${{ github.workspace }}/.cache/bun
       PLAYWRIGHT_VERSION: 1.63.0
     steps:
       - uses: actions/checkout@v5
@@ -210,7 +210,7 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --ipc=host
     env:
-      BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+      BUN_INSTALL_CACHE_DIR: ${{ github.workspace }}/.cache/bun
       CLOUDFLARE_TEST_API_TOKEN: ${{ secrets.CLOUDFLARE_TEST_API_TOKEN }}
       CLOUDFLARE_TEST_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_TEST_ACCOUNT_ID }}
     steps:
