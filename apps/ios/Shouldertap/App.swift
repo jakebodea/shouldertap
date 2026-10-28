@@ -187,8 +187,8 @@ struct RootView: View {
       }
       Task { await Stores.patron.refresh() }
     }
-    // A tap arriving covers everything: nothing may sit over it. Whoever was
-    // being asked how they see you is asked again after.
+    // A tap arriving closes the sheets over it (full-screen covers stay, as
+    // before). Whoever was being asked how they see you is asked again after.
     .onChange(of: inbox.activeTap != nil) { _, arrived in
       guard arrived else { return }
       showSettings = false
@@ -263,8 +263,11 @@ struct RootView: View {
   /// Syncs; once the account has answered, anyone still waiting to be asked
   /// (an answer that never reached it) can be asked again.
   private func syncAndAskAgain() async {
+    // Only answers from before this sync: one given while it ran may have
+    // reached the account after it read the connections.
+    let answered = askedSeenAs
     guard await Stores.sync() else { return }
-    askedSeenAs = []
+    askedSeenAs.subtract(answered)
     askNextSeenAs()
   }
 

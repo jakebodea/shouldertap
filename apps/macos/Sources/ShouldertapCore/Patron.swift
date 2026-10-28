@@ -62,13 +62,16 @@ public final class PatronStore {
   /// membership isn't active (the server checks it on every send), so taps
   /// sent at launch, before status loads, keep their theme.
   public var style: SendStyle {
-    key != nil && (status == nil || active) ? SendStyle(theme: theme, patronKey: key) : SendStyle()
+    patron ? SendStyle(theme: theme, patronKey: key) : SendStyle()
   }
+
+  /// A held key counts until status says the membership isn't active.
+  private var patron: Bool { key != nil && (status == nil || active) }
 
   /// What taps to this person go in from here: the theme chosen for them on
   /// the account, else this device's own; Default while not a patron.
   public func theme(for pairing: SenderPairing) -> TapTheme {
-    active ? (pairing.theme ?? theme) : .default
+    patron ? (pairing.theme ?? theme) : .default
   }
 
   /// Chooses the theme new taps to one person go in, on every device on the
@@ -90,6 +93,9 @@ public final class PatronStore {
   @ObservationIgnored private let vault: any CredentialVault
   @ObservationIgnored private let defaults: UserDefaults
   private var key: String?
+  /// Bumped when the key is forgotten, so a refresh still in flight can't
+  /// bring it back.
+  private var generation = 0
 
   private static let themeKey = "patron.theme"
   private static let sentKey = "patron.sent"
@@ -108,6 +114,7 @@ public final class PatronStore {
   }
 
   private func forgetKey() {
+    generation += 1
     vault.delete()
     key = nil
     status = nil
@@ -116,11 +123,16 @@ public final class PatronStore {
   /// Reads the account's memberships; a paid-up one without a key on this
   /// device gets one.
   public func refresh() async {
-    guard account.signedIn else { status = nil; return }
+    // Signed out, a key is a previous account's (or left from before sign-out
+    // forgot keys).
+    guard account.signedIn else { forgetKey(); return }
+    let started = generation
     do {
       let current = try await account.patronStatus()
+      guard generation == started else { return }
       if let membership = current.active, key == nil {
         let minted = try await account.restorePatronKey(id: membership.id)
+        guard generation == started else { return }
         try vault.write(minted)
         key = minted
       }

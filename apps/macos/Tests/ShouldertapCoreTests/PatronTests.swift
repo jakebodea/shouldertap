@@ -86,6 +86,45 @@ private let api = URL(string: "https://api.test")!
     #expect(patron.style == SendStyle())
   }
 
+  @Test func signingOutWhileAKeyIsBeingMintedForgetsIt() async throws {
+    let accountVault = MemoryVault()
+    try accountVault.write("account-session")
+    let minting = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let session = StubProtocol.session { request in
+      switch request.url!.path {
+      case "/account/patron/status":
+        return (
+          200,
+          #"{"memberships":[{"id":"patron01","name":"Membership","status":{"patron":{"active":true,"status":"active","paidUntil":1824135813255,"canManage":true,"canSubscribe":false}}}],"checkoutEnabled":true}"#
+        )
+      case "/account/restore":
+        // The server's answer arrives only after the sign-out below.
+        minting.signal()
+        release.wait()
+        return (200, #"{"key":"stp1.patron01.key00002.secret"}"#)
+      case "/api/auth/sign-out": return (200, #"{"success":true}"#)
+      default: return (404, "{}")
+      }
+    }
+    let account = AccountStore(server: api, vault: accountVault, session: session)
+    let patronVault = MemoryVault()
+    let patron = PatronStore(account: account, vault: patronVault, defaults: defaults())
+    patron.theme = .terminal
+    let refreshing = Task { await patron.refresh() }
+    await withCheckedContinuation { done in
+      DispatchQueue.global().async {
+        minting.wait()
+        done.resume()
+      }
+    }
+    await account.signOut()
+    release.signal()
+    await refreshing.value
+    #expect(patronVault.read() == nil)
+    #expect(patron.style == SendStyle())
+  }
+
   @Test func withoutAMembershipTapsStayDefaultAndTheNudgeComesAfterFiveSends() async throws {
     let accountVault = MemoryVault()
     try accountVault.write("account-session")
