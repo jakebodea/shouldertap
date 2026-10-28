@@ -88,7 +88,10 @@ export const chooseStyle = async (
     });
     return withConnection(pairing, saved);
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
+    if (
+      error instanceof ApiError &&
+      (error.status === 404 || error.status === 401)
+    ) {
       saveStyle(storage, theme);
       return pairing;
     }

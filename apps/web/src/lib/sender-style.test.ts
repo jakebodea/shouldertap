@@ -38,6 +38,10 @@ const fakeAccount = (held: readonly string[]) => {
   return { save, saved };
 };
 
+/** `/account/send-profile` while this browser is signed out. */
+const signedOut = () =>
+  Promise.reject(new ApiError("unauthorized", "Sign in", 401));
+
 const ana: Pairing = {
   token: "inboxAna1.keyAna01.secretAna",
   credentialId: "senderAna",
@@ -68,7 +72,7 @@ describe("tap style per person", () => {
       },
     ]);
     expect(styleFor(storage, nextAna)).toBe("terminal");
-    // Ben has no theme of his own: he keeps following this browser's style.
+    // Ben has no theme of their own: Ben keeps following this browser's style.
     expect(styleFor(storage, ben)).toBe("note");
   });
 
@@ -82,6 +86,13 @@ describe("tap style per person", () => {
     );
     expect(styleFor(storage, nextAna)).toBe("billboard");
     expect(styleFor(storage, ben)).toBe("billboard");
+  });
+
+  it("changes this browser's style when signed out", async () => {
+    const storage = memoryStorage({ "shouldertap.style.v1": "note" });
+    const nextAna = await chooseStyle(storage, ana, "terminal", signedOut);
+    expect(styleFor(storage, nextAna)).toBe("terminal");
+    expect(styleFor(storage, ben)).toBe("terminal");
   });
 
   it("puts the person's own theme ahead of this browser's", () => {

@@ -211,7 +211,8 @@ struct StyleSheet: View {
   /// Saves the theme for this person.
   let choose: (TapTheme) async throws -> Void
   let done: () -> Void
-  @State private var selected: TapTheme = .default
+  /// Picked here; until then the theme in use, also once status loads.
+  @State private var picked: TapTheme?
   @State private var replay = 0
   @State private var saving = false
   @State private var failure: String?
@@ -220,6 +221,7 @@ struct StyleSheet: View {
   private var recipient: String { pairing.recipientName }
   private var color: PersonColor { pairing.swatchColor }
   private var inUse: TapTheme { patron.theme(for: pairing) }
+  private var selected: TapTheme { picked ?? inUse }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -262,7 +264,6 @@ struct StyleSheet: View {
     }
     .frame(width: 520, height: 640)
     .onAppear {
-      selected = inUse
       Task { await patron.refresh() }
     }
   }
@@ -271,7 +272,7 @@ struct StyleSheet: View {
     VStack(spacing: 6) {
       ForEach(TapTheme.allCases, id: \.self) { theme in
         Button {
-          selected = theme
+          picked = theme
         } label: {
           HStack(spacing: 12) {
             ThemePreview(theme: theme, name: name, color: color, message: message, width: 88, cornerRadius: 5)

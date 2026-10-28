@@ -44,8 +44,13 @@ const longDate = (at: number) =>
 const StyleComponent = () => {
   const [pairing, setPairing] = useState(loadPairing);
   const patron = usePatron();
-  const saved = pairing ? styleFor(localStorage, pairing) : "default";
-  const [selected, setSelected] = useState<TapTheme>(saved);
+  // What this person's taps actually go in: a paid theme only while this
+  // browser's membership is active (the server checks the same on send).
+  const saved =
+    pairing && patron.active ? styleFor(localStorage, pairing) : "default";
+  // Until a theme is picked, the one in use, also once patron status loads.
+  const [picked, setPicked] = useState<TapTheme | null>(null);
+  const selected = picked ?? saved;
   const [saving, setSaving] = useState(false);
   const [replay, setReplay] = useState(0);
   const color =
@@ -152,7 +157,7 @@ const StyleComponent = () => {
               className="sr-only"
               name="theme"
               onChange={() => {
-                setSelected(theme);
+                setPicked(theme);
               }}
               type="radio"
               value={theme}

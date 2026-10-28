@@ -112,7 +112,8 @@ pub struct SendView {
     nudge_fade: Option<Instant>,
     /// The Tap style sheet shows in place of the composer.
     style_open: bool,
-    style_selected: TapTheme,
+    /// Picked on the style page; None shows the theme in use.
+    style_selected: Option<TapTheme>,
     /// When the sheet's large preview last arrived (Replay restarts it).
     style_started: Instant,
     /// When the Style row's cycle started; its redraws.
@@ -223,7 +224,7 @@ impl SendView {
             sent_here: false,
             nudge_fade: None,
             style_open: false,
-            style_selected: TapTheme::Default,
+            style_selected: None,
             style_started: Instant::now(),
             cycle_started: Instant::now(),
             _cycle: cycle,
@@ -300,13 +301,17 @@ impl SendView {
         self.senders(cx).refresh(&id);
         if self.selected.as_ref() != Some(&id) {
             self.connected = None;
+            // An open style page now shows this person's theme.
+            self.style_selected = None;
         }
         self.selected = Some(id);
         self.adding = false;
         self.send_error = None;
         self.confirming = None;
         self.action_error = None;
-        self.pending_focus = Some(Focus::Composer);
+        if !self.style_open {
+            self.pending_focus = Some(Focus::Composer);
+        }
         cx.notify();
     }
 
@@ -1375,12 +1380,8 @@ impl SendView {
 
 impl SendView {
     fn open_style(&mut self, cx: &mut Context<Self>) {
-        let model = self.model.read(cx);
-        let in_use = self.current(&model.sender_state).map_or(TapTheme::Default, |session| {
-            model.patron_state.sending_theme_for(&session.pairing)
-        });
         self.style_open = true;
-        self.style_selected = in_use;
+        self.style_selected = None;
         self.style_started = Instant::now();
         self.patron_error = None;
         self.model.read(cx).refresh_patron();
@@ -1394,7 +1395,7 @@ impl SendView {
         self.sent_here = sent;
         if let Some(theme) = style {
             self.style_open = true;
-            self.style_selected = theme;
+            self.style_selected = Some(theme);
         }
     }
 
@@ -1622,8 +1623,8 @@ impl SendView {
         let color = session.color();
         let name = session.pairing.sender_name.clone();
         let recipient = session.pairing.recipient_name.clone();
-        let selected = self.style_selected;
         let in_use = state.sending_theme_for(&session.pairing);
+        let selected = self.style_selected.unwrap_or(in_use);
 
         let width = (f32::from(window.viewport_size().width) - 20. - 48.).max(240.);
         let preview = patron::preview(
@@ -1702,7 +1703,7 @@ impl SendView {
                     .cursor_pointer()
                     .hover(|style| style.bg(paper::faint()))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.style_selected = theme;
+                        this.style_selected = Some(theme);
                         this.style_started = Instant::now();
                         cx.notify();
                     }))
