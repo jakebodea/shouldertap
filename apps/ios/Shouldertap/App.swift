@@ -288,7 +288,7 @@ struct RootView: View {
       },
       onSave: { profile, chosen in
         try await account.updateSendProfile(
-          person.id, name: profile.name, color: profile.color, theme: chosen == theme ? nil : chosen, senders: store)
+          person.id, name: profile.name, color: profile.color, theme: chosen, senders: store)
         askedSeenAs.insert(person.id)
         askingSeenAs = nil
       }

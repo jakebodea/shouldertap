@@ -98,6 +98,8 @@ public final class PatronStore {
   /// bring it back.
   private var generation = 0
   @ObservationIgnored private var refreshing: Task<Void, Never>?
+  /// A refresh asked for while one ran: that one goes again after.
+  @ObservationIgnored private var again = false
 
   private static let themeKey = "patron.theme"
   private static let sentKey = "patron.sent"
@@ -125,10 +127,19 @@ public final class PatronStore {
   }
 
   /// Reads the account's memberships; a paid-up one without a key on this
-  /// device gets one. Calls made while one runs wait for it.
+  /// device gets one. Calls made while one runs wait for it, and it goes
+  /// again, so a sign-in mid-refresh still gets its key.
   public func refresh() async {
-    if let refreshing { return await refreshing.value }
-    let task = Task { await load() }
+    if let refreshing {
+      again = true
+      return await refreshing.value
+    }
+    let task = Task {
+      repeat {
+        again = false
+        await load()
+      } while again
+    }
     refreshing = task
     await task.value
     refreshing = nil

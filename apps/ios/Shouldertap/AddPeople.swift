@@ -162,7 +162,7 @@ struct AcceptInvite: View {
           onCancel: { choosing = false },
           onSave: { picked, theme in
             seenAs = picked
-            seenTheme = theme
+            seenTheme = theme ?? seenTheme
             choosing = false
           })
       }
@@ -314,7 +314,10 @@ struct SeenAsEditor: View {
   let cancelLabel: String
   /// Cancel, or an answer of its own ("Skip"): a failure keeps the sheet up.
   let onCancel: () async throws -> Void
-  let onSave: (Profile, TapTheme) async throws -> Void
+  /// The theme is nil when left as it opened, so saving never rewrites a
+  /// theme that changed underneath (patron status loading, say).
+  let onSave: (Profile, TapTheme?) async throws -> Void
+  private let openedTheme: TapTheme
 
   @State private var name: String
   @State private var color: PersonColor
@@ -326,7 +329,7 @@ struct SeenAsEditor: View {
   init(
     title: String = "How they see you", note: String, saveLabel: String, cancelLabel: String = "Cancel",
     initial: Profile, theme: TapTheme, onCancel: @escaping () async throws -> Void,
-    onSave: @escaping (Profile, TapTheme) async throws -> Void
+    onSave: @escaping (Profile, TapTheme?) async throws -> Void
   ) {
     self.title = title
     self.note = note
@@ -337,6 +340,7 @@ struct SeenAsEditor: View {
     _name = State(initialValue: initial.name)
     _color = State(initialValue: initial.color)
     _theme = State(initialValue: theme)
+    openedTheme = theme
   }
 
   private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -395,7 +399,8 @@ struct SeenAsEditor: View {
     guard !trimmedName.isEmpty else { return }
     let picked = Profile(name: trimmedName, color: color)
     let theme = theme
-    run { try await onSave(picked, theme) }
+    let chosen = theme == openedTheme ? nil : theme
+    run { try await onSave(picked, chosen) }
   }
 
   private func run(_ action: @escaping () async throws -> Void) {

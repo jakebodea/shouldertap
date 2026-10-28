@@ -139,6 +139,38 @@ private let api = URL(string: "https://api.test")!
     #expect(await revoked.next() == "Bearer stp1.patron01.key00002.secret")
   }
 
+  @Test func aRefreshAskedForMidRefreshReadsStatusAgain() async throws {
+    let accountVault = MemoryVault()
+    try accountVault.write("account-session")
+    let reading = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let reads = Revocations()
+    let session = StubProtocol.session { request in
+      guard request.url!.path == "/account/patron/status" else { return (404, "{}") }
+      reads.record(request.url!.path)
+      reading.signal()
+      release.wait()
+      return (200, #"{"memberships":[],"checkoutEnabled":true}"#)
+    }
+    let account = AccountStore(server: api, vault: accountVault, session: session)
+    let patron = PatronStore(account: account, vault: MemoryVault(), defaults: defaults())
+    let first = Task { await patron.refresh() }
+    await withCheckedContinuation { done in
+      DispatchQueue.global().async {
+        reading.wait()
+        done.resume()
+      }
+    }
+    // Asked for while the first is still reading (a sign-in, say).
+    let second = Task { await patron.refresh() }
+    await Task.yield()
+    release.signal()
+    release.signal()
+    await first.value
+    await second.value
+    #expect(await [reads.next(), reads.next()] == ["/account/patron/status", "/account/patron/status"])
+  }
+
   @Test func withoutAMembershipTapsStayDefaultAndTheNudgeComesAfterFiveSends() async throws {
     let accountVault = MemoryVault()
     try accountVault.write("account-session")
@@ -160,7 +192,7 @@ private let api = URL(string: "https://api.test")!
   }
 }
 
-/// Patron keys the server was asked to revoke, in order.
+/// What the server was asked for (revoked keys, read paths), in order.
 private final class Revocations: @unchecked Sendable {
   private let lock = NSLock()
   private let arrived = DispatchSemaphore(value: 0)

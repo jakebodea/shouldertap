@@ -437,7 +437,7 @@ private struct PersonPage: View {
         onCancel: { editing = false },
         onSave: { profile, chosen in
           try await account.updateSendProfile(
-            person.id, name: profile.name, color: profile.color, theme: chosen == theme ? nil : chosen,
+            person.id, name: profile.name, color: profile.color, theme: chosen,
             senders: senders)
           editing = false
         })
