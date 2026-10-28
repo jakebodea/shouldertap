@@ -8,17 +8,10 @@ permissions:
   contents: read
 
 jobs:
-  swift:
-    runs-on: macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-      - name: ShouldertapCore tests
-        run: cd apps/macos && swift test
-
   # The Release workflow packages on this runner image; check the DMG still
   # builds (Finder lays out its window over AppleScript) before a release
-  # depends on it. Ad-hoc signed, nothing uploaded, no keys.
+  # depends on it. Ad-hoc signed, nothing uploaded, no keys. release-mac.sh
+  # runs `swift test` (ShouldertapCore) first, so no separate Swift job.
   mac-package:
     runs-on: macos-26
     timeout-minutes: 30
