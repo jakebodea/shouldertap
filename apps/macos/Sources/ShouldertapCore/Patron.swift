@@ -62,16 +62,17 @@ public final class PatronStore {
   /// membership isn't active (the server checks it on every send), so taps
   /// sent at launch, before status loads, keep their theme.
   public var style: SendStyle {
-    patron ? SendStyle(theme: theme, patronKey: key) : SendStyle()
+    themesUnlocked ? SendStyle(theme: theme, patronKey: key) : SendStyle()
   }
 
-  /// A held key counts until status says the membership isn't active.
-  private var patron: Bool { key != nil && (status == nil || active) }
+  /// Paid themes can be chosen and sent: a held key counts until status says
+  /// the membership isn't active.
+  public var themesUnlocked: Bool { key != nil && (status == nil || active) }
 
   /// What taps to this person go in from here: the theme chosen for them on
   /// the account, else this device's own; Default while not a patron.
   public func theme(for pairing: SenderPairing) -> TapTheme {
-    patron ? (pairing.theme ?? theme) : .default
+    themesUnlocked ? (pairing.theme ?? theme) : .default
   }
 
   /// Chooses the theme new taps to one person go in, on every device on the
@@ -96,6 +97,7 @@ public final class PatronStore {
   /// Bumped when the key is forgotten, so a refresh still in flight can't
   /// bring it back.
   private var generation = 0
+  @ObservationIgnored private var refreshing: Task<Void, Never>?
 
   private static let themeKey = "patron.theme"
   private static let sentKey = "patron.sent"
@@ -115,14 +117,24 @@ public final class PatronStore {
 
   private func forgetKey() {
     generation += 1
+    // Revoked too, or each sign-out would leave a live key toward the cap.
+    if let key { revoke(key) }
     vault.delete()
     key = nil
     status = nil
   }
 
   /// Reads the account's memberships; a paid-up one without a key on this
-  /// device gets one.
+  /// device gets one. Calls made while one runs wait for it.
   public func refresh() async {
+    if let refreshing { return await refreshing.value }
+    let task = Task { await load() }
+    refreshing = task
+    await task.value
+    refreshing = nil
+  }
+
+  private func load() async {
     // Signed out, a key is a previous account's (or left from before sign-out
     // forgot keys).
     guard account.signedIn else { forgetKey(); return }
@@ -132,15 +144,21 @@ public final class PatronStore {
       guard generation == started else { return }
       if let membership = current.active, key == nil {
         let minted = try await account.restorePatronKey(id: membership.id)
-        guard generation == started else { return }
+        guard generation == started else { return revoke(minted) }
         try vault.write(minted)
         key = minted
       }
       status = current
     } catch is CancellationError {
     } catch {
+      guard generation == started else { return }
       self.error = error.localizedDescription
     }
+  }
+
+  private func revoke(_ key: String) {
+    let account = account
+    Task { await account.forgetPatronKey(key) }
   }
 
   /// The checkout page, to open in the browser.

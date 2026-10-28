@@ -252,7 +252,7 @@ struct ThemePicker: View {
       }
       .scrollIndicators(.hidden)
       .padding(-6)
-      if let wanted, !patron.active, canLink {
+      if let wanted, !patron.themesUnlocked, canLink {
         Button("Become a patron to use \(wanted.label)") { Task { await becomePatron() } }
           .buttonStyle(PillStyle(color: color, small: true))
           .disabled(opening)
@@ -263,7 +263,7 @@ struct ThemePicker: View {
     .sensoryFeedback(.selection, trigger: theme)
   }
 
-  private func locked(_ option: TapTheme) -> Bool { option != .default && !patron.active }
+  private func locked(_ option: TapTheme) -> Bool { option != .default && !patron.themesUnlocked }
 
   private func card(_ option: TapTheme) -> some View {
     let selected = option == theme

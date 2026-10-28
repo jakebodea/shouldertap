@@ -70,11 +70,18 @@ private let api = URL(string: "https://api.test")!
     #expect([atLaunch, patron.style] == [SendStyle(theme: .note, patronKey: "stp1.patron01.key00002.secret"), SendStyle()])
   }
 
-  @Test func signingOutForgetsThisDevicesPatronKey() async throws {
+  @Test func signingOutForgetsThisDevicesPatronKeyAndRevokesIt() async throws {
     let accountVault = MemoryVault()
     try accountVault.write("account-session")
+    let revoked = Revocations()
     let session = StubProtocol.session { request in
-      request.url!.path == "/api/auth/sign-out" ? (200, #"{"success":true}"#) : (404, "{}")
+      switch (request.httpMethod, request.url!.path) {
+      case ("POST", "/api/auth/sign-out"): return (200, #"{"success":true}"#)
+      case ("DELETE", "/v1/patrons/me/key"):
+        revoked.record(request.value(forHTTPHeaderField: "Authorization"))
+        return (200, #"{"forgotten":true}"#)
+      default: return (404, "{}")
+      }
     }
     let account = AccountStore(server: api, vault: accountVault, session: session)
     let patronVault = MemoryVault()
@@ -84,6 +91,7 @@ private let api = URL(string: "https://api.test")!
     await account.signOut()
     #expect(patronVault.read() == nil)
     #expect(patron.style == SendStyle())
+    #expect(await revoked.next() == "Bearer stp1.patron01.key00002.secret")
   }
 
   @Test func signingOutWhileAKeyIsBeingMintedForgetsIt() async throws {
@@ -91,6 +99,7 @@ private let api = URL(string: "https://api.test")!
     try accountVault.write("account-session")
     let minting = DispatchSemaphore(value: 0)
     let release = DispatchSemaphore(value: 0)
+    let revoked = Revocations()
     let session = StubProtocol.session { request in
       switch request.url!.path {
       case "/account/patron/status":
@@ -104,6 +113,9 @@ private let api = URL(string: "https://api.test")!
         release.wait()
         return (200, #"{"key":"stp1.patron01.key00002.secret"}"#)
       case "/api/auth/sign-out": return (200, #"{"success":true}"#)
+      case "/v1/patrons/me/key":
+        revoked.record(request.value(forHTTPHeaderField: "Authorization"))
+        return (200, #"{"forgotten":true}"#)
       default: return (404, "{}")
       }
     }
@@ -123,6 +135,8 @@ private let api = URL(string: "https://api.test")!
     await refreshing.value
     #expect(patronVault.read() == nil)
     #expect(patron.style == SendStyle())
+    // The key minted for the account that signed out doesn't stay live.
+    #expect(await revoked.next() == "Bearer stp1.patron01.key00002.secret")
   }
 
   @Test func withoutAMembershipTapsStayDefaultAndTheNudgeComesAfterFiveSends() async throws {
@@ -143,5 +157,27 @@ private let api = URL(string: "https://api.test")!
     #expect(patron.nudgeDue)
     patron.nudgeHandled()
     #expect(!patron.nudgeDue)
+  }
+}
+
+/// Patron keys the server was asked to revoke, in order.
+private final class Revocations: @unchecked Sendable {
+  private let lock = NSLock()
+  private let arrived = DispatchSemaphore(value: 0)
+  private var keys: [String?] = []
+
+  func record(_ authorization: String?) {
+    lock.withLock { keys.append(authorization) }
+    arrived.signal()
+  }
+
+  /// The next revocation, waiting up to two seconds for it.
+  func next() async -> String?? {
+    await withCheckedContinuation { done in
+      DispatchQueue.global().async {
+        guard self.arrived.wait(timeout: .now() + 2) == .success else { return done.resume(returning: nil) }
+        done.resume(returning: self.lock.withLock { self.keys.removeFirst() })
+      }
+    }
   }
 }
