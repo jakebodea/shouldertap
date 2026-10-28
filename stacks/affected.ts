@@ -14,6 +14,8 @@ const everything: Affected = { native: true, web: true };
 // Inputs of native.yml's jobs: the apps and the DMG packaging script.
 const nativePrefixes = ["apps/macos/", "apps/ios/", "apps/windows/"];
 const nativeFiles = new Set(["scripts/release-mac.sh"]);
+// Native files the web build also bundles (apps/web/worker imports a font).
+const sharedPrefixes = ["apps/macos/Resources/Fonts/"];
 
 const isDocs = (file: string) =>
   file.startsWith("docs/") || file.endsWith(".md");
@@ -39,7 +41,10 @@ export const affectedAreas = (
     if (file.startsWith(".github/")) {
       return everything;
     }
-    if (isNative(file)) {
+    if (sharedPrefixes.some((p) => file.startsWith(p))) {
+      affected.native = true;
+      affected.web = true;
+    } else if (isNative(file)) {
       affected.native = true;
     } else if (!isDocs(file)) {
       affected.web = true;

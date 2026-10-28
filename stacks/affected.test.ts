@@ -33,6 +33,14 @@ describe(affectedAreas, () => {
     ).toStrictEqual({ native: true, web: true });
   });
 
+  it("runs both for native fonts the web worker bundles", () => {
+    expect(
+      affectedAreas("pull_request", [
+        "apps/macos/Resources/Fonts/BricolageGrotesque-ExtraBold.ttf",
+      ])
+    ).toStrictEqual({ native: true, web: true });
+  });
+
   it("runs everything when a workflow changes", () => {
     expect(
       affectedAreas("pull_request", [".github/workflows/native.yml"])
