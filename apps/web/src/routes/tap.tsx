@@ -69,8 +69,8 @@ import type { Pairing } from "@/lib/pairing";
 import {
   downgradeNote,
   loadDraft,
-  loadStyle,
   saveDraft,
+  styleFor,
 } from "@/lib/sender-style";
 import { PATRON_THEMES, THEME_NAMES } from "@/lib/theme-names";
 import { duration, relativeTime } from "@/lib/time";
@@ -264,7 +264,7 @@ const Composer = ({
   const [draft, setDraft] = usePersistedDraft(pairing.credentialId);
   // A theme chosen for this person on the account wins over this browser's.
   const style = useMemo(
-    () => pairing.theme ?? loadStyle(localStorage),
+    () => styleFor(localStorage, { theme: pairing.theme }),
     [pairing.theme]
   );
   // Each tap starts from the account's defaults; changes here are for it alone.
@@ -395,6 +395,7 @@ const Composer = ({
         <StyleLink
           color={color}
           draft={draft}
+          recipient={pairing.recipientName}
           sender={pairing.senderName}
           style={style}
         />
@@ -568,11 +569,13 @@ const SHOWCASE_MS = 3200;
 const StyleLink = ({
   style,
   draft,
+  recipient,
   sender,
   color,
 }: {
   style: TapTheme;
   draft: string;
+  recipient: string;
   sender: string;
   color: PersonColor;
 }) => {
@@ -620,7 +623,7 @@ const StyleLink = ({
         <span className="text-tone block text-[0.875rem] leading-snug">
           {showcasing
             ? "Patron themes for your taps"
-            : "How everyone you tap sees it"}
+            : `How ${recipient} sees it`}
         </span>
       </span>
       <HugeiconsIcon

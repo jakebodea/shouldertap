@@ -11,13 +11,16 @@ import type { TapTheme } from "@shouldertap/domain";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { toast } from "sonner";
 
 import { Frame } from "@/components/frame";
 import { TapPreview } from "@/components/tap-preview/tap-preview";
 import type { PreviewTap } from "@/components/tap-preview/themes";
+import { account } from "@/lib/account";
 import { styleOffer } from "@/lib/account-flow";
-import { loadPairing } from "@/lib/pairing";
-import { loadDraft, loadStyle, saveStyle } from "@/lib/sender-style";
+import { failureMessage } from "@/lib/onboarding";
+import { loadPairing, updatePairing } from "@/lib/pairing";
+import { chooseStyle, loadDraft, styleFor } from "@/lib/sender-style";
 import { PATRON_THEMES, THEME_NAMES } from "@/lib/theme-names";
 import { usePatron } from "@/lib/use-patron";
 
@@ -32,16 +35,23 @@ const longDate = (at: number) =>
   });
 
 /**
- * The sender's tap style: how their taps look on the computers of everyone
- * they tap. Everyone can browse and replay every theme; sending one other
- * than Default needs the sender's own active patron membership, checked by
- * the server on every send. Recipients never pay to see it.
+ * The sender's tap style for the person the composer shows: how their taps
+ * look on that person's computers. Everyone can browse and replay every
+ * theme; sending one other than Default needs the sender's own active patron
+ * membership, checked by the server on every send. Recipients never pay to
+ * see it.
  */
 const StyleComponent = () => {
-  const pairing = loadPairing();
+  const [pairing, setPairing] = useState(loadPairing);
   const patron = usePatron();
-  const [saved, setSaved] = useState(() => loadStyle(localStorage));
-  const [selected, setSelected] = useState<TapTheme>(saved);
+  // What this person's taps actually go in: a paid theme only while this
+  // browser's membership is active (the server checks the same on send).
+  const saved =
+    pairing && patron.active ? styleFor(localStorage, pairing) : "default";
+  // Until a theme is picked, the one in use, also once patron status loads.
+  const [picked, setPicked] = useState<TapTheme | null>(null);
+  const selected = picked ?? saved;
+  const [saving, setSaving] = useState(false);
   const [replay, setReplay] = useState(0);
   const color =
     pairing?.color ?? fallbackColor(pairing?.credentialId ?? "default");
@@ -65,9 +75,21 @@ const StyleComponent = () => {
   const paid = selected !== "default";
   const canUse = !paid || patron.active;
   const offer = patronOffer(patron);
-  const use = () => {
-    saveStyle(localStorage, selected);
-    setSaved(selected);
+  const use = async () => {
+    setSaving(true);
+    try {
+      const next = await chooseStyle(
+        localStorage,
+        pairing,
+        selected,
+        (id, profile) => account.updateSendProfile(id, profile)
+      );
+      updatePairing(next);
+      setPairing(next);
+    } catch (error) {
+      toast.error(failureMessage(error));
+    }
+    setSaving(false);
   };
 
   return (
@@ -81,12 +103,12 @@ const StyleComponent = () => {
           <HugeiconsIcon className="size-5" icon={ArrowLeft01Icon} />
         </Link>
         <h1 className="text-[2.125rem] leading-none font-extrabold tracking-[-0.035em]">
-          Tap style
+          Tap style for {pairing.recipientName}
         </h1>
       </header>
       <p className="text-tone -mt-2 text-[0.9375rem] leading-snug">
-        How your taps look on the screens of everyone you tap. They never pay to
-        see it.
+        How your taps look on {pairing.recipientName}&apos;s screens. They never
+        pay to see it.
       </p>
 
       <section aria-label={`${THEME_NAMES[selected].name} preview`}>
@@ -135,7 +157,7 @@ const StyleComponent = () => {
               className="sr-only"
               name="theme"
               onChange={() => {
-                setSelected(theme);
+                setPicked(theme);
               }}
               type="radio"
               value={theme}
@@ -167,6 +189,8 @@ const StyleComponent = () => {
         offer={offer}
         onUse={use}
         patron={patron}
+        recipientName={pairing.recipientName}
+        saving={saving}
       />
 
       <PatronSection offer={offer} patron={patron} />
@@ -180,15 +204,19 @@ const StyleComponent = () => {
  */
 const UseAction = ({
   name,
+  recipientName,
   inUse,
   canUse,
+  saving,
   offer,
   patron,
   onUse,
 }: {
   name: string;
+  recipientName: string;
   inUse: boolean;
   canUse: boolean;
+  saving: boolean;
   offer: ReturnType<typeof styleOffer>;
   patron: ReturnType<typeof usePatron>;
   onUse: () => void;
@@ -196,7 +224,7 @@ const UseAction = ({
   if (inUse) {
     return (
       <p className="text-tone text-center text-[0.9375rem] font-semibold">
-        Your taps use {name}.
+        Your taps to {recipientName} use {name}.
       </p>
     );
   }
@@ -222,11 +250,11 @@ const UseAction = ({
   return (
     <button
       className="pill pill-frame w-full"
-      disabled={!canUse}
+      disabled={!canUse || saving}
       onClick={onUse}
       type="button"
     >
-      Use {name}
+      {saving ? "Saving…" : `Use ${name}`}
     </button>
   );
 };

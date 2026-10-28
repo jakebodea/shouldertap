@@ -12,10 +12,10 @@ use std::sync::{Arc, Mutex, Weak};
 use serde::{Deserialize, Serialize};
 
 use crate::account::AccountStore;
-use crate::api::ApiError;
+use crate::api::{ApiError, ErrorCode};
 use crate::models::*;
 use crate::persistence::CredentialVault;
-use crate::sender::SenderStore;
+use crate::sender::{SenderPairing, SenderStore};
 
 /// Successful sends from this device after which a nudge may show: the
 /// first, second and third nudge, then never again.
@@ -72,11 +72,22 @@ impl PatronState {
         self.settings.theme
     }
 
-    /// What a tap from this PC is sent in right now: the chosen theme while
-    /// a patron holding a key, Default otherwise.
+    /// What a tap from this PC is sent in right now: this PC's own theme
+    /// while a patron holding a key, Default otherwise.
     pub fn sending_theme(&self) -> TapTheme {
         if self.active && self.has_key {
             self.settings.theme
+        } else {
+            TapTheme::Default
+        }
+    }
+
+    /// What taps to this person go in from this PC: the theme chosen for
+    /// them on the account, else this PC's own; Default while not a patron
+    /// holding a key.
+    pub fn sending_theme_for(&self, pairing: &SenderPairing) -> TapTheme {
+        if self.active && self.has_key {
+            pairing.theme.unwrap_or(self.settings.theme)
         } else {
             TapTheme::Default
         }
@@ -190,9 +201,42 @@ impl PatronStore {
         });
     }
 
-    /// The theme to send in from now on (kept even while not a patron).
+    /// This PC's own theme from now on, for everyone with no theme chosen
+    /// for them on the account (kept even while not a patron).
     pub fn set_theme(&self, theme: TapTheme) {
         self.inner.change_settings(|settings| settings.theme = theme);
+    }
+
+    /// Chooses the theme new taps to one person go in, on every device on
+    /// the account, keeping how they see you. Signed out, or for a person
+    /// the account doesn't hold (an old pairing it never had), this PC's own
+    /// theme changes instead, as before themes were per person. Blocks; call
+    /// it off the UI thread.
+    pub fn choose_theme(&self, pairing_id: &str, theme: TapTheme) -> Result<(), ApiError> {
+        let config = &self.inner.config;
+        let Some(pairing) = config
+            .senders
+            .state()
+            .session(pairing_id)
+            .map(|session| session.pairing.clone())
+        else {
+            return Ok(());
+        };
+        if !config.account.state().signed_in {
+            self.set_theme(theme);
+            return Ok(());
+        }
+        let profile = Profile {
+            name: pairing.sender_name.clone(),
+            color: pairing.swatch_color(),
+        };
+        match config.account.update_send_profile(pairing_id, &profile, Some(theme)) {
+            Err(error) if error.code == ErrorCode::NotFound => {
+                self.set_theme(theme);
+                Ok(())
+            }
+            result => result,
+        }
     }
 
     /// The nudge was dismissed or acted on: the next waits for its milestone.

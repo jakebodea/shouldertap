@@ -129,27 +129,29 @@ final class ThemeCycle {
 
 // MARK: Composer
 
-/// The way into Tap style, drawn as the tap itself: the style in use, or the
-/// draft cycling through the patron themes.
+/// The way into Tap style for one person, drawn as the tap itself: the style
+/// their taps use, or the draft cycling through the patron themes.
 struct StyleRow: View {
   let patron: PatronStore
-  let name: String
-  let color: PersonColor
+  let pairing: SenderPairing
   let message: String
   let open: () -> Void
   @State private var cycle = ThemeCycle()
 
-  private var showcasing: Bool { !patron.active || patron.theme == .default }
-  private var theme: TapTheme { showcasing ? cycle.theme : patron.theme }
+  private var inUse: TapTheme { patron.theme(for: pairing) }
+  private var showcasing: Bool { inUse == .default }
+  private var theme: TapTheme { showcasing ? cycle.theme : inUse }
 
   var body: some View {
     Button(action: open) {
       HStack(spacing: 12) {
-        ThemePreview(theme: theme, name: name, color: color, message: message, width: 88, cornerRadius: 5)
+        ThemePreview(
+          theme: theme, name: pairing.senderName, color: pairing.swatchColor, message: message, width: 88,
+          cornerRadius: 5)
         VStack(alignment: .leading, spacing: 2) {
           Text(showcasing ? "Send it as \(theme.label)" : "Style: \(theme.label)")
             .font(.system(size: 14, weight: .semibold))
-          Text(showcasing ? "Patron themes" : "How everyone you tap sees it")
+          Text(showcasing ? "Patron themes" : "How \(pairing.recipientName) sees it")
             .font(.system(size: 12)).foregroundStyle(.secondary)
         }
         Spacer(minLength: 0)
@@ -199,26 +201,35 @@ struct PatronNudgeCard: View {
 
 // MARK: Tap style
 
-/// How the sender's taps look on everyone's screens, chosen here; a patron
-/// theme leads to membership for someone who isn't one yet.
+/// How the sender's taps look on one person's screens, chosen here
+/// (`PatronStore.choose`); a patron theme leads to membership for someone
+/// who isn't one yet.
 struct StyleSheet: View {
   let patron: PatronStore
-  let name: String
-  let color: PersonColor
+  let pairing: SenderPairing
   let message: String
+  /// Saves the theme for this person.
+  let choose: (TapTheme) async throws -> Void
   let done: () -> Void
-  @State private var selected: TapTheme = .default
+  /// Picked here; until then the theme in use, also once status loads.
+  @State private var picked: TapTheme?
   @State private var replay = 0
+  @State private var saving = false
+  @State private var failure: String?
 
-  private var inUse: TapTheme { patron.active ? patron.theme : .default }
+  private var name: String { pairing.senderName }
+  private var recipient: String { pairing.recipientName }
+  private var color: PersonColor { pairing.swatchColor }
+  private var inUse: TapTheme { patron.theme(for: pairing) }
+  private var selected: TapTheme { picked ?? inUse }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
           VStack(alignment: .leading, spacing: 4) {
-            Text("Tap style").font(Bricolage.extraBold(28)).tracking(-0.9)
-            Text("How your taps look on the screens of everyone you tap. They never pay to see it.")
+            Text("Tap style for \(recipient)").font(Bricolage.extraBold(28)).tracking(-0.9).lineLimit(1)
+            Text("How your taps look on \(recipient)'s screens. They never pay to see it.")
               .font(.system(size: 13)).foregroundStyle(.secondary)
           }
           ThemePreview(
@@ -253,7 +264,6 @@ struct StyleSheet: View {
     }
     .frame(width: 520, height: 640)
     .onAppear {
-      selected = inUse
       Task { await patron.refresh() }
     }
   }
@@ -262,7 +272,7 @@ struct StyleSheet: View {
     VStack(spacing: 6) {
       ForEach(TapTheme.allCases, id: \.self) { theme in
         Button {
-          selected = theme
+          picked = theme
         } label: {
           HStack(spacing: 12) {
             ThemePreview(theme: theme, name: name, color: color, message: message, width: 88, cornerRadius: 5)
@@ -289,16 +299,19 @@ struct StyleSheet: View {
 
   @ViewBuilder private var action: some View {
     if selected == inUse {
-      Text("Your taps use \(selected.label).")
+      Text("Your taps to \(recipient) use \(selected.label).")
         .font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
         .frame(maxWidth: .infinity)
     } else if selected == .default || patron.active {
-      Button("Use \(selected.label)") { patron.theme = selected }
-        .buttonStyle(PatronPill(color: color, wide: true))
+      VStack(spacing: 6) {
+        Button("Use \(selected.label)", action: use)
+          .buttonStyle(PatronPill(color: color, wide: true))
+          .disabled(saving)
+        if let failure { Text(failure).font(.system(size: 12)).foregroundStyle(.red) }
+      }
     } else if patron.checkoutEnabled {
       VStack(spacing: 6) {
         Button("Become a patron to use \(selected.label)") {
-          patron.theme = selected
           Task { await becomePatron(patron) }
         }
         .buttonStyle(PatronPill(color: color, wide: true))
@@ -308,6 +321,16 @@ struct StyleSheet: View {
       }
     } else {
       Text("Patron memberships open soon.").font(.system(size: 13)).foregroundStyle(.secondary)
+    }
+  }
+
+  private func use() {
+    let theme = selected
+    saving = true
+    failure = nil
+    Task {
+      defer { saving = false }
+      do { try await choose(theme) } catch { failure = error.localizedDescription }
     }
   }
 

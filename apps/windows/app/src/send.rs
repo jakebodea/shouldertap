@@ -112,7 +112,8 @@ pub struct SendView {
     nudge_fade: Option<Instant>,
     /// The Tap style sheet shows in place of the composer.
     style_open: bool,
-    style_selected: TapTheme,
+    /// Picked on the style page; None shows the theme in use.
+    style_selected: Option<TapTheme>,
     /// When the sheet's large preview last arrived (Replay restarts it).
     style_started: Instant,
     /// When the Style row's cycle started; its redraws.
@@ -223,7 +224,7 @@ impl SendView {
             sent_here: false,
             nudge_fade: None,
             style_open: false,
-            style_selected: TapTheme::Default,
+            style_selected: None,
             style_started: Instant::now(),
             cycle_started: Instant::now(),
             _cycle: cycle,
@@ -300,13 +301,17 @@ impl SendView {
         self.senders(cx).refresh(&id);
         if self.selected.as_ref() != Some(&id) {
             self.connected = None;
+            // An open style page now shows this person's theme.
+            self.style_selected = None;
         }
         self.selected = Some(id);
         self.adding = false;
         self.send_error = None;
         self.confirming = None;
         self.action_error = None;
-        self.pending_focus = Some(Focus::Composer);
+        if !self.style_open {
+            self.pending_focus = Some(Focus::Composer);
+        }
         cx.notify();
     }
 
@@ -1376,7 +1381,7 @@ impl SendView {
 impl SendView {
     fn open_style(&mut self, cx: &mut Context<Self>) {
         self.style_open = true;
-        self.style_selected = self.model.read(cx).patron_state.sending_theme();
+        self.style_selected = None;
         self.style_started = Instant::now();
         self.patron_error = None;
         self.model.read(cx).refresh_patron();
@@ -1390,8 +1395,31 @@ impl SendView {
         self.sent_here = sent;
         if let Some(theme) = style {
             self.style_open = true;
-            self.style_selected = theme;
+            self.style_selected = Some(theme);
         }
+    }
+
+    /// Saves the theme taps to this person go in (`PatronStore::choose_theme`).
+    fn choose_theme(&mut self, id: String, theme: TapTheme, cx: &mut Context<Self>) {
+        if self.patron_busy {
+            return;
+        }
+        self.patron_busy = true;
+        self.patron_error = None;
+        let patrons = self.patron(cx);
+        let task = cx
+            .background_executor()
+            .spawn(async move { patrons.choose_theme(&id, theme) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.patron_busy = false;
+                this.patron_error = result.err().map(|error| error.to_string());
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     /// Checkout in the browser; coming back refreshes the membership.
@@ -1441,8 +1469,8 @@ impl SendView {
         cx.notify();
     }
 
-    /// The Style row: a live thumbnail of the draft in the theme it goes in,
-    /// or the patron themes cycling while it goes in Default.
+    /// The Style row: a live thumbnail of the draft in the theme taps to
+    /// this person go in, or the patron themes cycling while it's Default.
     fn style_row(
         &mut self,
         session: &SenderSession,
@@ -1451,18 +1479,23 @@ impl SendView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let model = self.model.read(cx);
-        let chosen = model.patron_state.sending_theme();
+        let chosen = model.patron_state.sending_theme_for(&session.pairing);
         let reduce = patron::reduces_motion(model);
         let (shown, elapsed, title, subtitle) = if chosen.is_paid() {
             (
                 chosen,
                 SETTLED,
                 format!("Style: {}", chosen.label()),
-                "How everyone you tap sees it",
+                format!("How {} sees it", session.pairing.recipient_name),
             )
         } else {
             let (shown, elapsed) = patron::cycle_at(self.cycle_started, reduce);
-            (shown, elapsed, format!("Send it as {}", shown.label()), "Patron themes")
+            (
+                shown,
+                elapsed,
+                format!("Send it as {}", shown.label()),
+                "Patron themes".to_string(),
+            )
         };
         let body = if draft.trim().is_empty() {
             patron::SAMPLE
@@ -1501,7 +1534,7 @@ impl SendView {
                     .flex_col()
                     .gap(px(2.))
                     .child(div().font_weight(FontWeight::BOLD).text_size(px(15.)).child(title))
-                    .child(tone_text(subtitle).text_size(px(13.))),
+                    .child(tone_text(&subtitle).text_size(px(13.))),
             )
             .child(
                 div()
@@ -1580,7 +1613,8 @@ impl SendView {
         )
     }
 
-    /// Tap style: how your taps look on everyone's screens, chosen here.
+    /// Tap style for one person: how your taps look on their screens,
+    /// chosen here.
     fn style_page(&mut self, session: &SenderSession, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let model = self.model.read(cx);
         let state = model.patron_state.clone();
@@ -1588,8 +1622,9 @@ impl SendView {
         let reduce = patron::reduces_motion(model);
         let color = session.color();
         let name = session.pairing.sender_name.clone();
-        let selected = self.style_selected;
-        let in_use = state.sending_theme();
+        let recipient = session.pairing.recipient_name.clone();
+        let in_use = state.sending_theme_for(&session.pairing);
+        let selected = self.style_selected.unwrap_or(in_use);
 
         let width = (f32::from(window.viewport_size().width) - 20. - 48.).max(240.);
         let preview = patron::preview(
@@ -1606,8 +1641,8 @@ impl SendView {
         );
         let mut page: Vec<AnyElement> = vec![
             page_heading(
-                "Tap style",
-                "How your taps look on the screens of everyone you tap. They never pay to see it.",
+                &format!("Tap style for {recipient}"),
+                &format!("How your taps look on {recipient}'s screens. They never pay to see it."),
             ),
             div()
                 .flex()
@@ -1668,7 +1703,7 @@ impl SendView {
                     .cursor_pointer()
                     .hover(|style| style.bg(paper::faint()))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.style_selected = theme;
+                        this.style_selected = Some(theme);
                         this.style_started = Instant::now();
                         cx.notify();
                     }))
@@ -1692,15 +1727,17 @@ impl SendView {
         let action: AnyElement = if selected == in_use {
             div()
                 .font_weight(FontWeight::BOLD)
-                .child(format!("Your taps use {label}."))
+                .child(format!("Your taps to {recipient} use {label}."))
                 .into_any_element()
         } else if state.can_use(selected) {
-            pill("style-use", &format!("Use {label}"), None, Some(color), false)
+            let id = session.id().to_string();
+            pill("style-use", &format!("Use {label}"), None, Some(color), busy)
                 .w_full()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.patron(cx).set_theme(selected);
-                    cx.notify();
-                }))
+                .when(!busy, |pill| {
+                    pill.on_click(cx.listener(move |this, _, _, cx| {
+                        this.choose_theme(id.clone(), selected, cx);
+                    }))
+                })
                 .into_any_element()
         } else if state.checkout_enabled && signed_in {
             div()

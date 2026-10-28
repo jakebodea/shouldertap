@@ -1,4 +1,6 @@
-import { TAP_THEMES } from "@shouldertap/domain";
+import { ApiError } from "@shouldertap/client";
+import type { AccountConnection, Profile } from "@shouldertap/client";
+import { fallbackColor, TAP_THEMES } from "@shouldertap/domain";
 import type {
   QuickReplies,
   SendTapRequest,
@@ -6,10 +8,14 @@ import type {
   TapTheme,
 } from "@shouldertap/domain";
 
+import { connectionId, withConnection } from "./pairing";
+import type { Pairing } from "./pairing";
+
 /**
- * What this phone keeps for the sender's style: the chosen theme (one for
- * every person they tap), their patron key, and an unsent draft per pairing
- * so leaving for checkout or the style page never loses what they typed.
+ * What this phone keeps for the sender's style: its own theme (for everyone
+ * with no theme chosen for them on the account), their patron key, and an
+ * unsent draft per pairing so leaving for checkout or the style page never
+ * loses what they typed.
  * `storage` is `localStorage` in the app.
  */
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -51,6 +57,46 @@ export const saveStyle = (storage: Store, theme: TapTheme) => {
   attempt(() => {
     storage.setItem(STYLE_KEY, theme);
   });
+};
+
+/** The theme taps to this person go in: the one chosen for them on the
+ * account, else this browser's own. */
+export const styleFor = (storage: Store, pairing: Pick<Pairing, "theme">) =>
+  pairing.theme ?? loadStyle(storage);
+
+/**
+ * Chooses the theme taps to one person go in, on every device on the
+ * account, keeping how they see you; returns the pairing as it is now. A
+ * person the account doesn't hold (an old pairing it never had: 404) changes
+ * this browser's own style instead, as before per-person themes. `save` is
+ * `account.updateSendProfile`.
+ */
+export const chooseStyle = async (
+  storage: Store,
+  pairing: Pairing,
+  theme: TapTheme,
+  save: (
+    id: string,
+    profile: Profile & { readonly theme: TapTheme }
+  ) => Promise<AccountConnection>
+): Promise<Pairing> => {
+  try {
+    const saved = await save(connectionId(pairing), {
+      name: pairing.senderName,
+      color: pairing.color ?? fallbackColor(pairing.credentialId),
+      theme,
+    });
+    return withConnection(pairing, saved);
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      (error.status === 404 || error.status === 401)
+    ) {
+      saveStyle(storage, theme);
+      return pairing;
+    }
+    throw error;
+  }
 };
 
 /** The sender's patron key, or null. Never sent with a Default tap. */
