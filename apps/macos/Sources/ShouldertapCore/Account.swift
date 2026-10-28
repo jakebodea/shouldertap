@@ -122,6 +122,8 @@ public final class AccountStore {
   private var token: String?
   @ObservationIgnored private var syncing: Task<Void, Never>?
   @ObservationIgnored private var syncAgain = false
+  @ObservationIgnored private var synced = false
+  @ObservationIgnored private var signedOutHandlers: [@MainActor () -> Void] = []
 
   public init(server: URL, vault: any CredentialVault, session: URLSession = .shared) {
     self.server = server; self.vault = vault; self.session = session
@@ -355,12 +357,16 @@ public final class AccountStore {
   /// for your inbox when `receive` is true, a sender key for each of your
   /// people, and drops connections that are gone. Calls made while one is
   /// running run once more after it.
-  public func sync(platform: DevicePlatform, deviceName: String, inbox: ReceiverStore?, senders: SenderStore) async {
-    guard token != nil, me?.profile != nil else { return }
+  /// Returns whether the last sync it waited for reached the account.
+  @discardableResult
+  public func sync(platform: DevicePlatform, deviceName: String, inbox: ReceiverStore?, senders: SenderStore) async
+    -> Bool
+  {
+    guard token != nil, me?.profile != nil else { return false }
     if let syncing {
       syncAgain = true
       await syncing.value
-      return
+      return synced
     }
     let task = Task {
       repeat {
@@ -371,6 +377,7 @@ public final class AccountStore {
     syncing = task
     await task.value
     syncing = nil
+    return synced
   }
 
   private struct SyncBody: Encodable {
@@ -397,7 +404,8 @@ public final class AccountStore {
       }
       // Keys this device already had learn changes made on another one.
       senders.apply(result.connections ?? [])
-    } catch { expireIfUnauthorized(error); report(error) }
+      synced = true
+    } catch { synced = false; expireIfUnauthorized(error); report(error) }
   }
 
   // MARK: Invites
@@ -540,6 +548,13 @@ public final class AccountStore {
 
   private func forgetSession() {
     vault.delete(); token = nil; email = nil; me = nil; pendingEmail = nil
+    signedOutHandlers.forEach { $0() }
+  }
+
+  /// Runs `handler` whenever this device's session ends: signing out,
+  /// deleting the account, or the session expiring.
+  public func whenSignedOut(_ handler: @escaping @MainActor () -> Void) {
+    signedOutHandlers.append(handler)
   }
 
   /// Shows a failure; a canceled call (its view went away) isn't one.

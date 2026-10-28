@@ -25,6 +25,12 @@ struct HelpButton: View {
 }
 
 struct HelpPage: View {
+  private var account: AccountStore { Stores.account }
+  private var senders: SenderStore { Stores.senders }
+  @State private var deleting: SenderSession?
+  @State private var busy = false
+  @State private var error: String?
+
   var body: some View {
     List {
       Section("How Shouldertap works") {
@@ -41,11 +47,46 @@ struct HelpPage: View {
         Link("Terms of Use", destination: URL(string: "https://shouldertap.app/terms")!)
         NavigationLink("Report a problem or abuse") { ReportView() }
       }
+      // Signed in, it's Settings → the person → Remove. Signed out (or the
+      // account deleted), pairings kept on this phone are deleted here.
+      if !account.signedIn, !senders.sessions.isEmpty {
+        Section {
+          ForEach(senders.sessions) { person in
+            Button("Delete my data with \(person.pairing.recipientName)", role: .destructive) {
+              deleting = person
+            }
+            .foregroundStyle(.red)
+            .disabled(busy)
+          }
+        } header: {
+          Text("Delete sender data")
+        } footer: {
+          Text("Deletes your pairing, name, messages and replies from the server and this phone. Repeat for each person you are paired with. You will need a new invite to reconnect. Recovery copies may remain for up to 30 days.")
+        }
+      }
       Section {
         Text("Shouldertap for iPhone")
           .foregroundStyle(.secondary)
       }
     }
+    .confirmationDialog(
+      "Delete your sender data?",
+      isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+      titleVisibility: .visible, presenting: deleting
+    ) { person in
+      Button("Delete my data", role: .destructive) {
+        busy = true
+        Task {
+          defer { busy = false }
+          do { try await senders.deleteData(id: person.id) } catch { self.error = error.localizedDescription }
+        }
+      }
+    } message: { person in
+      Text("This permanently deletes your messages and replies with \(person.pairing.recipientName), and ends the pairing. It cannot be undone.")
+    }
+    .alert("Couldn't delete your data", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+      Button("OK", role: .cancel) {}
+    } message: { Text(error ?? "") }
   }
 }
 

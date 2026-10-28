@@ -33,7 +33,9 @@ enum Stores {
   /// Brings this iPhone's inbox credential and sender keys in step with the
   /// account. Safe to call often: on launch, foreground, after signing in or
   /// saving the profile, and on the inbox's `credentials` event.
-  static func sync() async {
+  /// Returns whether it reached the account.
+  @discardableResult
+  static func sync() async -> Bool {
     await account.sync(platform: .iphone, deviceName: UIDevice.current.name, inbox: inbox, senders: senders)
   }
 }
@@ -82,8 +84,10 @@ struct RootView: View {
   @State private var settingsPath: [SettingsPage] = []
   /// A cover to open once Settings has closed (Add someone).
   @State private var afterSettings: RootCover?
-  /// People asked how they see you this run, whose answer may not have
-  /// reached the account yet.
+  /// Who "You're now connected" is asking about; the next waits for its
+  /// sheet to close.
+  @State private var askingSeenAs: SenderSession?
+  /// People answered this run, until a sync confirms the account has it.
   @State private var askedSeenAs: Set<String> = []
   @State private var receiver = Receiver.shared
   @Environment(\.scenePhase) private var scenePhase
@@ -95,7 +99,7 @@ struct RootView: View {
         Frame(color: flowColor) {
           OnboardingFlow(
             account: account, senders: store, invite: $firstInvite, signInLink: $signInLink, color: $flowColor,
-            sync: Stores.sync
+            sync: { await Stores.sync() }
           ) { id in
             if let id {
               selectedId = id
@@ -181,6 +185,14 @@ struct RootView: View {
         showSettings = false
         onboarded = false
       }
+      Task { await Stores.patron.refresh() }
+    }
+    // A tap arriving covers everything: nothing may sit over it. Whoever was
+    // being asked how they see you is asked again after.
+    .onChange(of: inbox.activeTap != nil) { _, arrived in
+      guard arrived else { return }
+      showSettings = false
+      askingSeenAs = nil
     }
     .onChange(of: account.me.map { $0.profile == nil }) { _, missing in
       if missing == true { onboarded = false }
@@ -202,7 +214,7 @@ struct RootView: View {
         inbox.nudge()
         inbox.refresh()
         Task {
-          await Stores.sync()
+          await syncAndAskAgain()
           await Stores.patron.refresh()
         }
       default: break
@@ -211,7 +223,7 @@ struct RootView: View {
     .task {
       receiver.sync()
       await account.refresh()
-      await Stores.sync()
+      await syncAndAskAgain()
       await Stores.patron.refresh()
     }
     .task { await USStorefront.shared.watch() }
@@ -228,16 +240,32 @@ struct RootView: View {
         .badge(waiting)
     }
     .tint(Paper.ink)
-    .sheet(item: Binding(get: { askingSeenAs }, set: { _ in })) { person in
-      seenAsQuestion(person)
+    .sheet(item: $askingSeenAs, onDismiss: askNextSeenAs) { person in
+      seenAsQuestion(person).id(person.id)
     }
+    .onChange(of: seenAsBlocked, initial: true) { askNextSeenAs() }
+    .onChange(of: store.sessions.filter(\.pairing.chooseSeenAs).map(\.id)) { askNextSeenAs() }
   }
 
-  /// Someone who accepted your invite, to ask once how they see you, when
-  /// nothing else is in the way.
-  private var askingSeenAs: SenderSession? {
-    guard cover == nil, !showSettings, inbox.activeTap == nil else { return nil }
-    return store.nextToAskSeenAs(skipping: askedSeenAs)
+  /// Something else is up, or about to be, that "You're now connected"
+  /// mustn't cover or jump ahead of.
+  private var seenAsBlocked: Bool {
+    showsOnboarding || cover != nil || showSettings || afterSettings != nil || inbox.activeTap != nil
+  }
+
+  /// Asks the next person who accepted your invite how they see you, once
+  /// nothing is in the way and no one else is being asked.
+  private func askNextSeenAs() {
+    guard askingSeenAs == nil, !seenAsBlocked else { return }
+    askingSeenAs = store.nextToAskSeenAs(skipping: askedSeenAs)
+  }
+
+  /// Syncs; once the account has answered, anyone still waiting to be asked
+  /// (an answer that never reached it) can be asked again.
+  private func syncAndAskAgain() async {
+    guard await Stores.sync() else { return }
+    askedSeenAs = []
+    askNextSeenAs()
   }
 
   /// "You're now connected with {name}": how they see you, prefilled with
@@ -250,16 +278,16 @@ struct RootView: View {
       title: "You're now connected with \(name)", note: "Choose how \(name) sees you.", saveLabel: "Save",
       cancelLabel: "Skip", initial: initial, theme: theme,
       onCancel: {
-        askedSeenAs.insert(person.id)
         // Saved unchanged, which answers the ask on every device.
-        Task {
-          try? await account.updateSendProfile(person.id, name: initial.name, color: initial.color, senders: store)
-        }
+        try await account.updateSendProfile(person.id, name: initial.name, color: initial.color, senders: store)
+        askedSeenAs.insert(person.id)
+        askingSeenAs = nil
       },
       onSave: { profile, chosen in
         try await account.updateSendProfile(
           person.id, name: profile.name, color: profile.color, theme: chosen == theme ? nil : chosen, senders: store)
         askedSeenAs.insert(person.id)
+        askingSeenAs = nil
       }
     )
     .interactiveDismissDisabled()

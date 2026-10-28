@@ -58,8 +58,12 @@ public final class PatronStore {
   public var nudgeDue: Bool {
     PatronNudge.due(sent: sent, shown: nudgesShown, patron: active, checkoutEnabled: checkoutEnabled)
   }
-  /// What the next tap carries.
-  public var style: SendStyle { active ? SendStyle(theme: theme, patronKey: key) : SendStyle() }
+  /// What the next tap carries. A held key goes along until status says the
+  /// membership isn't active (the server checks it on every send), so taps
+  /// sent at launch, before status loads, keep their theme.
+  public var style: SendStyle {
+    key != nil && (status == nil || active) ? SendStyle(theme: theme, patronKey: key) : SendStyle()
+  }
 
   /// What taps to this person go in from here: the theme chosen for them on
   /// the account, else this device's own; Default while not a patron.
@@ -99,6 +103,14 @@ public final class PatronStore {
     theme = defaults.string(forKey: Self.themeKey).flatMap(TapTheme.init(rawValue:)) ?? .default
     sent = defaults.integer(forKey: Self.sentKey)
     nudgesShown = defaults.integer(forKey: Self.shownKey)
+    // The key is the account's: the next account to sign in here gets its own.
+    account.whenSignedOut { [weak self] in self?.forgetKey() }
+  }
+
+  private func forgetKey() {
+    vault.delete()
+    key = nil
+    status = nil
   }
 
   /// Reads the account's memberships; a paid-up one without a key on this

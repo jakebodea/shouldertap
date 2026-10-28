@@ -99,7 +99,7 @@ struct SettingsView: View {
           }
           .accessibilityIdentifier("settings-devices")
           notifications
-          if USStorefront.shared.isUS, account.checkoutEnabled {
+          if USStorefront.shared.isUS, Stores.patron.checkoutEnabled {
             // Purchases happen on the web; this only opens the account page,
             // signed in to this account.
             Button { Task { await openPatronPage() } } label: {
@@ -178,7 +178,7 @@ struct SettingsView: View {
     case .help:
       HelpPage().settingsPage("Help and privacy", close: close)
     case .account:
-      AccountPage(account: account).settingsPage("Account", close: close)
+      AccountPage(account: account, inbox: inbox).settingsPage("Account", close: close)
     }
   }
 
@@ -446,7 +446,7 @@ private struct PersonPage: View {
       Button("Remove \(recipient)", role: .destructive, action: remove)
     } message: {
       Text(
-        "Your taps stop reaching \(recipient) on all your devices, and the taps you sent them are deleted. \(recipient) can still tap you. To tap them again, you'll need a new invite."
+        "Your taps stop reaching \(recipient) on all your devices, and the taps you sent them are deleted. \(recipient) can still tap you. To tap them again, you'll need a new invite. Recovery copies may remain for up to 30 days."
       )
     }
   }
@@ -517,6 +517,7 @@ private struct DevicesPage: View {
 /// before going on.
 private struct AccountPage: View {
   let account: AccountStore
+  let inbox: ReceiverStore
   @State private var confirmDeletion = false
 
   var body: some View {
@@ -526,6 +527,16 @@ private struct AccountPage: View {
           .accessibilityIdentifier("account-email")
         Button("Sign out") { Task { await account.signOut() } }
           .accessibilityIdentifier("sign-out")
+      }
+      // Support bought for this inbox before patron support moved to senders.
+      if let patron = inbox.patron, patron.active {
+        Section("Support Shouldertap") {
+          Text(patron.status == "ending" ? "Thank you. Your support ends after the paid period." : "Thank you for your support.")
+          if let until = patron.paidUntil {
+            Text("Paid through \(Date(timeIntervalSince1970: until / 1000).formatted(date: .abbreviated, time: .omitted))")
+              .foregroundStyle(Paper.tone)
+          }
+        }
       }
       Section {
         Button("Delete account", role: .destructive) { confirmDeletion = true }

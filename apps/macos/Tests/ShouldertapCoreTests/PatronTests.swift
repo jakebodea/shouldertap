@@ -53,6 +53,39 @@ private let api = URL(string: "https://api.test")!
     #expect(patron.style == SendStyle(theme: .terminal, patronKey: "stp1.patron01.key00002.secret"))
   }
 
+  @Test func aHeldKeyThemesTapsUntilStatusSaysTheMembershipEnded() async throws {
+    let accountVault = MemoryVault()
+    try accountVault.write("account-session")
+    let session = StubProtocol.session { request in
+      request.url!.path == "/account/patron/status"
+        ? (200, #"{"memberships":[],"checkoutEnabled":true}"#) : (404, "{}")
+    }
+    let account = AccountStore(server: api, vault: accountVault, session: session)
+    let patronVault = MemoryVault()
+    try patronVault.write("stp1.patron01.key00002.secret")
+    let patron = PatronStore(account: account, vault: patronVault, defaults: defaults())
+    patron.theme = .note
+    let atLaunch = patron.style
+    await patron.refresh()
+    #expect([atLaunch, patron.style] == [SendStyle(theme: .note, patronKey: "stp1.patron01.key00002.secret"), SendStyle()])
+  }
+
+  @Test func signingOutForgetsThisDevicesPatronKey() async throws {
+    let accountVault = MemoryVault()
+    try accountVault.write("account-session")
+    let session = StubProtocol.session { request in
+      request.url!.path == "/api/auth/sign-out" ? (200, #"{"success":true}"#) : (404, "{}")
+    }
+    let account = AccountStore(server: api, vault: accountVault, session: session)
+    let patronVault = MemoryVault()
+    try patronVault.write("stp1.patron01.key00002.secret")
+    let patron = PatronStore(account: account, vault: patronVault, defaults: defaults())
+    patron.theme = .note
+    await account.signOut()
+    #expect(patronVault.read() == nil)
+    #expect(patron.style == SendStyle())
+  }
+
   @Test func withoutAMembershipTapsStayDefaultAndTheNudgeComesAfterFiveSends() async throws {
     let accountVault = MemoryVault()
     try accountVault.write("account-session")

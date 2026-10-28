@@ -7,8 +7,8 @@ Use the replacement TestFlight build on a physical iPhone running the latest pub
 3. Show camera-denied paste fallback and Help/privacy readability in light/dark appearance during the device check.
 4. On the Mac choose Add a Mac or iPhone; link the iPhone using the code. Allow notifications. From a second paired sender/device, send a tap to this inbox. Show the iPhone receiving it while open, answer, and show the sender receiving the answer.
 5. Lock/background the iPhone, send another tap, show the Live Activity/Lock Screen or Dynamic Island on supported hardware, and answer. Disable Live Activities for a separate notification fallback check; restore the setting afterward.
-6. Open Help and privacy > Report a problem or abuse and show the report preparation flow. Do not email a fake report. In Inbox remove a disposable sender to block their access, and show that another tap from that sender is refused.
-7. With a different disposable sender pairing, use Help and privacy > Delete my data with [person] and complete deletion. Show that the pairing/history disappears. Never delete a valued pairing for evidence.
+6. Open Settings > Help and privacy > Report a problem or abuse and show the report preparation flow. Do not email a fake report. In Settings > Can tap you remove a disposable sender to block their access, and show that another tap from that sender is refused.
+7. With a different disposable sender pairing, use Settings > [person] > Remove and complete deletion (signed out: Help and privacy > Delete my data with [person]). Show that the pairing/history disappears. Never delete a valued pairing for evidence.
 8. Confirm force-quit/reopen preserves retained pairings. Show the paid-inbox limitation if applicable without purchasing anything for the recording.
 
 Upload the resulting video to App Review Information > Attachment and the App Review reply. The review Notes must identify the recording and contain all six answers. The saved reply draft must be updated to reference the actual build, recording and tested OS before sending. This checklist is preparation, not physical-device validation.

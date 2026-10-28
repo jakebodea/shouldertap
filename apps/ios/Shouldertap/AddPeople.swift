@@ -214,12 +214,19 @@ struct AcceptInvite: View {
     do {
       let result = try await account.accept(
         code: invite, profile: seenAs, platform: .iphone, deviceName: UIDevice.current.name, senders: senders)
-      // Accepting takes a name and color; the style follows on the new connection.
+      // Accepting takes a name and color; the style follows on the new
+      // connection. You're connected either way, so a failure is said once
+      // the celebration closes.
       if seenTheme != .default, let id = result.sender?.grant.credentialId,
         let pairing = senders.session(id: id)?.pairing
       {
-        try? await account.updateSendProfile(
-          id, name: pairing.senderName, color: pairing.swatchColor, theme: seenTheme, senders: senders)
+        do {
+          try await account.updateSendProfile(
+            id, name: pairing.senderName, color: pairing.swatchColor, theme: seenTheme, senders: senders)
+        } catch {
+          senders.notice =
+            "Couldn't save your tap style for \(result.person.name) (\(error.localizedDescription)). Choose it in Settings."
+        }
       }
       withAnimation(.outExpo(0.8)) { acceptance = result }
     } catch {
@@ -305,7 +312,8 @@ struct SeenAsEditor: View {
   let note: String
   let saveLabel: String
   let cancelLabel: String
-  let onCancel: () -> Void
+  /// Cancel, or an answer of its own ("Skip"): a failure keeps the sheet up.
+  let onCancel: () async throws -> Void
   let onSave: (Profile, TapTheme) async throws -> Void
 
   @State private var name: String
@@ -317,7 +325,7 @@ struct SeenAsEditor: View {
 
   init(
     title: String = "How they see you", note: String, saveLabel: String, cancelLabel: String = "Cancel",
-    initial: Profile, theme: TapTheme, onCancel: @escaping () -> Void,
+    initial: Profile, theme: TapTheme, onCancel: @escaping () async throws -> Void,
     onSave: @escaping (Profile, TapTheme) async throws -> Void
   ) {
     self.title = title
@@ -361,11 +369,11 @@ struct SeenAsEditor: View {
       }
 
       SeenAsPreview(theme: theme, name: shownName, color: color)
-
+    } actions: {
       if let error {
         Text(error).font(Bricolage.medium(15)).foregroundStyle(.red)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
-    } actions: {
       Button {
         nameFocused = false
         save()
@@ -375,7 +383,7 @@ struct SeenAsEditor: View {
       .buttonStyle(PillStyle(color: color))
       .disabled(trimmedName.isEmpty || pending)
       .accessibilityIdentifier("seen-as-save")
-      Button(cancelLabel, action: onCancel)
+      Button(cancelLabel) { run(onCancel) }
         .buttonStyle(QuietStyle())
         .disabled(pending)
         .accessibilityIdentifier("seen-as-cancel")
@@ -384,14 +392,19 @@ struct SeenAsEditor: View {
   }
 
   private func save() {
-    guard !pending, !trimmedName.isEmpty else { return }
-    pending = true
-    error = nil
+    guard !trimmedName.isEmpty else { return }
     let picked = Profile(name: trimmedName, color: color)
     let theme = theme
+    run { try await onSave(picked, theme) }
+  }
+
+  private func run(_ action: @escaping () async throws -> Void) {
+    guard !pending else { return }
+    pending = true
+    error = nil
     Task {
       defer { pending = false }
-      do { try await onSave(picked, theme) } catch { self.error = error.localizedDescription }
+      do { try await action() } catch { self.error = error.localizedDescription }
     }
   }
 }
