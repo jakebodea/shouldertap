@@ -96,7 +96,9 @@ jobs:
   # and loads shouldertap-prod (stacks/secrets.ts).
   deploy:
     needs: verification
-    if: github.event_name == 'push'
+    # verification runs with always(), so the implicit success() here would
+    # also see preview's push-time skip and skip prod. Gate on its result.
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.verification.result == 'success' }}
     runs-on: ubuntu-latest
     environment: production
     concurrency:
