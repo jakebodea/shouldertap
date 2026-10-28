@@ -528,13 +528,21 @@ impl ApiClient {
     }
 
     /// Changes how one person you tap sees you. `id` is the sender id from
-    /// sync or accept.
-    pub fn update_send_profile(&self, id: &str, profile: &Profile) -> Result<Profile, ApiError> {
+    /// sync or accept. `theme` is what new taps to them go in; None keeps
+    /// the saved one.
+    pub fn update_send_profile(
+        &self,
+        id: &str,
+        profile: &Profile,
+        theme: Option<TapTheme>,
+    ) -> Result<AccountConnection, ApiError> {
         #[derive(Serialize)]
         struct Body<'a> {
             id: &'a str,
             name: &'a str,
             color: PersonColor,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            theme: Option<TapTheme>,
         }
         self.send(
             "POST",
@@ -543,18 +551,23 @@ impl ApiClient {
                 id,
                 name: &profile.name,
                 color: profile.color,
+                theme,
             }),
         )
     }
 
     /// Ends a connection to someone you tap, for every device on the account.
-    /// `id` is the sender id from sync or accept.
-    pub fn remove_person(&self, id: &str) -> Result<(), ApiError> {
+    /// `id` is the sender id from sync or accept. `delete_data` also deletes
+    /// your taps to them.
+    pub fn remove_person(&self, id: &str, delete_data: bool) -> Result<(), ApiError> {
         #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
         struct Body<'a> {
             id: &'a str,
+            #[serde(skip_serializing_if = "std::ops::Not::not")]
+            delete_data: bool,
         }
-        self.send::<_, serde::de::IgnoredAny>("POST", "/account/remove", Some(&Body { id }))
+        self.send::<_, serde::de::IgnoredAny>("POST", "/account/remove", Some(&Body { id, delete_data }))
             .map(|_| ())
     }
 

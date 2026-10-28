@@ -78,4 +78,56 @@ describe("pairings after a sync", () => {
       "inboxAna1.keyAna02.secretAna2",
     ]);
   });
+
+  it("takes the name, color and theme the account has for each person", () => {
+    expect(
+      mergeSync([ana, ben], {
+        senders: [],
+        removed: [],
+        connections: [
+          {
+            id: "inboxAna1:senderAna",
+            name: "Dr. Sam",
+            color: "sky",
+            theme: "terminal",
+            chooseSeenAs: false,
+          },
+          {
+            id: "inboxBen1:senderBen",
+            name: "Sam",
+            color: "moss",
+            theme: null,
+          },
+        ],
+      })
+    ).toStrictEqual([
+      {
+        token: "inboxAna1.keyAna01.secretAna",
+        credentialId: "senderAna",
+        recipientName: "Ana",
+        senderName: "Dr. Sam",
+        color: "sky",
+        theme: "terminal",
+      },
+      ben,
+    ]);
+  });
+
+  it("goes back to this browser's style when the account clears a theme", () => {
+    const themed: Pairing = { ...ana, theme: "note" };
+    expect(
+      mergeSync([themed], {
+        senders: [],
+        removed: [],
+        connections: [
+          {
+            id: "inboxAna1:senderAna",
+            name: "Sam",
+            color: "moss",
+            theme: null,
+          },
+        ],
+      })
+    ).toStrictEqual([ana]);
+  });
 });

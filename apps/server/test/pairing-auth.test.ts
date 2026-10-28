@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   authenticatePairing,
   authorizePairingRevocation,
+  eraseSender,
 } from "../src/pairing-auth";
 import { hashSecret } from "../src/secrets";
 import { open, migrate, withFile } from "./do-sqlite";
@@ -102,4 +103,72 @@ describe("restored sender device keys", () => {
       )
     ).resolves.toBe("canonical-sender");
   });
+});
+
+describe("deleting a sender with their messages", () => {
+  it("removes the person, every device key and what they left, and nobody else's", () =>
+    withFile(async (path) => {
+      const { sqlite, db } = open(path);
+      try {
+        migrate(sqlite);
+        sqlite.exec(`
+          INSERT INTO credentials(id,kind,name,secret_hash,created_at,parent_id) VALUES
+            ('sam','sender','Sam','x',1,NULL),
+            ('sam-mac','sender','Mac','x',2,'sam'),
+            ('jo','sender','Jo','x',3,NULL),
+            ('ari-mac','device','Mac','x',4,NULL);
+          INSERT INTO taps(id,request_id,sender_id,body,created_at,state,sequence) VALUES
+            ('t1','r1','sam','Lunch?',1,'pending',1),
+            ('t2','r2','sam','Now?',2,'acknowledged',2),
+            ('t3','r1','jo','Hi',3,'pending',3);
+          INSERT INTO tickets(id,secret_hash,credential_id,expires_at) VALUES
+            ('k1','x','sam-mac',9),('k2','x','jo',9);
+          INSERT INTO push_registrations(credential_id,environment,topic,live_activities,updated_at) VALUES
+            ('sam-mac','production','app',0,1),('ari-mac','production','app',1,1);
+        `);
+        const erase = (id: string) =>
+          Effect.runPromise(
+            Effect.gen(function* eraseForTest() {
+              yield* eraseSender(yield* db, id);
+            })
+          );
+        const left = () => ({
+          credentials: sqlite
+            .prepare("SELECT id FROM credentials ORDER BY id")
+            .all()
+            .map((row) => row.id),
+          taps: sqlite
+            .prepare("SELECT body FROM taps ORDER BY id")
+            .all()
+            .map((row) => row.body),
+          tickets: sqlite
+            .prepare("SELECT id FROM tickets ORDER BY id")
+            .all()
+            .map((row) => row.id),
+          push: sqlite
+            .prepare("SELECT credential_id FROM push_registrations ORDER BY 1")
+            .all()
+            .map((row) => row.credential_id),
+        });
+        const everyone = left();
+
+        await erase("ari-mac");
+        await erase("sam-mac");
+        const unchanged = left();
+        await erase("sam");
+        const afterSam = left();
+        await erase("sam");
+
+        expect(unchanged).toStrictEqual(everyone);
+        expect(afterSam).toStrictEqual({
+          credentials: ["ari-mac", "jo"],
+          taps: ["Hi"],
+          tickets: ["k2"],
+          push: ["ari-mac"],
+        });
+        expect(left()).toStrictEqual(afterSam);
+      } finally {
+        sqlite.close();
+      }
+    }));
 });

@@ -222,6 +222,8 @@ fn sync_sends_every_token_and_drops_the_removed_ones() {
             color: Some(PersonColor::Moss),
             paired_at: 1.0,
             account_id: None,
+            theme: None,
+            choose_seen_as: false,
         },
         SenderPairing {
             token: OTHER_SENDER_TOKEN.into(),
@@ -231,6 +233,8 @@ fn sync_sends_every_token_and_drops_the_removed_ones() {
             color: Some(PersonColor::Moss),
             paired_at: 2.0,
             account_id: None,
+            theme: None,
+            choose_seen_as: false,
         },
     ]);
     let f = fixture(
@@ -402,7 +406,7 @@ fn changing_how_one_person_sees_you_saves_it_for_them() {
         name: " Your son ".into(),
         color: PersonColor::Sky,
     };
-    f.account.update_send_profile("cred1", &profile).unwrap();
+    f.account.update_send_profile("cred1", &profile, None).unwrap();
     assert_eq!(
         f.stub.body_for("/account/send-profile").unwrap(),
         serde_json::json!({"id": "inbox999:cred1", "name": "Your son", "color": "sky"})
@@ -421,6 +425,51 @@ fn changing_how_one_person_sees_you_saves_it_for_them() {
             ("Sam".to_string(), "Your son".to_string(), Some(PersonColor::Sky)),
         ]
     );
+}
+
+#[test]
+fn choosing_a_theme_for_one_person_answers_the_ask() {
+    let f = fixture(
+        MemoryVault::with(SESSION),
+        MemoryPersistence::default(),
+        sam_and_ana(),
+        |seen| match seen.path.as_str() {
+            "/account/send-profile" => (
+                200,
+                r#"{"id":"inbox999:cred1","name":"Jake","color":"moss","theme":"billboard"}"#.into(),
+            ),
+            "/account/me" => (200, ME.into()),
+            "/account/sync" => (
+                200,
+                format!(
+                    r#"{{"me":{ME},"inbox":null,"senders":[],"removed":[],"connections":[{{"id":"inbox999:cred1","name":"Jake","color":"moss","theme":"terminal","chooseSeenAs":true}}]}}"#
+                ),
+            ),
+            _ => (503, String::new()),
+        },
+    );
+    f.account.sync().unwrap();
+    let asked = f.senders.state().session("cred1").unwrap().pairing.clone();
+    assert_eq!((asked.theme, asked.choose_seen_as), (Some(TapTheme::Terminal), true));
+
+    let profile = Profile {
+        name: "Jake".into(),
+        color: PersonColor::Moss,
+    };
+    f.account
+        .update_send_profile("cred1", &profile, Some(TapTheme::Billboard))
+        .unwrap();
+    assert_eq!(
+        f.stub.body_for("/account/send-profile").unwrap(),
+        serde_json::json!({"id": "inbox999:cred1", "name": "Jake", "color": "moss", "theme": "billboard"})
+    );
+    let saved = f
+        .pairings
+        .load_pairings()
+        .into_iter()
+        .find(|p| p.credential_id == "cred1")
+        .unwrap();
+    assert_eq!((saved.theme, saved.choose_seen_as), (Some(TapTheme::Billboard), false));
 }
 
 #[test]
@@ -521,6 +570,8 @@ fn sam_and_ana() -> MemorySenderPersistence {
             color: Some(PersonColor::Moss),
             paired_at: 1.0,
             account_id: Some("inbox999:cred1".into()),
+            theme: None,
+            choose_seen_as: false,
         },
         SenderPairing {
             token: OTHER_SENDER_TOKEN.into(),
@@ -530,6 +581,8 @@ fn sam_and_ana() -> MemorySenderPersistence {
             color: Some(PersonColor::Moss),
             paired_at: 2.0,
             account_id: None,
+            theme: None,
+            choose_seen_as: false,
         },
     ])
 }
@@ -545,14 +598,14 @@ fn removing_someone_ends_the_connection_on_the_account() {
             _ => (503, String::new()),
         },
     );
-    f.account.remove("cred1").unwrap();
+    f.account.remove("cred1", false).unwrap();
     assert_eq!(
         f.stub.body_for("/account/remove").unwrap(),
         serde_json::json!({"id": "inbox999:cred1"})
     );
     assert_eq!(f.stub.token_for("/account/remove").as_deref(), Some(SESSION));
     // An older pairing's id is its inbox and credential.
-    f.account.remove("cred2").unwrap();
+    f.account.remove("cred2", false).unwrap();
     assert_eq!(
         f.stub.body_for("/account/remove").unwrap(),
         serde_json::json!({"id": "inbox555:cred2"})
@@ -563,6 +616,25 @@ fn removing_someone_ends_the_connection_on_the_account() {
 }
 
 #[test]
+fn removing_someone_can_delete_your_taps_too() {
+    let f = fixture(
+        MemoryVault::with(SESSION),
+        MemoryPersistence::default(),
+        sam_and_ana(),
+        |seen| match seen.path.as_str() {
+            "/account/remove" => (200, r#"{"removed":true}"#.into()),
+            _ => (503, String::new()),
+        },
+    );
+    f.account.remove("cred1", true).unwrap();
+    assert_eq!(
+        f.stub.body_for("/account/remove").unwrap(),
+        serde_json::json!({"id": "inbox999:cred1", "deleteData": true})
+    );
+    assert_eq!(f.senders.tokens(), [OTHER_SENDER_TOKEN]);
+}
+
+#[test]
 fn a_failed_removal_keeps_them_to_try_again() {
     let f = fixture(
         MemoryVault::with(SESSION),
@@ -570,7 +642,7 @@ fn a_failed_removal_keeps_them_to_try_again() {
         sam_and_ana(),
         |_| (503, String::new()),
     );
-    assert_eq!(f.account.remove("cred1").unwrap_err().code, ErrorCode::Network);
+    assert_eq!(f.account.remove("cred1", false).unwrap_err().code, ErrorCode::Network);
     assert_eq!(f.senders.tokens(), [SENDER_TOKEN, OTHER_SENDER_TOKEN]);
 }
 
@@ -585,7 +657,7 @@ fn signed_out_removing_someone_revokes_this_pcs_key() {
             _ => (503, String::new()),
         },
     );
-    f.account.remove("cred1").unwrap();
+    f.account.remove("cred1", false).unwrap();
     assert_eq!(f.senders.tokens(), [OTHER_SENDER_TOKEN]);
     assert!(eventually(|| f.stub.count("/v1/credentials/key1key1") == 1));
     assert_eq!(f.stub.count("/account/remove"), 0);

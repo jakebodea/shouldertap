@@ -188,6 +188,35 @@ private func makeStore(_ persistence: MemorySenderPersistence, handler: @escapin
     #expect(await eventually { session.taps.first?.body == "Dinner's ready" })
   }
 
+  @Test func aThemeChosenForThisPersonWinsOverTheDevicesOwn() async throws {
+    var terminal = pairing()
+    terminal.theme = .terminal
+    let persistence = MemorySenderPersistence(pairings: [terminal])
+    let sent = Collected<[[String?]]>()
+    let store = makeStore(persistence) { request in
+      guard request.url!.path == "/v1/taps" else { return (503, "") }
+      let payload = body(request)
+      sent.append([payload["theme"], payload["patronKey"]])
+      return (201, sentTap(payload["body"] ?? ""))
+    }
+    store.style = { SendStyle(theme: .broadsheet, patronKey: "stp1.patron01.key00001.secret") }
+    store.start()
+    let session = try #require(store.sessions.first)
+    try session.send("Dinner's ready")
+    #expect(session.outbox.first?.theme == TapTheme.terminal)
+    #expect(await eventually { sent.value.count == 1 })
+    #expect(sent.value == [["terminal", "stp1.patron01.key00001.secret"]])
+  }
+
+  @Test func pairingsSavedBeforePerPersonThemesStillDecode() throws {
+    let saved =
+      #"{"token":"inbox123.s1s1s1s1.secret5678","credentialId":"s1s1s1s1","recipientName":"Jamie","senderName":"Rosa","color":"rose","pairedAt":1}"#
+    let decoded = try JSONDecoder().decode(SenderPairing.self, from: Data(saved.utf8))
+    #expect(decoded.theme == nil)
+    #expect(decoded.chooseSeenAs == false)
+    #expect(decoded.senderName == "Rosa")
+  }
+
   @Test func withoutAKeyATapGoesInDefault() async throws {
     let persistence = MemorySenderPersistence(pairings: [pairing()])
     let store = makeStore(persistence) { request in

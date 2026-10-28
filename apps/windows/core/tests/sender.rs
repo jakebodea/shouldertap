@@ -23,6 +23,8 @@ fn pairing(id: &str, color: Option<PersonColor>) -> SenderPairing {
         color,
         paired_at: 1.0,
         account_id: None,
+        theme: None,
+        choose_seen_as: false,
     }
 }
 
@@ -330,6 +332,48 @@ fn a_patrons_tap_carries_its_theme_and_key() {
     let body = stub.body_for("/v1/taps").unwrap();
     assert_eq!(body["theme"], "terminal");
     assert_eq!(body["patronKey"], "stp1.patron-key");
+}
+
+#[test]
+fn a_theme_chosen_for_this_person_wins_over_this_pcs_own() {
+    let stub = Stub::new(|seen| match seen.path.as_str() {
+        "/v1/taps" => (201, sent_tap("Hi")),
+        _ => (503, String::new()),
+    });
+    let mut terminal = pairing("s1s1s1s1", Some(PersonColor::Rose));
+    terminal.theme = Some(TapTheme::Terminal);
+    let store = make_store(&MemorySenderPersistence::with(vec![terminal]), &stub);
+    store.set_patron_key(Some("stp1.patron-key".into()));
+    store.start();
+    store.send("s1s1s1s1", "Hi", TapTheme::Broadsheet, None).unwrap();
+    assert!(eventually(|| stub.count("/v1/taps") == 1));
+    let body = stub.body_for("/v1/taps").unwrap();
+    assert_eq!(body["theme"], "terminal");
+    assert_eq!(body["patronKey"], "stp1.patron-key");
+}
+
+#[test]
+fn pairings_saved_before_per_person_themes_still_load() {
+    let saved: SenderPairing = serde_json::from_str(
+        r#"{"token":"inbox123.s1s1s1s1.secret5678","credentialId":"s1s1s1s1","recipientName":"Jamie","senderName":"Rosa","pairedAt":1}"#,
+    )
+    .unwrap();
+    assert_eq!((saved.theme, saved.choose_seen_as), (None, false));
+}
+
+#[test]
+fn a_key_from_the_account_keeps_its_theme_and_the_ask() {
+    let store = make_store(
+        &MemorySenderPersistence::default(),
+        &Stub::new(|_| (503, String::new())),
+    );
+    let sender: SyncedSender = serde_json::from_str(&format!(
+        r#"{{"id":"inbox123:s1","grant":{SENDER_GRANT},"name":"Rosa","color":"plum","theme":"note","chooseSeenAs":true}}"#
+    ))
+    .unwrap();
+    store.add(&sender).unwrap();
+    let pairing = session(&store).pairing;
+    assert_eq!((pairing.theme, pairing.choose_seen_as), (Some(TapTheme::Note), true));
 }
 
 #[test]

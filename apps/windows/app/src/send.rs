@@ -576,7 +576,7 @@ impl SendView {
                 let account = self.account(cx);
                 let task = cx
                     .background_executor()
-                    .spawn(async move { account.update_send_profile(&id, &profile) });
+                    .spawn(async move { account.update_send_profile(&id, &profile, None) });
                 cx.spawn(async move |this, cx| {
                     let result = task.await;
                     let _ = this.update(cx, |this, cx| {
@@ -712,7 +712,9 @@ impl SendView {
         self.action_error = None;
         let account = self.account(cx);
         let target = id.clone();
-        let task = cx.background_executor().spawn(async move { account.remove(&target) });
+        let task = cx
+            .background_executor()
+            .spawn(async move { account.remove(&target, false) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -2318,6 +2320,8 @@ mod tests {
                 color: Some(PersonColor::Rose),
                 paired_at: 1.0,
                 account_id: None,
+                theme: None,
+                choose_seen_as: false,
             },
             taps,
             outbox,

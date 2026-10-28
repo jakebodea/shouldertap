@@ -36,6 +36,21 @@ public struct Me: Decodable, Sendable, Hashable {
   public var defaultReplies: [String] { quickReplies ?? defaultQuickReplies }
 }
 
+/// How one of your people sees you, as the account keeps it for every
+/// connection (`/account/sync`'s `connections`), keys this device already
+/// holds included.
+public struct AccountConnection: Decodable, Sendable, Hashable {
+  /// `${inboxId}:${credentialId}`, a pairing's `accountId`.
+  public var id: String
+  public var name: String
+  public var color: PersonColor
+  /// The theme taps to them go in; nil follows this device's own style.
+  /// Older servers send none.
+  public var theme: TapTheme?
+  /// Ask once how they should see you: they accepted your invite.
+  public var chooseSeenAs: Bool?
+}
+
 /// A sender key the account hands this device: tap `grant.recipientName` as
 /// `name` in `color` (your own name and color, as they see you).
 public struct SenderGrant: Decodable, Sendable {
@@ -44,6 +59,9 @@ public struct SenderGrant: Decodable, Sendable {
   public var grant: CredentialGrant
   public var name: String
   public var color: PersonColor
+  /// As in `AccountConnection`; missing from older servers.
+  public var theme: TapTheme?
+  public var chooseSeenAs: Bool?
 }
 
 /// `POST /account/sync`.
@@ -52,6 +70,8 @@ public struct SyncResult: Decodable, Sendable {
   public var inbox: CredentialGrant?
   public var senders: [SenderGrant]
   public var removed: [String]
+  /// Every connection's appearance; nil from older servers.
+  public var connections: [AccountConnection]?
 }
 
 /// Who an invite is from, before accepting it (`GET /v1/invites/preview`).
@@ -375,6 +395,8 @@ public final class AccountStore {
       for sender in result.senders {
         _ = try? senders.add(sender)
       }
+      // Keys this device already had learn changes made on another one.
+      senders.apply(result.connections ?? [])
     } catch { expireIfUnauthorized(error); report(error) }
   }
 
@@ -402,11 +424,21 @@ public final class AccountStore {
     return result
   }
 
-  private struct SendProfileBody: Encodable { var id: String; var name: String; var color: PersonColor }
+  private struct SendProfileBody: Encodable {
+    var id: String; var name: String; var color: PersonColor
+    /// Left out keeps the saved theme.
+    var theme: TapTheme?
+  }
+  private struct SavedSendProfile: Decodable { var name: String; var color: PersonColor; var theme: TapTheme? }
 
   /// Changes how one person you tap sees you, on every device; their screens
-  /// restyle your taps, old ones too. Needs a connection the account owns.
-  public func updateSendProfile(_ id: String, name: String, color: PersonColor, senders: SenderStore) async throws {
+  /// restyle your taps, old ones too. `theme` is what new taps to them go in
+  /// (nil keeps the saved one); the server still checks patron support on
+  /// each send. Saving, even unchanged, answers `chooseSeenAs`. Needs a
+  /// connection the account owns.
+  public func updateSendProfile(
+    _ id: String, name: String, color: PersonColor, theme: TapTheme? = nil, senders: SenderStore
+  ) async throws {
     let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard (1...maxNameLength).contains(name.count) else {
       throw AccountError(code: "Enter your name (up to \(maxNameLength) characters).")
@@ -415,27 +447,36 @@ public final class AccountStore {
       throw AccountError(code: "No such person")
     }
     do {
-      let saved: Profile = try await request(
-        "POST", "/account/send-profile", body: SendProfileBody(id: accountId, name: name, color: color))
-      session.seen(as: saved)
+      let saved: SavedSendProfile = try await request(
+        "POST", "/account/send-profile", body: SendProfileBody(id: accountId, name: name, color: color, theme: theme))
+      session.seen(as: AccountConnection(id: accountId, name: saved.name, color: saved.color, theme: saved.theme))
     } catch { expireIfUnauthorized(error); throw error }
   }
 
   private struct Removed: Decodable { let removed: Bool }
+  private struct RemoveBody: Encodable { var id: String; var deleteData: Bool? }
 
   /// Stops tapping someone on every device on the account, then forgets them
   /// here. Revoking just this device's key would come back on the next sync.
-  /// A connection the account never had (an old pairing not synced yet) is
-  /// unpaired the old way, by revoking this device's key.
-  public func remove(_ id: String, senders: SenderStore) async throws {
+  /// `deleteData` also deletes your taps to them. A connection the account
+  /// never had (an old pairing not synced yet) goes the old way: this
+  /// device's key is revoked, or with `deleteData` the sender is deleted.
+  public func remove(_ id: String, deleteData: Bool = false, senders: SenderStore) async throws {
     guard let pairing = senders.session(id: id)?.pairing else { return }
-    guard let accountId = pairing.accountId else { senders.unpair(id: id); return }
+    guard let accountId = pairing.accountId else {
+      return try await removeByKey(id, deleteData: deleteData, senders: senders)
+    }
     do {
-      let _: Removed = try await request("POST", "/account/remove", body: ["id": accountId])
+      let _: Removed = try await request(
+        "POST", "/account/remove", body: RemoveBody(id: accountId, deleteData: deleteData ? true : nil))
       senders.drop(tokens: [pairing.token])
     } catch let failure as AccountError where failure.status == 404 {
-      senders.unpair(id: id)
+      try await removeByKey(id, deleteData: deleteData, senders: senders)
     }
+  }
+
+  private func removeByKey(_ id: String, deleteData: Bool, senders: SenderStore) async throws {
+    if deleteData { try await senders.deleteData(id: id) } else { senders.unpair(id: id) }
   }
 
   // MARK: Patron membership

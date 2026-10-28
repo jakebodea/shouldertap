@@ -3,6 +3,7 @@ import type {
   Invite,
   PersonColor,
   QuickReplies,
+  TapTheme,
 } from "@shouldertap/domain";
 
 import { ApiError } from "./api";
@@ -37,14 +38,27 @@ export interface Me {
   readonly quickReplies?: QuickReplies | null;
 }
 
-/** A sender key for one of your people: you → them. */
-export interface SenderGrant {
+/** How one of your people sees you, from `/account/sync` for every
+ * connection, including ones this device already holds a key for. */
+export interface AccountConnection {
   /** `${inboxId}:${credentialId}` */
   readonly id: string;
-  readonly grant: CredentialGrant;
   /** Your name as they see it. */
   readonly name: string;
   readonly color: PersonColor;
+  /**
+   * The theme taps to them go in; null (or missing, from an older server)
+   * follows this device's own style. The server still checks patron
+   * support on each send.
+   */
+  readonly theme?: TapTheme | null;
+  /** Ask once how they should see you (they accepted your invite). */
+  readonly chooseSeenAs?: boolean;
+}
+
+/** A sender key for one of your people: you → them. */
+export interface SenderGrant extends AccountConnection {
+  readonly grant: CredentialGrant;
 }
 
 export interface SyncRequest {
@@ -59,6 +73,8 @@ export interface SyncResult {
   readonly inbox: CredentialGrant | null;
   readonly senders: readonly SenderGrant[];
   readonly removed: readonly string[];
+  /** Every connection's appearance; missing from older servers. */
+  readonly connections?: readonly AccountConnection[];
 }
 
 export interface InvitePreview {
@@ -385,10 +401,15 @@ export class AccountClient {
 
   /**
    * Changes how one person you tap sees you, from every device; their screens
-   * show it on your taps, past ones too. `id` is the sender id.
+   * show it on your taps, past ones too. `id` is the sender id. `theme` is
+   * what new taps to them go in: left out keeps the saved one, null follows
+   * each device's own style. Saving also answers `chooseSeenAs`.
    */
-  updateSendProfile(id: string, profile: Profile) {
-    return this.request<{ id: string } & Profile>(
+  updateSendProfile(
+    id: string,
+    profile: Profile & { readonly theme?: TapTheme | null }
+  ) {
+    return this.request<{ id: string; theme?: TapTheme | null } & Profile>(
       "POST",
       "/account/send-profile",
       { id, ...profile }
@@ -398,9 +419,13 @@ export class AccountClient {
   /**
    * Stops tapping someone from every device on the account. `id` is the
    * sender id from sync or accept (`${inboxId}:${credentialId}`).
+   * `deleteData` also deletes your taps to them.
    */
-  removePerson(id: string) {
-    return this.request<{ removed: true }>("POST", "/account/remove", { id });
+  removePerson(id: string, options: { readonly deleteData?: boolean } = {}) {
+    return this.request<{ removed: true }>("POST", "/account/remove", {
+      id,
+      ...(options.deleteData ? { deleteData: true } : {}),
+    });
   }
 
   /**

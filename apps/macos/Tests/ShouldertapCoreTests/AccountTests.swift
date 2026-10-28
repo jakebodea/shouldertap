@@ -209,6 +209,33 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     #expect(senders.sessions.first?.color == .moss)
   }
 
+  @Test func syncKeepsEveryPairingLookingTheWayTheAccountSays() async throws {
+    let account = try await signedIn { request in
+      switch request.url!.path {
+      case "/account/sync":
+        return (200, #"""
+          {"me":\#(jakeMe),"inbox":null,
+           "senders":[{"id":"inboxDAD:dad11111","grant":{"kind":"sender","credentialId":"dad11111","token":"inboxDAD.key22222.secret444","recipientName":"Dad"},"name":"Jake","color":"moss","theme":"note","chooseSeenAs":true}],
+           "removed":[],
+           "connections":[
+             {"id":"inboxMOM:mom11111","name":"Your son","color":"sky","theme":"terminal","chooseSeenAs":false},
+             {"id":"inboxDAD:dad11111","name":"Jake","color":"moss","theme":"note","chooseSeenAs":true}]}
+          """#)
+      default: return (200, jakeMe)
+      }
+    }
+    let persistence = MemorySenderPersistence(pairings: [SenderPairing(
+      token: "inboxMOM.key11111.secret222", credentialId: "mom11111", recipientName: "Mom", senderName: "Jake",
+      color: .moss, pairedAt: 1)])
+    let senders = SenderStore(server: api, persistence: persistence, session: StubProtocol.session { _ in (503, "{}") })
+    senders.start()
+    await account.sync(platform: .mac, deviceName: "Mac", inbox: nil, senders: senders)
+    let looks = senders.sessions.map { [$0.pairing.recipientName, $0.pairing.senderName, $0.pairing.theme?.rawValue] }
+    #expect(looks == [["Mom", "Your son", "terminal"], ["Dad", "Jake", "note"]])
+    #expect(senders.sessions.map(\.pairing.chooseSeenAs) == [false, true])
+    #expect(persistence.loadPairings().first { $0.credentialId == "mom11111" }?.theme == .terminal)
+  }
+
   @Test func syncSendsEveryTokenTheDeviceHolds() async throws {
     let bodies = Bodies()
     let account = try await signedIn { request in
@@ -327,6 +354,25 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     #expect(bodies["/account/send-profile"] == ["id": "inboxMOM:mom11111", "name": "Your son", "color": "sky"])
     #expect(persistence.loadPairings().map { [$0.senderName, $0.color?.rawValue] } == [["Your son", "sky"]])
   }
+
+  @Test func choosingAThemeForOnePersonAnswersTheAsk() async throws {
+    let bodies = Bodies()
+    let account = try await signedIn { request in
+      bodies.record(request)
+      return request.url!.path == "/account/send-profile"
+        ? (200, #"{"id":"inboxMOM:mom11111","name":"Jake","color":"moss","theme":"billboard"}"#) : (200, jakeMe)
+    }
+    var asked = mom
+    asked.chooseSeenAs = true
+    let persistence = MemorySenderPersistence(pairings: [asked])
+    let senders = SenderStore(server: api, persistence: persistence, session: StubProtocol.session { _ in (503, "{}") })
+    senders.start()
+    try await account.updateSendProfile("mom11111", name: "Jake", color: .moss, theme: .billboard, senders: senders)
+    #expect(bodies["/account/send-profile"] == ["id": "inboxMOM:mom11111", "name": "Jake", "color": "moss", "theme": "billboard"])
+    let saved = try #require(persistence.loadPairings().first)
+    #expect(saved.theme == .billboard)
+    #expect(saved.chooseSeenAs == false)
+  }
 }
 
 @Suite(.serialized) @MainActor struct AccountRemove {
@@ -352,6 +398,20 @@ private func signedIn(_ handler: @escaping StubProtocol.Handler) async throws ->
     #expect(senders.sessions.count == 0)
     try await Task.sleep(for: .milliseconds(100))
     #expect(!log.value.contains { $0.hasPrefix("DELETE") })
+  }
+
+  @Test func removingCanDeleteYourTapsToo() async throws {
+    let bodies = Bodies()
+    let account = try await signedIn { request in
+      bodies.record(request)
+      return request.url!.path == "/account/remove" ? (200, #"{"removed":true}"#) : (200, jakeMe)
+    }
+    let persistence = MemorySenderPersistence(pairings: [mom])
+    let senders = SenderStore(server: api, persistence: persistence, session: StubProtocol.session { _ in (503, "{}") })
+    senders.start()
+    try await account.remove("mom11111", deleteData: true, senders: senders)
+    #expect(bodies["/account/remove"] == ["id": "inboxMOM:mom11111", "deleteData": true])
+    #expect(persistence.loadPairings().count == 0)
   }
 
   @Test func aPairingTheAccountNeverHadIsRevokedInstead() async throws {

@@ -48,6 +48,15 @@ pub struct SenderPairing {
     /// accounts: `account_id()` works it out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
+    /// The theme taps to this person go in, chosen for them on the account;
+    /// None follows this PC's style (the theme `send` is given).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<TapTheme>,
+    /// They accepted your invite and you haven't said how they see you yet:
+    /// ask once. Saving the send profile (or skipping with it unchanged)
+    /// clears it on every device.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub choose_seen_as: bool,
 }
 
 impl SenderPairing {
@@ -276,12 +285,22 @@ impl SenderStore {
 
     // Sending
 
-    /// Queue a tap in `theme` and deliver it. Fails only for drafts the
+    /// Queue a tap and deliver it, in the theme chosen for this person on
+    /// the account, else `theme` (this PC's own). Fails only for drafts the
     /// server would refuse anyway; network trouble leaves it in the outbox to
     /// retry. A theme other than Default goes with the patron key, if any.
     /// `replies` are the two answers to offer; None (or On it and In 10 min)
     /// offers the presets.
     pub fn send(&self, id: &str, body: &str, theme: TapTheme, replies: Option<&[String]>) -> Result<(), SendError> {
+        let theme = self
+            .state()
+            .session(id)
+            .and_then(|session| session.pairing.theme)
+            .unwrap_or(theme);
+        self.queue(id, body, theme, replies)
+    }
+
+    fn queue(&self, id: &str, body: &str, theme: TapTheme, replies: Option<&[String]>) -> Result<(), SendError> {
         let trimmed = body.trim();
         if trimmed.is_empty() {
             return Err(SendError::Empty);
@@ -319,7 +338,7 @@ impl SenderStore {
             .cloned();
         if let Some(item) = item {
             self.discard(id, request_id);
-            let _ = self.send(id, &item.body, item.theme(), item.replies.as_deref());
+            let _ = self.queue(id, &item.body, item.theme(), item.replies.as_deref());
         }
     }
 
@@ -371,6 +390,8 @@ impl SenderStore {
             color: Some(sender.color),
             paired_at: now_ms(),
             account_id: Some(sender.id.clone()),
+            theme: sender.theme,
+            choose_seen_as: sender.choose_seen_as,
         };
         self.inner
             .config
@@ -413,16 +434,41 @@ impl SenderStore {
         }
     }
 
-    /// How this person sees you changed (`AccountStore::update_send_profile`).
-    pub fn seen_as(&self, id: &str, profile: &Profile) {
+    /// How this person sees you, as the account has it
+    /// (`AccountStore::update_send_profile`).
+    pub fn seen_as(&self, id: &str, connection: &AccountConnection) {
         let mut changed = None;
         self.inner.update_session(id, |session| {
-            session.pairing.sender_name = profile.name.clone();
-            session.pairing.color = Some(profile.color);
-            changed = Some(session.pairing.clone());
+            let pairing = &mut session.pairing;
+            let before = pairing.clone();
+            pairing.sender_name = connection.name.clone();
+            pairing.color = Some(connection.color);
+            pairing.theme = connection.theme;
+            pairing.choose_seen_as = connection.choose_seen_as;
+            if *pairing != before {
+                changed = Some(pairing.clone());
+            }
         });
         if let Some(pairing) = changed {
             let _ = self.inner.config.persistence.save_pairing(&pairing);
+        }
+    }
+
+    /// How each person sees you, as the account's sync has it: pairings this
+    /// PC already had learn changes made on another device.
+    pub fn apply_connections(&self, connections: &[AccountConnection]) {
+        let ids: Vec<(String, AccountConnection)> = self
+            .state()
+            .sessions
+            .iter()
+            .filter_map(|session| {
+                let account_id = session.pairing.account_id()?;
+                let connection = connections.iter().find(|c| c.id == account_id)?;
+                Some((session.id().to_string(), connection.clone()))
+            })
+            .collect();
+        for (id, connection) in ids {
+            self.seen_as(&id, &connection);
         }
     }
 

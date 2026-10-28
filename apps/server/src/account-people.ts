@@ -6,11 +6,13 @@ import {
   normalizeQuickReplies,
   parseToken,
   personColors,
+  TAP_THEMES,
 } from "@shouldertap/domain";
 import type {
   CredentialGrant,
   PersonColor,
   QuickReplies,
+  TapTheme,
 } from "@shouldertap/domain";
 import * as Effect from "effect/Effect";
 
@@ -53,11 +55,25 @@ export interface Me {
   quickReplies: QuickReplies | null;
 }
 
-export interface AccountSender {
+/** How one person you tap sees you. */
+export interface SeenAs extends Profile {
+  /** The theme taps to them go in; null follows the sending device's style.
+   * Entitlement is checked on each send, not here. */
+  theme: TapTheme | null;
+  /** Ask once how they should see you: the inviter's half of a connection
+   * their accepted invite made, until send-profile is saved for it. */
+  chooseSeenAs: boolean;
+}
+
+/** One person you tap, as sync reports it for every connection (held keys
+ * included), so each device keeps its pairings' appearance current. */
+export interface AccountConnection extends SeenAs {
+  /** `${inboxId}:${credentialId}`, like `AccountSender.id`. */
   id: string;
+}
+
+export interface AccountSender extends AccountConnection {
   grant: CredentialGrant;
-  name: string;
-  color: PersonColor;
 }
 
 const platforms = ["iphone", "mac", "windows", "web"] as const;
@@ -98,6 +114,11 @@ export const readProfile = Effect.fn(function* readProfile(
 const parseColor = (value: unknown) =>
   typeof value === "string" && isColor(value) ? value : null;
 
+const parseTheme = (value: unknown): TapTheme | null =>
+  typeof value === "string" && (TAP_THEMES as readonly string[]).includes(value)
+    ? (value as TapTheme)
+    : null;
+
 /**
  * The profile a new connection starts with: the one picked for the latest
  * connection, else the account profile.
@@ -134,31 +155,58 @@ const rememberLatest = (
     profile?.color ?? null
   );
 
+interface SeenAsRow {
+  send_name: string | null;
+  send_color: string | null;
+  send_theme: string | null;
+  choose_seen_as: number | null;
+}
+
 /** How one connection sees you; the account profile for older ones. */
-const connectionProfile = (
-  resource: { send_name: string | null; send_color: string | null },
+const connectionSeenAs = (
+  resource: SeenAsRow | undefined,
   fallback: Profile
-): Profile => {
-  const color = parseColor(resource.send_color);
-  return resource.send_name && color
-    ? { name: resource.send_name, color }
-    : fallback;
+): SeenAs => {
+  const color = parseColor(resource?.send_color);
+  return {
+    ...(resource?.send_name && color
+      ? { name: resource.send_name, color }
+      : fallback),
+    theme: parseTheme(resource?.send_theme),
+    chooseSeenAs: resource?.choose_seen_as === 1,
+  };
 };
 
+/**
+ * Saves how one connection sees you, which also answers the one-time ask.
+ * `theme` undefined keeps the saved one; null goes back to following the
+ * sending device's style.
+ */
 const rememberConnectionProfile = (
   db: D1Database,
   userId: string,
   id: string,
-  profile: Profile
+  profile: Profile,
+  theme?: TapTheme | null
 ) =>
-  run(
-    db,
-    "UPDATE account_resource SET send_name=?,send_color=? WHERE kind='sender' AND id=? AND user_id=?",
-    profile.name,
-    profile.color,
-    id,
-    userId
-  );
+  theme === undefined
+    ? run(
+        db,
+        "UPDATE account_resource SET send_name=?,send_color=?,choose_seen_as=NULL WHERE kind='sender' AND id=? AND user_id=?",
+        profile.name,
+        profile.color,
+        id,
+        userId
+      )
+    : run(
+        db,
+        "UPDATE account_resource SET send_name=?,send_color=?,send_theme=?,choose_seen_as=NULL WHERE kind='sender' AND id=? AND user_id=?",
+        profile.name,
+        profile.color,
+        theme,
+        id,
+        userId
+      );
 
 /** The person's inbox: the chosen default, else the first one they owned. */
 const primaryInbox = Effect.fn(function* primaryInbox(
@@ -357,7 +405,7 @@ const senderKey = (
   inboxes: Dependencies["inboxes"],
   resource: { inbox_id: string | null; credential_id: string | null },
   deviceName: string,
-  profile: Profile
+  seenAs: SeenAs
 ) =>
   inboxes
     .getByName(resource.inbox_id ?? "")
@@ -372,8 +420,7 @@ const senderKey = (
       Effect.map((grant): AccountSender => ({
         id: `${resource.inbox_id}:${resource.credential_id}`,
         grant,
-        name: profile.name,
-        color: profile.color,
+        ...seenAs,
       }))
     );
 
@@ -431,14 +478,10 @@ const sendProfiles = Effect.fn(function* sendProfiles(
   const rows = yield* Effect.promise(() =>
     db
       .prepare(
-        "SELECT id,send_name,send_color FROM account_resource WHERE user_id=? AND kind='sender'"
+        "SELECT id,send_name,send_color,send_theme,choose_seen_as FROM account_resource WHERE user_id=? AND kind='sender'"
       )
       .bind(userId)
-      .all<{
-        id: string;
-        send_name: string | null;
-        send_color: string | null;
-      }>()
+      .all<SeenAsRow & { id: string }>()
   );
   return new Map(rows.results.map((row) => [row.id, row]));
 });
@@ -477,15 +520,17 @@ export const syncDevice = Effect.fn(function* syncDevice(
       : null;
 
   const senders: AccountSender[] = [];
+  const connections: AccountConnection[] = [];
   const sent = yield* sendProfiles(db, userId);
   for (const resource of yield* accountResources(db, userId)) {
-    if (resource.kind !== "sender" || heldSenders.has(resource.id)) {
+    if (resource.kind !== "sender") {
       continue;
     }
-    const seenAs = connectionProfile(
-      sent.get(resource.id) ?? { send_name: null, send_color: null },
-      profile
-    );
+    const seenAs = connectionSeenAs(sent.get(resource.id), profile);
+    connections.push({ id: resource.id, ...seenAs });
+    if (heldSenders.has(resource.id)) {
+      continue;
+    }
     // A connection its recipient removed, or one with no room for another
     // key, is skipped; the rest of the device still syncs.
     const key = yield* senderKey(inboxes, resource, deviceName, seenAs).pipe(
@@ -503,6 +548,7 @@ export const syncDevice = Effect.fn(function* syncDevice(
     inbox: grant,
     senders,
     removed,
+    connections,
   };
 });
 
@@ -553,8 +599,9 @@ export const invitePreview = Effect.fn(function* invitePreview(
 /**
  * Accepting connects both people: you can tap them (a sender in their inbox)
  * and they can tap you (a sender in yours). The halves live in two Inbox
- * objects with no shared transaction, so the reverse half is made first and
- * removed again if redeeming the invite fails.
+ * objects with no shared transaction, so the reverse half is made (and put
+ * on the inviter's account) first and removed again if redeeming the invite
+ * fails.
  */
 export const acceptInvite = Effect.fn(function* acceptInvite(
   { db, inboxes, track, pushContext }: TrackedDependencies,
@@ -595,10 +642,48 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
             inviter.profile.color
           )
       : null;
+  // Claimed on the inviter's account before redeeming: redeeming tells
+  // their devices the inbox changed, and the sync that prompts must already
+  // find this half. They didn't choose how this person sees them, so their
+  // app asks once.
+  const reverseId = reverse ? `${inbox.id}:${reverse.credentialId}` : null;
+  if (reverse && reverseId && inviter) {
+    yield* claimAccountResource(db, inviter.userId, {
+      kind: "sender",
+      id: reverseId,
+      inbox_id: inbox.id,
+      credential_id: reverse.credentialId,
+      name: inbox.name,
+    });
+    yield* rememberConnectionProfile(
+      db,
+      inviter.userId,
+      reverseId,
+      inviter.profile
+    );
+    yield* run(
+      db,
+      "UPDATE account_resource SET choose_seen_as=1 WHERE kind='sender' AND id=? AND user_id=?",
+      reverseId,
+      inviter.userId
+    );
+  }
   // Built only if redeeming fails, so nothing is undone on success.
   const undoReverse = Effect.suspend(() =>
-    reverse
-      ? inboxes.getByName(inbox.id).removeAccountSender(reverse.credentialId)
+    reverse && inviter
+      ? inboxes
+          .getByName(inbox.id)
+          .removeAccountSender(reverse.credentialId)
+          .pipe(
+            Effect.andThen(
+              run(
+                db,
+                "DELETE FROM account_resource WHERE kind='sender' AND id=? AND user_id=?",
+                reverseId,
+                inviter.userId
+              )
+            )
+          )
       : Effect.void
   );
 
@@ -619,7 +704,8 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
         },
         push
       )
-      .pipe(Effect.tapError(() => undoReverse));
+      // Any failure, defects included: the inviter already holds this half.
+      .pipe(Effect.onError(() => undoReverse));
     const id = `${code.inboxId}:${grant.credentialId}`;
     yield* claimAccountResource(db, userId, {
       kind: "sender",
@@ -630,7 +716,12 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
     });
     yield* rememberConnectionProfile(db, userId, id, profile);
     yield* rememberLatest(db, userId, profile);
-    sender = { id, grant, name: profile.name, color: profile.color };
+    // The accepter chose how the inviter sees them just now: nothing to ask.
+    sender = {
+      id,
+      grant,
+      ...connectionSeenAs(undefined, profile),
+    };
     yield* track(
       {
         name: "invite_redeemed",
@@ -643,22 +734,16 @@ export const acceptInvite = Effect.fn(function* acceptInvite(
       Date.now()
     );
   }
-  if (reverse && inviter) {
-    const id = `${inbox.id}:${reverse.credentialId}`;
-    yield* claimAccountResource(db, inviter.userId, {
-      kind: "sender",
-      id,
-      inbox_id: inbox.id,
-      credential_id: reverse.credentialId,
-      name: inbox.name,
-    });
-    yield* rememberConnectionProfile(db, inviter.userId, id, inviter.profile);
-  }
   return { person, sender, mutual: inviter !== null };
 });
 
-/** Stops tapping someone from every device: the connection ends, so sync
- * won't issue a key for it again. They can still tap you. */
+/**
+ * Stops tapping someone from every device: the connection ends, so sync
+ * won't issue a key for it again. They can still tap you. With
+ * `deleteData: true` your taps to them go too, as `DELETE /v1/sender` would,
+ * for every device's key. A connection their inbox already removed or
+ * deleted still comes off the account.
+ */
 export const removePerson = Effect.fn(function* removePerson(
   { db, inboxes }: Dependencies,
   userId: string,
@@ -670,9 +755,10 @@ export const removePerson = Effect.fn(function* removePerson(
   if (!resource?.inbox_id || !resource.credential_id) {
     return yield* new NotFound({ message: "No such person" });
   }
-  yield* inboxes
-    .getByName(resource.inbox_id)
-    .removeAccountSender(resource.credential_id);
+  const theirs = inboxes.getByName(resource.inbox_id);
+  yield* input.deleteData === true
+    ? theirs.deleteAccountSender(resource.credential_id)
+    : theirs.removeAccountSender(resource.credential_id);
   yield* run(
     db,
     "DELETE FROM account_resource WHERE kind='sender' AND id=? AND user_id=?",
@@ -682,14 +768,35 @@ export const removePerson = Effect.fn(function* removePerson(
   return { removed: true as const };
 });
 
-/** Changes how one person you tap sees you, on every device: their screens
- * show the new name and color on your taps, past ones included. */
+/** `theme` in a send-profile request: missing (undefined) keeps the saved
+ * one, null follows the device's style. */
+const parseSendTheme = (
+  input: Record<string, unknown>
+): Effect.Effect<TapTheme | null | undefined, InvalidRequest> => {
+  const requested = input.theme;
+  if (requested === undefined || requested === null) {
+    return Effect.succeed(requested);
+  }
+  const theme = parseTheme(requested);
+  return theme
+    ? Effect.succeed(theme)
+    : Effect.fail(new InvalidRequest({ message: "Choose a theme" }));
+};
+
+/**
+ * Changes how one person you tap sees you, on every device: their screens
+ * show the new name and color on your taps, past ones included. `theme`
+ * (optional; null follows the device's style) is what your devices send new
+ * taps to them in, verified at each send; past taps keep theirs. Saving,
+ * even unchanged, answers the one-time ask (`chooseSeenAs`).
+ */
 export const updateSendProfile = Effect.fn(function* updateSendProfile(
   { db, inboxes }: Dependencies,
   userId: string,
   input: Record<string, unknown>
 ) {
   const profile = yield* parseProfile(input);
+  const theme = yield* parseSendTheme(input);
   const resource = (yield* accountResources(db, userId)).find(
     (r) => r.kind === "sender" && r.id === input.id
   );
@@ -704,8 +811,18 @@ export const updateSendProfile = Effect.fn(function* updateSendProfile(
         Effect.fail(new NotFound({ message: "No such person" }))
       )
     );
-  yield* rememberConnectionProfile(db, userId, resource.id, profile);
-  return { id: resource.id, ...profile };
+  yield* rememberConnectionProfile(db, userId, resource.id, profile, theme);
+  const saved = yield* first<{ send_theme: string | null }>(
+    db,
+    "SELECT send_theme FROM account_resource WHERE kind='sender' AND id=? AND user_id=?",
+    resource.id,
+    userId
+  );
+  return {
+    id: resource.id,
+    ...profile,
+    theme: parseTheme(saved?.send_theme),
+  };
 });
 
 /** Route actions for docs/onboarding.md; null when the path isn't one. */

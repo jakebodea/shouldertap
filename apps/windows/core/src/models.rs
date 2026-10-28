@@ -748,9 +748,29 @@ impl Me {
     }
 }
 
+/// How one of your people sees you, as the account keeps it for every
+/// connection (`/account/sync`'s `connections`, keys this PC already holds
+/// included) and as `/account/send-profile` answers.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountConnection {
+    /// `${inboxId}:${credentialId}`, a pairing's `account_id()`.
+    pub id: String,
+    /// Your name as they see it.
+    pub name: String,
+    pub color: PersonColor,
+    /// The theme taps to them go in; None follows this PC's own style.
+    #[serde(default, deserialize_with = "lenient")]
+    pub theme: Option<TapTheme>,
+    /// Ask once how they should see you: they accepted your invite.
+    #[serde(default)]
+    pub choose_seen_as: bool,
+}
+
 /// A new sender key for one of your people, from `/account/sync` or
 /// `/account/accept`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncedSender {
     /// `${inboxId}:${credentialId}`.
     pub id: String,
@@ -760,6 +780,11 @@ pub struct SyncedSender {
     /// Your name as they see it.
     pub name: String,
     pub color: PersonColor,
+    /// As in `AccountConnection`; missing from older servers.
+    #[serde(default, deserialize_with = "lenient")]
+    pub theme: Option<TapTheme>,
+    #[serde(default)]
+    pub choose_seen_as: bool,
 }
 
 /// `POST /account/sync`.
@@ -774,6 +799,9 @@ pub struct SyncResult {
     /// Tokens this device sent whose connection is gone: drop them.
     #[serde(default)]
     pub removed: Vec<String>,
+    /// Every connection's appearance; empty from older servers.
+    #[serde(default)]
+    pub connections: Vec<AccountConnection>,
 }
 
 /// The person behind an invite.

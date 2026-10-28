@@ -1,10 +1,16 @@
 import { Unauthorized, Conflict } from "@shouldertap/domain";
 import type { ParsedToken, CredentialKind } from "@shouldertap/domain";
-import { and, count, eq, isNull, or, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { EffectSQLiteDoDatabase } from "drizzle-orm/effect-sqlite-do";
 import * as Effect from "effect/Effect";
 
-import { credentials } from "./schema";
+import {
+  credentials,
+  invites,
+  pushRegistrations,
+  taps,
+  tickets,
+} from "./schema";
 import { hashSecret } from "./secrets";
 
 /** An account-restored sender key authenticates as its existing pairing. Both
@@ -124,3 +130,35 @@ export const requireSenderRestoreRoom = Effect.fn(
     return senderId;
   }
 );
+
+/**
+ * Deletes a person-level sender and everything they left in this inbox:
+ * their taps, every device key restored from it, and those keys' tickets,
+ * invites and push setups. Anything else (a device, or one sender key) is
+ * left alone, and a sender already gone is fine, so repeating it is safe.
+ * Run it in a transaction.
+ */
+export const eraseSender = Effect.fn(function* eraseSender(
+  db: EffectSQLiteDoDatabase,
+  senderId: string
+) {
+  const [person] = yield* db
+    .select({ kind: credentials.kind, parentId: credentials.parentId })
+    .from(credentials)
+    .where(eq(credentials.id, senderId));
+  if (person && (person.kind !== "sender" || person.parentId)) {
+    return;
+  }
+  const keys = yield* db
+    .select({ id: credentials.id })
+    .from(credentials)
+    .where(eq(credentials.parentId, senderId));
+  const ids = [senderId, ...keys.map((key) => key.id)];
+  yield* db.delete(taps).where(eq(taps.senderId, senderId));
+  yield* db.delete(tickets).where(inArray(tickets.credentialId, ids));
+  yield* db.delete(invites).where(inArray(invites.createdBy, ids));
+  yield* db
+    .delete(pushRegistrations)
+    .where(inArray(pushRegistrations.credentialId, ids));
+  yield* db.delete(credentials).where(inArray(credentials.id, ids));
+});
