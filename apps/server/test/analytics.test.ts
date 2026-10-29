@@ -55,6 +55,40 @@ describe("PostHog events", () => {
     });
   });
 
+  it("sets a new account's email on its person and takes it off when deleted", async () => {
+    const created = await Effect.runPromise(
+      captureBody(
+        "phc_test",
+        {
+          name: "account_created",
+          userId: "acct1",
+          email: "reader@example.com",
+        },
+        at
+      )
+    );
+    const deleted = await Effect.runPromise(
+      captureBody("phc_test", { name: "account_deleted", userId: "acct1" }, at)
+    );
+    expect([created.distinct_id, created.properties]).toStrictEqual([
+      "acct1",
+      {
+        userId: "acct1",
+        $set: { email: "reader@example.com" },
+        $lib: "shouldertap-server",
+      },
+    ]);
+    expect([
+      deleted.event,
+      deleted.distinct_id,
+      deleted.properties,
+    ]).toStrictEqual([
+      "account_deleted",
+      "acct1",
+      { userId: "acct1", $unset: ["email"], $lib: "shouldertap-server" },
+    ]);
+  });
+
   it("gives every device's answer to one tap the same identity, so PostHog keeps one", async () => {
     const [mac, iphone] = await Promise.all([answer("mac1"), answer("phone1")]);
     expect([mac.distinct_id, mac.uuid]).toStrictEqual([

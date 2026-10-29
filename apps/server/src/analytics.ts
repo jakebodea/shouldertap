@@ -13,12 +13,15 @@ export const POSTHOG_CAPTURE_URL = "https://us.i.posthog.com/i/v0/e/";
 
 /**
  * Every product event the server reports. Properties are ids and enums only:
- * no names, emails, tap text or replies ever leave for PostHog (see the
- * privacy policy, apps/web/src/routes/privacy.tsx). Add an event here, not as
- * a free-form object, so that stays true.
+ * no names, tap text or replies ever leave for PostHog (see the privacy
+ * policy, apps/web/src/routes/privacy.tsx). The one exception is an
+ * account's own sign-in email, set on its PostHog person when the account is
+ * created and removed when it's deleted, so new sign-ups can be recognized.
+ * Add an event here, not as a free-form object, so that stays true.
  */
 export type AnalyticsEvent =
-  | { name: "account_created"; userId: string }
+  | { name: "account_created"; userId: string; email: string }
+  | { name: "account_deleted"; userId: string }
   | {
       name: "inbox_created";
       inboxId: string;
@@ -82,7 +85,8 @@ export const patronEventName = (creemType: string): PatronEventName | null =>
  */
 const identity = (event: AnalyticsEvent) => {
   switch (event.name) {
-    case "account_created": {
+    case "account_created":
+    case "account_deleted": {
       return { person: event.userId, fact: event.userId };
     }
     case "inbox_created": {
@@ -116,6 +120,7 @@ export const analyticsPerson = async (
   const fallback = identity(event).person;
   if (
     event.name === "account_created" ||
+    event.name === "account_deleted" ||
     ((event.name === "inbox_created" || event.name === "invite_redeemed") &&
       event.userId)
   ) {
@@ -166,7 +171,12 @@ const stableUuid = (key: string) =>
 const eventProperties = (event: AnalyticsEvent) => {
   switch (event.name) {
     case "account_created": {
-      return { userId: event.userId };
+      // On the person, not the event: the sign-up alert and person profile
+      // show it, and deleting the account takes it back off.
+      return { userId: event.userId, $set: { email: event.email } };
+    }
+    case "account_deleted": {
+      return { userId: event.userId, $unset: ["email"] };
     }
     case "inbox_created": {
       return {
